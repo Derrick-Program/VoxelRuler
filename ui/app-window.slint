@@ -1,33 +1,27 @@
-import { Button, VerticalBox } from "std-widgets.slint";
-
-export component MyButton {
-    width: 200px;
-    height: 60px;
-    in property <string> label: "Button";
-    callback clicked();
+export component MyComponent {
+    width: 400px;
+    height: 400px;
     Rectangle {
-        background: #93c0c9;
-        Text {
-            text: label;
-            font-size: 30px;
-        }
-
-        TouchArea {
-            clicked => {
-                root.clicked();
-            }
-        }
+        background: #151515;
     }
-}
-
-export component MyApp {
-    property <int> count: 0;
-    width: 300px;
-    height: 300px;
-    MyButton {
-        label: "Hello! " + count;
-        clicked => {
-            count = count + 1;
+    ta := TouchArea {}
+    myRect := Rectangle {
+        x: ta.mouse_x;
+        y: ta.mouse_y;
+        width: 60px;
+        height: 60px;
+        background: ta.pressed ? orange : skyblue;
+        Text {
+            x: 5px;
+            y: 5px;
+            text: "x: " + myRect.x / 1px;
+            color: white;
+        }
+        Text {
+            x: 5px;
+            y: 20px;
+            text: "y: " + myRect.y / 1px;
+            color: white;
         }
     }
 }
