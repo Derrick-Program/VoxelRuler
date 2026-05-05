@@ -28,12 +28,9 @@
           libxkbcommon
           wayland
         ];
-        darwinLibs = with pkgs.darwin.apple_sdk.frameworks; [
-          AppKit
-          CoreGraphics
-          CoreText
-          Foundation
-          OpenGL
+        darwinLibs = with pkgs; [
+          apple-sdk
+          libiconv
         ];
       in {
         devShells.default = pkgs.mkShell {
@@ -52,7 +49,7 @@
               then darwinLibs
               else linuxLibs
             );
-          
+
           shellHook =
             if pkgs.stdenv.isDarwin
             then ''
