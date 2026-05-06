@@ -10,5 +10,5 @@ slint = "1.16.1"
 codegen-units = 1
 lto = true
 
-[dev-dependencies]
+[build-dependencies]
 slint-build = "1.16.1"

@@ -1,4 +1,4 @@
-export component MyComponent {
+component MyComponent {
     width: 400px;
     height: 400px;
     Rectangle {
@@ -24,4 +24,8 @@ export component MyComponent {
             color: white;
         }
     }
+}
+
+export component MainApp inherits Window {
+    MyComponent {}
 }
