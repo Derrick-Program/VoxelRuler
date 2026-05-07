@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-slint = "1.16.1"
+anyhow = "1.0.102"
+slint = { version = "1.16.1", features = ["backend-winit","gettext"] }
 
 [profile.release]
 codegen-units = 1

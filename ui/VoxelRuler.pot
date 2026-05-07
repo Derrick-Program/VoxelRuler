@@ -1,0 +1,29 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2026-05-07 17:07+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: ui/components/minecraft-card.slint:14
+msgctxt "MinecraftCard"
+msgid "Diamond Miner"
+msgstr ""
+
+#. 預設改為英文
+#: ui/components/minecraft-card.slint:22
+msgctxt "MinecraftCard"
+msgid "This is a Minecraft themed card based on Slint."
+msgstr ""
+
+#: ui/components/minecraft-card.slint:33
+msgctxt "MinecraftCard"
+msgid "Start Mining"
+msgstr ""

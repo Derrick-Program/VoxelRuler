@@ -1,0 +1,38 @@
+import { AppTheme } from "../theme.slint";
+
+export component MinecraftCard inherits Rectangle {
+    background: AppTheme.colors.card;
+    border-radius: AppTheme.radius-md;
+    border-width: 1px;
+    border-color: AppTheme.colors.border;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        Text {
+            text: @tr("Diamond Miner"); 
+            font-size: AppTheme.h2;
+            font-weight: AppTheme.font-weight-medium;
+            color: AppTheme.colors.accent;
+        }
+
+        Text {
+            // 預設改為英文
+            text: @tr("This is a Minecraft themed card based on Slint.");
+            font-size: AppTheme.font-size-base;
+            color: AppTheme.colors.foreground;
+            wrap: word-wrap;
+        }
+        
+        Rectangle {
+            background: AppTheme.colors.primary;
+            border-radius: AppTheme.radius-sm;
+            height: 32px;
+            Text {
+                text: @tr("Start Mining");
+                color: AppTheme.colors.primary-foreground;
+            }
+        }
+    }
+}

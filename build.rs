@@ -1,10 +1,14 @@
+use slint_build::EmbedResourcesKind;
+
 fn main() {
-    let config = slint_build::CompilerConfiguration::new().with_library_paths(
-        std::collections::HashMap::from([(
+    let pj_path = std::env::var_os("CARGO_MANIFEST_DIR").unwrap();
+    let pj_path = std::path::Path::new(&pj_path);
+    let config = slint_build::CompilerConfiguration::new()
+        .with_bundled_translations(pj_path.join("ui/translations"))
+        .with_library_paths(std::collections::HashMap::from([(
             "material".to_string(),
-            std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-                .join("material-1.0/material.slint"),
-        )]),
-    );
-    slint_build::compile_with_config("ui/main.slint", config).unwrap();
+            pj_path.join("ui/libs/material-1.0/material.slint"),
+        )]))
+        .embed_resources(EmbedResourcesKind::EmbedFiles);
+    slint_build::compile_with_config(pj_path.join("ui/main.slint"), config).unwrap();
 }

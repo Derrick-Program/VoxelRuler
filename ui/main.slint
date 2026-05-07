@@ -1,31 +1,13 @@
-component MyComponent {
-    width: 400px;
-    height: 400px;
-    Rectangle {
-        background: #151515;
-    }
-    ta := TouchArea {}
-    myRect := Rectangle {
-        x: ta.mouse_x;
-        y: ta.mouse_y;
-        width: 60px;
-        height: 60px;
-        background: ta.pressed ? orange : skyblue;
-        Text {
-            x: 5px;
-            y: 5px;
-            text: "x: " + myRect.x / 1px;
-            color: white;
-        }
-        Text {
-            x: 5px;
-            y: 20px;
-            text: "y: " + myRect.y / 1px;
-            color: white;
-        }
-    }
-}
-
+import {MinecraftCard} from "./components/minecraft-card.slint";
 export component MainApp inherits Window {
-    MyComponent {}
+    // width: 800px;
+    // height: 580px;
+    min-width: 800px;
+    min-height: 580px;
+    title: "VoxelRuler";
+    icon: @image-url("assets/icons/voxelruler.png");
+
+    app := VerticalLayout {
+        MinecraftCard {}
+    }
 }
