@@ -1,0 +1,46 @@
+import { AppTheme } from "@theme";
+import { SideButton } from "button.slint";
+import { Assets } from "@assets";
+struct TabItem {
+    id: string,
+    icon: image,
+    text: string,
+}
+export component SideBar inherits Rectangle {
+    in-out property <string> active-tab: "home";
+    in property <[TabItem]> tabs: [
+        { id: "home", icon: Assets.home, text: @tr("Home") },
+        { id: "instances", icon: Assets.window, text: @tr("Instances") },
+        { id: "mods", icon: Assets.folder, text: @tr("Mods") },
+        { id: "downloads", icon: Assets.download, text: @tr("Downloads") }
+    ];
+    callback tab-changed(string);
+    background: AppTheme.colors.sidebar;
+    vertical-stretch: 1;
+    width: 200px;
+    min-height: 560px;
+    VerticalLayout {
+        padding-top: 20px;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-bottom: 10px;
+        spacing: 10px;
+        for tab in root.tabs: SideButton {
+            text: tab.text;
+            icon: tab.icon;
+            selected: root.active-tab == tab.id;
+            clicked => {
+                root.active-tab = tab.id;
+                root.tab-changed(tab.id);
+                debug("Change to: " + tab.id);
+            }
+        }
+
+        SideButton {
+            text: @tr("Switch Theme");
+            clicked => {
+                AppTheme.is-dark = !AppTheme.is-dark;
+            }
+        }
+    }
+}

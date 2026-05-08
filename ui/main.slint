@@ -1,13 +1,35 @@
-import {MinecraftCard} from "./components/minecraft-card.slint";
+import { SideBar, Footer } from "components/index.slint";
+import { Assets } from "@assets";
+import { AppTheme } from "@theme";
+
+export global AppData {
+    in property <string> version: "v0.0.1";
+}
+
 export component MainApp inherits Window {
-    // width: 800px;
-    // height: 580px;
     min-width: 800px;
     min-height: 580px;
+    preferred-width: 800px;
+    preferred-height: 580px;
+    // width: 800px;
+    // height: 580px;
     title: "VoxelRuler";
-    icon: @image-url("assets/icons/voxelruler.png");
+    icon: Assets.logo;
+    VerticalLayout {
+        spacing: 0;
+        app := HorizontalLayout {
+            vertical-stretch: 1;
+            SideBar { }
+            Rectangle {
+                // background: red;
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+            }
+        }
 
-    app := VerticalLayout {
-        MinecraftCard {}
+        footer := Footer {
+            vertical-stretch: 0;
+            version: AppData.version;
+        }
     }
 }

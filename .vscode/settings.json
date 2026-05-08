@@ -3,6 +3,11 @@
         "editor.defaultFormatter": "rust-lang.rust-analyzer"
     },
     "slint.libraryPaths": {
-        "material": "./ui/libs/material-1.0/material.slint"
-    }
+        "material": "./ui/libs/material-1.0/material.slint",
+        "theme": "./ui/theme.slint",
+        "assets": "./ui/assets/index.slint"
+    },
+    "slint.includePaths": [
+        "./ui"
+    ]
 }
