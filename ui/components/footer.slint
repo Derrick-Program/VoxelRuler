@@ -1,9 +1,12 @@
+import { AppTheme } from "@theme";
 export component Footer inherits Rectangle {
     in property <string> version: "v0.0.1";
     background: #111111;
     preferred-height: 20px;
     max-height: 20px;
     vertical-stretch: 0;
+    border-color: AppTheme.colors.sidebar-border;
+    border-width: 1px;
     HorizontalLayout {
         width: 100%;
         height: 100%;
