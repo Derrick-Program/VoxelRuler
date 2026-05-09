@@ -21,6 +21,7 @@ export component SideButton inherits Rectangle {
         if (root.icon.width > 0): icon-container := Rectangle {
             width: 24px;
             height: 24px;
+            y: (parent.height - self.height) / 2;
             Image {
                 source: root.icon;
                 width: 100%;
