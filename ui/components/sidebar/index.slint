@@ -1,46 +1,91 @@
 import { AppTheme } from "@theme";
 import { SideButton } from "button.slint";
+import { Avatar } from "avatar.slint";
 import { Assets } from "@assets";
+export enum SideTabId {
+    home,
+    instances,
+    mods,
+    downloads,
+    account,
+    settings
+}
 struct TabItem {
-    id: string,
+    id: SideTabId,
     icon: image,
     text: string,
 }
 export component SideBar inherits Rectangle {
-    in-out property <string> active-tab: "home";
+    in-out property <SideTabId> active-tab: SideTabId.home;
     in property <[TabItem]> tabs: [
-        { id: "home", icon: Assets.home, text: @tr("Home") },
-        { id: "instances", icon: Assets.window, text: @tr("Instances") },
-        { id: "mods", icon: Assets.folder, text: @tr("Mods") },
-        { id: "downloads", icon: Assets.download, text: @tr("Downloads") }
+        { id: SideTabId.home, icon: Assets.home, text: @tr("Home") },
+        { id: SideTabId.instances, icon: Assets.window, text: @tr("Instances") },
+        { id: SideTabId.mods, icon: Assets.folder, text: @tr("Mods") },
+        { id: SideTabId.downloads, icon: Assets.download, text: @tr("Downloads") }
     ];
-    callback tab-changed(string);
+    in property <[TabItem]> tabs1: [
+        { id: SideTabId.account, icon: Assets.user, text: @tr("Account") },
+        { id: SideTabId.settings, icon: Assets.setting, text: @tr("Settings") }
+    ];
+    callback tab-changed(SideTabId);
     background: AppTheme.colors.sidebar;
     vertical-stretch: 1;
     width: 200px;
     min-height: 560px;
+    border-width: 1px;
+    border-color: AppTheme.colors.sidebar-border;
+    // border-radius: AppTheme.radius-lg;
     VerticalLayout {
-        padding-top: 20px;
-        padding-left: 10px;
-        padding-right: 10px;
-        padding-bottom: 10px;
-        spacing: 10px;
-        for tab in root.tabs: SideButton {
-            text: tab.text;
-            icon: tab.icon;
-            selected: root.active-tab == tab.id;
-            clicked => {
-                root.active-tab = tab.id;
-                root.tab-changed(tab.id);
-                debug("Change to: " + tab.id);
+        VerticalLayout {
+            padding-top: 20px;
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 10px;
+            for tab in root.tabs: SideButton {
+                text: tab.text;
+                icon: tab.icon;
+                selected: root.active-tab == tab.id;
+                clicked => {
+                    root.active-tab = tab.id;
+                    root.tab-changed(tab.id);
+                }
             }
         }
 
-        SideButton {
-            text: @tr("Switch Theme");
-            clicked => {
-                AppTheme.is-dark = !AppTheme.is-dark;
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: AppTheme.colors.sidebar-border.with-alpha(0.12);
+        }
+
+        VerticalLayout {
+            spacing: 10px;
+            padding-top: 10px;
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-bottom: 10px;
+            for tab in root.tabs1: SideButton {
+                text: tab.text;
+                icon: tab.icon;
+                selected: root.active-tab == tab.id;
+                show-indicator: false;
+                clicked => {
+                    root.active-tab = tab.id;
+                    root.tab-changed(tab.id);
+                }
             }
+
+            SideButton {
+                text: @tr("Switch Theme");
+                clicked => {
+                    AppTheme.is-dark = !AppTheme.is-dark;
+                }
+            }
+
+            Avatar { }
         }
     }
 }

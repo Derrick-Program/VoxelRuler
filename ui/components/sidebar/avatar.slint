@@ -1,0 +1,54 @@
+import { AppTheme } from "@theme";
+export component Avatar inherits Rectangle {
+    height: 60px;
+    background: AppTheme.colors.secondary.with-alpha(0.3);
+    border-radius: AppTheme.radius-lg;
+    border-width: 1px;
+    border-color: AppTheme.colors.border;
+
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 12px;
+        alignment: start;
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            background: AppTheme.colors.accent;
+            border-radius: AppTheme.radius-md;
+
+            Text {
+                text: "S";
+                font-weight: 700;
+                color: AppTheme.colors.accent-foreground;
+            }
+
+            Rectangle {
+                width: 12px;
+                height: 12px;
+                background: #22c55e;
+                border-radius: 6px;
+                border-width: 2px;
+                border-color: #1a1a1a;
+                x: parent.width - 6px;
+                y: parent.height - 6px;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            Text {
+                text: "Steve";
+                font-size: 14px;
+                font-weight: AppTheme.font-weight-medium;
+                color: AppTheme.colors.foreground;
+            }
+
+            Text {
+                text: "Premium Account";
+                font-size: 10px;
+                color: AppTheme.colors.muted-foreground;
+            }
+        }
+    }
+}

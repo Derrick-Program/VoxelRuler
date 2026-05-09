@@ -1,0 +1,8 @@
+import {SideTabId} from "../sidebar/index.slint";
+import { AppTheme } from "@theme";
+export component Pages inherits Rectangle {
+    in property <SideTabId> active-tab;
+    background: AppTheme.colors.background;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+}
