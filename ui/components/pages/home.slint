@@ -1,9 +1,50 @@
 import { AppTheme } from "@theme";
+import { Assets } from "@assets";
+
 export component Home inherits Rectangle {
-    Text {
-        text: "Home Page";
-        font-size: 24px;
-        font-weight: 700;
-        color: AppTheme.colors.foreground;
+    width: 100%;
+    height: 100%;
+    VerticalLayout {
+        alignment: center;
+        spacing: 25px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 100px;
+                height: 100px;
+                background: AppTheme.mc-green;
+                border-radius: 22px;
+                Image {
+                    source: Assets.logo;
+                    width: 65%;
+                    height: 65%;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            VerticalLayout {
+                spacing: 20px;
+                Text {
+                    text: "Welcome to Voxelruler";
+                    font-size: 36px;
+                    font-weight: 800;
+                    color: AppTheme.colors.foreground;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "This is your new Minecraft launcher. Select \"Instances\" from the left menu to manage and launch your games.";
+                    font-size: 16px;
+                    color: #A0A0A0;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                    max-width: 450px;
+                }
+            }
+        }
     }
 }
