@@ -80,6 +80,7 @@ export component SideBar inherits Rectangle {
 
             SideButton {
                 text: @tr("Switch Theme");
+                icon: Assets.switch;
                 clicked => {
                     AppTheme.is-dark = !AppTheme.is-dark;
                 }
