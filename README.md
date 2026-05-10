@@ -10,6 +10,8 @@
 
 VoxelRuler is a cross-platform Minecraft launcher written in Rust, featuring a native desktop UI powered by [Slint](https://slint.dev/). It aims to support Microsoft account login, instance management, mod support, and more — all in a lightweight, fast application.
 
+![VoxelRuler screenshot](screenshot/software.png)
+
 ## Planned Features
 
 - [ ] Microsoft account authentication (OAuth2)
@@ -57,6 +59,8 @@ cargo build --release
 ## 關於
 
 VoxelRuler 是一款以 Rust 撰寫的跨平台 Minecraft 啟動器，使用 [Slint](https://slint.dev/) 建構原生桌面介面。目標功能包含 Microsoft 帳號登入、實例管理、模組支援等，追求輕量且快速的使用體驗。
+
+![VoxelRuler 截圖](screenshot/software.png)
 
 ## 計畫功能
 
