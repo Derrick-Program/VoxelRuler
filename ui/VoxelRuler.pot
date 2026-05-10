@@ -1,8 +1,8 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
-"POT-Creation-Date: 2026-05-07 17:07+0000\n"
+"Project-Id-Version: voxelruler 0.1.0\n"
+"POT-Creation-Date: 2026-05-09 18:07+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -11,6 +11,16 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
+
+#: ui/components/footer.slint:17
+msgctxt "Footer"
+msgid "Status: Connecting"
+msgstr ""
+
+#: ui/components/footer.slint:24
+msgctxt "Footer"
+msgid "© 2026 Derrick. All rights reserved."
+msgstr ""
 
 #: ui/components/minecraft-card.slint:14
 msgctxt "MinecraftCard"
@@ -26,4 +36,76 @@ msgstr ""
 #: ui/components/minecraft-card.slint:33
 msgctxt "MinecraftCard"
 msgid "Start Mining"
+msgstr ""
+
+#: ui/components/pages/home.slint:32
+msgctxt "Home"
+msgid "Welcome to Voxelruler"
+msgstr ""
+
+#: ui/components/pages/home.slint:40
+msgctxt "Home"
+msgid ""
+"This is your new Minecraft launcher. Select \"Instances\" from the left menu "
+"to manage and launch your games."
+msgstr ""
+
+#: ui/components/pages/index.slint:18
+msgctxt "Pages"
+msgid "WIP ..."
+msgstr ""
+
+#: ui/components/pages/instances.slint:79
+msgctxt "Search"
+msgid "Search instances..."
+msgstr ""
+
+#: ui/components/pages/instances.slint:136
+msgctxt "Instances"
+msgid "My Instances"
+msgstr ""
+
+#: ui/components/pages/instances.slint:145
+msgctxt "Instances"
+msgid "Create"
+msgstr ""
+
+#: ui/components/pages/instances.slint:160
+msgctxt "Instances"
+msgid "Instances Page"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:21
+msgctxt "SideBar"
+msgid "Home"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:22
+msgctxt "SideBar"
+msgid "Instances"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:23
+msgctxt "SideBar"
+msgid "Mods"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:24
+msgctxt "SideBar"
+msgid "Downloads"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:27
+msgctxt "SideBar"
+msgid "Account"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:28
+msgctxt "SideBar"
+msgid "Settings"
+msgstr ""
+
+#: ui/components/sidebar/index.slint:82
+msgctxt "SideBar"
+msgid "Switch Theme"
 msgstr ""

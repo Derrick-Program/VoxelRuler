@@ -46,7 +46,6 @@ component AddInstance inherits Rectangle {
 }
 
 component Search inherits Rectangle {
-    // background: red;
     height: 100%;
     border-radius: AppTheme.radius-lg;
     border-color: #ffffff.with-alpha(0.6);
@@ -92,6 +91,7 @@ component Search inherits Rectangle {
                 vertical-alignment: center;
                 accepted => {
                     root._clear-focus();
+                    debug(ti.text)
                 }
             }
         }
@@ -156,10 +156,12 @@ export component Instances inherits Rectangle {
             }
         }
 
-        Text {
-            text: @tr("Instances Page");
-            font-size: 20px;
-            color: AppTheme.colors.foreground;
+        Rectangle {
+            Text {
+                text: @tr("Instances Page");
+                font-size: 20px;
+                color: AppTheme.colors.foreground;
+            }
         }
 
         Rectangle { }
