@@ -3,3 +3,4 @@
 .idea
 .env
 .direnv
+.claude/settings.local.json
