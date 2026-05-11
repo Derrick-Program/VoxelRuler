@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: voxelruler 0.1.0\n"
-"POT-Creation-Date: 2026-05-09 18:07+0000\n"
+"POT-Creation-Date: 2026-05-11 02:32+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -11,32 +11,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-
-#: ui/components/footer.slint:17
-msgctxt "Footer"
-msgid "Status: Connecting"
-msgstr ""
-
-#: ui/components/footer.slint:24
-msgctxt "Footer"
-msgid "© 2026 Derrick. All rights reserved."
-msgstr ""
-
-#: ui/components/minecraft-card.slint:14
-msgctxt "MinecraftCard"
-msgid "Diamond Miner"
-msgstr ""
-
-#. 預設改為英文
-#: ui/components/minecraft-card.slint:22
-msgctxt "MinecraftCard"
-msgid "This is a Minecraft themed card based on Slint."
-msgstr ""
-
-#: ui/components/minecraft-card.slint:33
-msgctxt "MinecraftCard"
-msgid "Start Mining"
-msgstr ""
 
 #: ui/components/pages/home.slint:32
 msgctxt "Home"
@@ -55,24 +29,60 @@ msgctxt "Pages"
 msgid "WIP ..."
 msgstr ""
 
-#: ui/components/pages/instances.slint:79
+#: ui/components/pages/instances.slint:147
+msgctxt "InstanceCard"
+msgid "Last played: {}"
+msgstr ""
+
+#: ui/components/pages/instances.slint:153
+msgctxt "InstanceCard"
+msgid "Total play time: {}"
+msgstr ""
+
+#: ui/components/pages/instances.slint:179
+msgctxt "InstanceCard"
+msgid "Start Game"
+msgstr ""
+
+#: ui/components/pages/instances.slint:276
 msgctxt "Search"
 msgid "Search instances..."
 msgstr ""
 
-#: ui/components/pages/instances.slint:136
+#: ui/components/pages/instances.slint:433
 msgctxt "Instances"
 msgid "My Instances"
 msgstr ""
 
-#: ui/components/pages/instances.slint:145
+#: ui/components/pages/instances.slint:442
 msgctxt "Instances"
 msgid "Create"
 msgstr ""
 
-#: ui/components/pages/instances.slint:160
-msgctxt "Instances"
-msgid "Instances Page"
+#: ui/components/minecraft-card.slint:14
+msgctxt "MinecraftCard"
+msgid "Diamond Miner"
+msgstr ""
+
+#. 預設改為英文
+#: ui/components/minecraft-card.slint:22
+msgctxt "MinecraftCard"
+msgid "This is a Minecraft themed card based on Slint."
+msgstr ""
+
+#: ui/components/minecraft-card.slint:33
+msgctxt "MinecraftCard"
+msgid "Start Mining"
+msgstr ""
+
+#: ui/components/footer.slint:17
+msgctxt "Footer"
+msgid "Status: Connecting"
+msgstr ""
+
+#: ui/components/footer.slint:24
+msgctxt "Footer"
+msgid "© 2026 Derrick. All rights reserved."
 msgstr ""
 
 #: ui/components/sidebar/index.slint:21
