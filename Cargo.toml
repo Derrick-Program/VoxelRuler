@@ -12,6 +12,7 @@ serde_json = "1.0.149"
 url = "2"
 slint = "1.16.1"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+gluesql = { version = "0.19.0",default-features = false, features = ["gluesql-redb-storage"] }
 
 [profile.release]
 codegen-units = 1
