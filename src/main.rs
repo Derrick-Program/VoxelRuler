@@ -1,11 +1,13 @@
 slint::include_modules!();
 mod mc_token;
-use std::rc::Rc;
+use std::{path::Path, rc::Rc};
 use slint::{ModelRc, VecModel};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
     let logic = ui.global::<InstanceLogic>();
+    let path_buf = Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("ui/assets/icons/voxelruler.png");
     let raw_instances = vec![
         InstanceData {
             id: "1".into(),
@@ -13,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
             version: "1.20.4".into(),
             mod_loader: "Fabric".into(),
             status: "ready".into(),
-            image: slint::Image::default(),
+            image: slint::Image::load_from_path(&path_buf)?,
             ..Default::default()
         },
         InstanceData {
@@ -22,8 +24,9 @@ async fn main() -> anyhow::Result<()> {
             version: "1.19.2".into(),
             mod_loader: "Forge".into(),
             status: "ready".into(),
-            image: slint::Image::default(),
-            ..Default::default()
+            image: slint::Image::load_from_path(&path_buf)?,
+            last_played: "2024-06-01".into(),
+            play_time: "2h 15m".into(),
         },
     ];
     let model = Rc::new(VecModel::from(raw_instances.clone()));
