@@ -1,0 +1,114 @@
+import { AppTheme } from "@theme";
+import { Assets } from "@assets";
+export struct InstanceData {
+    id: string,
+    name: string,
+    version: string,
+    mod_loader: string,
+    last_played: string,
+    play_time: string,
+    image: image,
+    status: string, // "ready", "running", "updating"
+}
+
+export global AppData {
+    in property <string> version: "version not found";
+}
+
+export global InstanceLogic {
+    in property <[InstanceData]> instance_list: [
+        {
+            id: "1",
+            name: "Example Instance 1",
+            version: "1.20.4",
+            mod_loader: "Fabric",
+            last_played: "2024-06-01",
+            play_time: "12h 34m",
+            image: Assets.logo,
+            status: "ready"
+        },
+        {
+            id: "2",
+            name: "Example Instance 2 with a very long name that should be truncated",
+            version: "1.19.2",
+            mod_loader: "",
+            last_played: "2024-05-28",
+            play_time: "",
+            image: Assets.logo,
+            status: "running"
+        },
+        {
+            id: "3",
+            name: "Example Instance 3",
+            version: "1.18.1",
+            mod_loader: "Forge",
+            last_played: "2024-04-15",
+            play_time: "5h 20m",
+            image: Assets.logo,
+            status: "updating"
+        },
+        {
+            id: "4",
+            name: "Example Instance 4",
+            version: "1.17.1",
+            mod_loader: "Fabric",
+            last_played: "2024-03-10",
+            play_time: "2h 45m",
+            image: Assets.logo,
+            status: "ready"
+        },
+        {
+            id: "5",
+            name: "Example Instance 5",
+            version: "1.16.5",
+            mod_loader: "",
+            last_played: "2024-02-20",
+            play_time: "10h 15m",
+            image: Assets.logo,
+            status: "ready"
+        },
+        {
+            id: "6",
+            name: "Example Instance 6",
+            version: "1.15.2",
+            mod_loader: "Forge",
+            last_played: "2024-01-05",
+            play_time: "8h 50m",
+            image: Assets.logo,
+            status: "ready"
+        },
+        {
+            id: "7",
+            name: "Example Instance 7",
+            version: "1.14.4",
+            mod_loader: "Fabric",
+            last_played: "2023-12-12",
+            play_time: "15h 30m",
+            image: Assets.logo,
+            status: "ready"
+        },
+        {
+            id: "8",
+            name: "Example Instance 8",
+            version: "1.13.2",
+            mod_loader: "",
+            last_played: "2023-11-01",
+            play_time: "3h 40m",
+            image: Assets.logo,
+            status: "ready"
+        }
+    ];
+    callback new_instance();
+    callback launch_instance(string);
+    callback open_instance_settings(string);
+    new_instance => {
+        debug("Create new instance");
+    }
+    launch_instance(id) => {
+        debug("Launch instance with id: " + id);
+    }
+    open_instance_settings(id) => {
+        debug("Open settings for instance with id: " + id);
+    }
+    in-out property <string> search-text;
+}

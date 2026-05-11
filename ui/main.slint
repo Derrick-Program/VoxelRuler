@@ -1,10 +1,7 @@
 import { SideBar, Footer, SideTabId, Pages } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
-
-export global AppData {
-    in property <string> version: "version not found";
-}
+import { AppData } from "@global";
 
 export component MainApp inherits Window {
     min-width: 800px;

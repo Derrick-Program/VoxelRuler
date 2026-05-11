@@ -12,6 +12,7 @@ fn main() {
             ),
             ("theme".to_string(), pj_path.join("ui/theme.slint")),
             ("assets".to_string(), pj_path.join("ui/assets/index.slint")),
+            ("global".to_string(), pj_path.join("ui/global.slint")),
         ]))
         .with_include_paths(vec![std::path::PathBuf::from("ui")])
         .embed_resources(EmbedResourcesKind::EmbedFiles);

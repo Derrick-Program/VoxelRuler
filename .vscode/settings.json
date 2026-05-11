@@ -5,7 +5,8 @@
     "slint.libraryPaths": {
         "material": "./ui/libs/material-1.0/material.slint",
         "theme": "./ui/theme.slint",
-        "assets": "./ui/assets/index.slint"
+        "assets": "./ui/assets/index.slint",
+        "global": "./ui/global.slint"
     },
     "slint.includePaths": [
         "./ui"
