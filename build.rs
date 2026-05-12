@@ -1,6 +1,7 @@
 use slint_build::EmbedResourcesKind;
 
 fn main() {
+    println!("cargo:rerun-if-changed=ui/translations");
     let pj_path = std::env::var_os("CARGO_MANIFEST_DIR").unwrap();
     let pj_path = std::path::Path::new(&pj_path);
     let config = slint_build::CompilerConfiguration::new()
@@ -15,6 +16,6 @@ fn main() {
             ("global".to_string(), pj_path.join("ui/global.slint")),
         ]))
         .with_include_paths(vec![std::path::PathBuf::from("ui")])
-        .embed_resources(EmbedResourcesKind::EmbedForSoftwareRenderer);
+        .embed_resources(EmbedResourcesKind::EmbedFiles);
     slint_build::compile_with_config(pj_path.join("ui/main.slint"), config).unwrap();
 }

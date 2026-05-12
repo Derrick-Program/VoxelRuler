@@ -106,7 +106,7 @@ export component InstanceCard inherits Rectangle {
                 padding-right: 12px;
                 padding-top: 8px;
                 padding-bottom: 8px;
-                spacing: 10px;
+                spacing: 8px;
                 height: 50%;
                 HorizontalLayout {
                     spacing: 8px;
@@ -147,7 +147,7 @@ export component InstanceCard inherits Rectangle {
                 }
 
                 btn := Rectangle {
-                    min-height: 32px;
+                    height: 32px;
                     background: btn-ta.pressed ? #5a9e3f : (btn-ta.has-hover ? #76bc51 : #67ab44.with-alpha(0.2));
                     border-radius: 6px;
                     border-width: 1px;
