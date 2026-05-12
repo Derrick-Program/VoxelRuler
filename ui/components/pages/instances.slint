@@ -133,13 +133,13 @@ export component InstanceCard inherits Rectangle {
                 Text {
                     text: @tr("Last played: {}", root.data.last_played);
                     color: #aaa;
-                    font-size: 12px;
+                    font-size: 10px;
                 }
 
                 if (root.data.play_time != ""): Text {
                     text: @tr("Total play time: {}", root.data.play_time);
                     color: #aaa;
-                    font-size: 12px;
+                    font-size: 10px;
                 }
 
                 Rectangle {

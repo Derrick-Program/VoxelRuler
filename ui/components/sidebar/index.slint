@@ -17,13 +17,13 @@ struct TabItem {
 }
 export component SideBar inherits Rectangle {
     in-out property <SideTabId> active-tab: SideTabId.home;
-    in property <[TabItem]> tabs: [
+    property <[TabItem]> tabs: [
         { id: SideTabId.home, icon: Assets.home, text: @tr("Home") },
         { id: SideTabId.instances, icon: Assets.window, text: @tr("Instances") },
         { id: SideTabId.mods, icon: Assets.folder, text: @tr("Mods") },
         { id: SideTabId.downloads, icon: Assets.download, text: @tr("Downloads") }
     ];
-    in property <[TabItem]> tabs1: [
+    property <[TabItem]> tabs1: [
         { id: SideTabId.account, icon: Assets.user, text: @tr("Account") },
         { id: SideTabId.settings, icon: Assets.setting, text: @tr("Settings") }
     ];
