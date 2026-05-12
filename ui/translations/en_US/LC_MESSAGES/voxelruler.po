@@ -1,9 +1,9 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: \n"
-"POT-Creation-Date: 2026-05-07 17:07+0000\n"
-"PO-Revision-Date: 2026-05-08 02:11+0800\n"
+"Project-Id-Version: voxelruler 0.1.0\n"
+"POT-Creation-Date: 2026-05-12 02:08+0000\n"
+"PO-Revision-Date: 2026-05-12 10:23+0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: en_US\n"
@@ -12,6 +12,55 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "X-Generator: Poedit 3.9\n"
+
+#: ui/components/pages/home.slint:32
+msgctxt "Home"
+msgid "Welcome to Voxelruler"
+msgstr "Welcome to Voxelruler"
+
+#: ui/components/pages/home.slint:40
+msgctxt "Home"
+msgid ""
+"This is your new Minecraft launcher. Select \"Instances\" from the left menu "
+"to manage and launch your games."
+msgstr ""
+"This is your new Minecraft launcher. Select \"Instances\" from the left menu "
+"to manage and launch your games."
+
+#: ui/components/pages/index.slint:18
+msgctxt "Pages"
+msgid "WIP ..."
+msgstr "WIP ..."
+
+#: ui/components/pages/instances.slint:134
+msgctxt "InstanceCard"
+msgid "Last played: {}"
+msgstr "Last played: {}"
+
+#: ui/components/pages/instances.slint:140
+msgctxt "InstanceCard"
+msgid "Total play time: {}"
+msgstr "Total play time: {}"
+
+#: ui/components/pages/instances.slint:166
+msgctxt "InstanceCard"
+msgid "Start Game"
+msgstr "Start Game"
+
+#: ui/components/pages/instances.slint:258
+msgctxt "Search"
+msgid "Search instances..."
+msgstr "Search instances..."
+
+#: ui/components/pages/instances.slint:322
+msgctxt "Instances"
+msgid "My Instances"
+msgstr "My Instances"
+
+#: ui/components/pages/instances.slint:331
+msgctxt "Instances"
+msgid "Create"
+msgstr "Create"
 
 #: ui/components/minecraft-card.slint:14
 msgctxt "MinecraftCard"
@@ -28,3 +77,48 @@ msgstr "This is a Minecraft themed card based on Slint."
 msgctxt "MinecraftCard"
 msgid "Start Mining"
 msgstr "Start Mining"
+
+#: ui/components/footer.slint:17
+msgctxt "Footer"
+msgid "Status: Connecting"
+msgstr "Status: Connecting"
+
+#: ui/components/footer.slint:24
+msgctxt "Footer"
+msgid "© 2026 Derrick. All rights reserved."
+msgstr "© 2026 Derrick. All rights reserved."
+
+#: ui/components/sidebar/index.slint:21
+msgctxt "SideBar"
+msgid "Home"
+msgstr "Home"
+
+#: ui/components/sidebar/index.slint:22
+msgctxt "SideBar"
+msgid "Instances"
+msgstr "Instances"
+
+#: ui/components/sidebar/index.slint:23
+msgctxt "SideBar"
+msgid "Mods"
+msgstr "Mods"
+
+#: ui/components/sidebar/index.slint:24
+msgctxt "SideBar"
+msgid "Downloads"
+msgstr "Downloads"
+
+#: ui/components/sidebar/index.slint:27
+msgctxt "SideBar"
+msgid "Account"
+msgstr "Account"
+
+#: ui/components/sidebar/index.slint:28
+msgctxt "SideBar"
+msgid "Settings"
+msgstr "Settings"
+
+#: ui/components/sidebar/index.slint:82
+msgctxt "SideBar"
+msgid "Switch Theme"
+msgstr "Switch Theme"

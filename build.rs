@@ -15,6 +15,6 @@ fn main() {
             ("global".to_string(), pj_path.join("ui/global.slint")),
         ]))
         .with_include_paths(vec![std::path::PathBuf::from("ui")])
-        .embed_resources(EmbedResourcesKind::EmbedFiles);
+        .embed_resources(EmbedResourcesKind::EmbedForSoftwareRenderer);
     slint_build::compile_with_config(pj_path.join("ui/main.slint"), config).unwrap();
 }

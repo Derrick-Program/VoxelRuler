@@ -1,9 +1,9 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: \n"
-"POT-Creation-Date: 2026-05-07 17:07+0000\n"
-"PO-Revision-Date: 2026-05-08 02:10+0800\n"
+"Project-Id-Version: voxelruler 0.1.0\n"
+"POT-Creation-Date: 2026-05-12 02:08+0000\n"
+"PO-Revision-Date: 2026-05-12 10:29+0800\n"
 "Last-Translator: \n"
 "Language-Team: \n"
 "Language: zh_TW\n"
@@ -12,6 +12,54 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 "X-Generator: Poedit 3.9\n"
+
+#: ui/components/pages/home.slint:32
+msgctxt "Home"
+msgid "Welcome to Voxelruler"
+msgstr "歡迎使用Voxelruler"
+
+#: ui/components/pages/home.slint:40
+msgctxt "Home"
+msgid ""
+"This is your new Minecraft launcher. Select \"Instances\" from the left menu "
+"to manage and launch your games."
+msgstr ""
+"這是你的全新Minecraft啟動器。選擇左側選單中的”實例”來開始管理或進行遊戲。"
+
+#: ui/components/pages/index.slint:18
+msgctxt "Pages"
+msgid "WIP ..."
+msgstr "開發中..."
+
+#: ui/components/pages/instances.slint:134
+msgctxt "InstanceCard"
+msgid "Last played: {}"
+msgstr "上次遊玩: {}"
+
+#: ui/components/pages/instances.slint:140
+msgctxt "InstanceCard"
+msgid "Total play time: {}"
+msgstr "總共遊玩: {}"
+
+#: ui/components/pages/instances.slint:166
+msgctxt "InstanceCard"
+msgid "Start Game"
+msgstr "開始遊戲"
+
+#: ui/components/pages/instances.slint:258
+msgctxt "Search"
+msgid "Search instances..."
+msgstr "搜尋實例..."
+
+#: ui/components/pages/instances.slint:322
+msgctxt "Instances"
+msgid "My Instances"
+msgstr "我的實例"
+
+#: ui/components/pages/instances.slint:331
+msgctxt "Instances"
+msgid "Create"
+msgstr "創建"
 
 #: ui/components/minecraft-card.slint:14
 msgctxt "MinecraftCard"
@@ -22,9 +70,54 @@ msgstr "鑽石礦工"
 #: ui/components/minecraft-card.slint:22
 msgctxt "MinecraftCard"
 msgid "This is a Minecraft themed card based on Slint."
-msgstr "這個是一個基於Slint的Minecraft 主題卡。"
+msgstr "This is a Minecraft themed card based on Slint."
 
 #: ui/components/minecraft-card.slint:33
 msgctxt "MinecraftCard"
 msgid "Start Mining"
 msgstr "開始挖礦"
+
+#: ui/components/footer.slint:17
+msgctxt "Footer"
+msgid "Status: Connecting"
+msgstr "狀態: 連線中"
+
+#: ui/components/footer.slint:24
+msgctxt "Footer"
+msgid "© 2026 Derrick. All rights reserved."
+msgstr "© 2026 Derrick. 保留所有權利。"
+
+#: ui/components/sidebar/index.slint:21
+msgctxt "SideBar"
+msgid "Home"
+msgstr "首頁"
+
+#: ui/components/sidebar/index.slint:22
+msgctxt "SideBar"
+msgid "Instances"
+msgstr "實例"
+
+#: ui/components/sidebar/index.slint:23
+msgctxt "SideBar"
+msgid "Mods"
+msgstr "模組"
+
+#: ui/components/sidebar/index.slint:24
+msgctxt "SideBar"
+msgid "Downloads"
+msgstr "下載"
+
+#: ui/components/sidebar/index.slint:27
+msgctxt "SideBar"
+msgid "Account"
+msgstr "帳號"
+
+#: ui/components/sidebar/index.slint:28
+msgctxt "SideBar"
+msgid "Settings"
+msgstr "設定"
+
+#: ui/components/sidebar/index.slint:82
+msgctxt "SideBar"
+msgid "Switch Theme"
+msgstr "切換主題"

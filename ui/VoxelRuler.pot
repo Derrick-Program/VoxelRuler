@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: voxelruler 0.1.0\n"
-"POT-Creation-Date: 2026-05-11 02:32+0000\n"
+"POT-Creation-Date: 2026-05-12 02:08+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -29,32 +29,32 @@ msgctxt "Pages"
 msgid "WIP ..."
 msgstr ""
 
-#: ui/components/pages/instances.slint:147
+#: ui/components/pages/instances.slint:134
 msgctxt "InstanceCard"
 msgid "Last played: {}"
 msgstr ""
 
-#: ui/components/pages/instances.slint:153
+#: ui/components/pages/instances.slint:140
 msgctxt "InstanceCard"
 msgid "Total play time: {}"
 msgstr ""
 
-#: ui/components/pages/instances.slint:179
+#: ui/components/pages/instances.slint:166
 msgctxt "InstanceCard"
 msgid "Start Game"
 msgstr ""
 
-#: ui/components/pages/instances.slint:276
+#: ui/components/pages/instances.slint:258
 msgctxt "Search"
 msgid "Search instances..."
 msgstr ""
 
-#: ui/components/pages/instances.slint:433
+#: ui/components/pages/instances.slint:322
 msgctxt "Instances"
 msgid "My Instances"
 msgstr ""
 
-#: ui/components/pages/instances.slint:442
+#: ui/components/pages/instances.slint:331
 msgctxt "Instances"
 msgid "Create"
 msgstr ""
