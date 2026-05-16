@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use url::Url;
 
-pub async fn get_minecraft_token() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn get_minecraft_token() -> anyhow::Result<()> {
     let client_id = std::env::args()
         .nth(1)
         .expect("client_id as first argument");
