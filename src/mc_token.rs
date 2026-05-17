@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use url::Url;
 
-pub async fn get_minecraft_token() -> anyhow::Result<()> {
+pub async fn get_minecraft_token() -> anyhow::Result<String> {
     let client_id = std::env::args()
         .nth(1)
         .expect("client_id as first argument");
@@ -89,13 +89,15 @@ pub async fn get_minecraft_token() -> anyhow::Result<()> {
             .exchange_microsoft_token(token.access_token().secret())
             .await;
         match mc_token {
-            Ok(t) => println!("Success: {:?}", t),
+            Ok(t) => {
+                let token_string = t.access_token().as_ref().to_string();
+                return Ok(token_string);
+            }
             Err(e) => {
                 eprintln!("詳細錯誤: {:?}", e);
             }
         }
         break;
     }
-
-    Ok(())
+    Ok(Default::default())
 }
