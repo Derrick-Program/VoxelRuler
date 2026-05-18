@@ -4,3 +4,5 @@
 .env
 .direnv
 .claude/settings.local.json
+dist/*
+!dist/.gitkeep

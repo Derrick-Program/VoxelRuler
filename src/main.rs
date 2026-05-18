@@ -1,3 +1,5 @@
+use crate::view::open_view;
+
 mod mc_action;
 mod mc_token;
 mod mc_types;
@@ -10,9 +12,7 @@ async fn main() -> anyhow::Result<()> {
     let token: String = loop {
         let session = match mc_token::SessionData::load_session() {
             Ok(s) => s,
-            Err(e) => {
-                None
-            }
+            Err(_) => None, 
         };
 
         match session {
@@ -46,6 +46,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     println!("成功取得有效 Token，準備進入 VoxelRuler!");
+    dbg!(&token);
+    open_view().await?;
     // mc_action::launch_game(&token).await?;
 
     Ok(())

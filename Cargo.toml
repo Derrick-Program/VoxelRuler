@@ -28,3 +28,26 @@ lto = true
 
 [build-dependencies]
 slint-build = "1.16.1"
+
+
+[package.metadata.packager]
+product-name = "VoxelRuler"
+identifier = "com.Duacodie.VoxelRuler"
+out-dir = "./dist"
+before-packaging-command = "cargo build --release -vvv"
+category = "Game"
+description = "A minecraft Launcher"
+long-description = """
+VoxelRuler 是一款專為 Minecraft 玩家打造的啟動器，提供簡潔直觀的界面和強大的功能，讓玩家能夠輕鬆管理和啟動 Minecraft 遊戲。無論是單人遊戲還是多人伺服器，VoxelRuler 都能提供穩定的性能和優化的體驗，讓玩家專注於享受 Minecraft 的樂趣。
+VoxelRuler is a Minecraft launcher designed for players, offering a simple and intuitive interface along with powerful features to easily manage and launch Minecraft games. Whether it's single-player or multiplayer servers, VoxelRuler provides stable performance and an optimized experience, allowing players to focus on enjoying the fun of Minecraft.
+"""
+
+formats = [
+  "default"
+]
+
+[package.metadata.packager.windows]
+# 可以設定安裝檔的歡迎畫面圖片、授權條款 (EULA) 等
+# license-file = "LICENSE.rtf"
+[package.metadata.packager.linux]
+generate-desktop-entry = true
