@@ -1,6 +1,7 @@
 slint::include_modules!();
 mod mc_token;
 mod mc_action;
+mod mc_types;
 use slint::{ModelRc, VecModel};
 use std::{path::Path, rc::Rc};
 #[tokio::main]
