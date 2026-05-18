@@ -1,5 +1,5 @@
+#![allow(unused)]
 use oauth2::reqwest;
-
 use crate::mc_types::{McLatestVersion, McVersion, McVersionInfo};
 
 const NEW_MC_SERVER: &str = "https://api.minecraftservices.com";

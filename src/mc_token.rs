@@ -1,3 +1,4 @@
+#![allow(unused)]
 use minecraft_msa_auth::MinecraftAuthorizationFlow;
 use oauth2::basic::BasicClient;
 use oauth2::reqwest;

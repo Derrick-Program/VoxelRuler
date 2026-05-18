@@ -1,5 +1,5 @@
+#![allow(unused)]
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug,Serialize,Deserialize)]
 pub struct McVersionInfo {
     pub latest: McLatestVersion,
