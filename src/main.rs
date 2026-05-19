@@ -2,7 +2,8 @@ use std::sync::LazyLock;
 use dashmap::DashMap;
 use crate::view::open_view;
 
-mod mc_action;
+mod mc_api;
+mod mc_parser;
 mod mc_token;
 mod mc_types;
 mod view;

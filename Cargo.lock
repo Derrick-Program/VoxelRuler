@@ -8174,6 +8174,7 @@ dependencies = [
  "minecraft-msa-auth",
  "oauth2",
  "open",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
