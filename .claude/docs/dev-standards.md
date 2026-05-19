@@ -8,8 +8,8 @@
 
 | 層級 | 技術 |
 |------|------|
-| 語言 | Rust（Edition 2021） |
-| GUI | Slint 1.x |
+| 語言 | Rust（Edition 2024） |
+| GUI | Slint 1.16.1 |
 | 非同步 | Tokio |
 | HTTP | reqwest |
 | 認證 | Microsoft OAuth 2.0 |
