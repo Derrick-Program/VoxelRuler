@@ -1,5 +1,15 @@
 import { AppTheme } from "@theme";
 import { Assets } from "@assets";
+
+export enum SideTabId {
+    home,
+    instances,
+    mods,
+    downloads,
+    account,
+    settings
+}
+
 export struct InstanceData {
     id: string,
     name: string,
@@ -12,7 +22,24 @@ export struct InstanceData {
 }
 
 export global AppData {
-    in property <string> version: "version not found";
+    in property <string> version: @tr("version not found");
+}
+
+export global AppLogic {
+    callback check_for_updates();
+    callback start_download();
+    callback sidebar_change(SideTabId);
+
+    check_for_updates => {
+        debug("Checking for updates...");
+    }
+    start_download => {
+        debug("Starting download...");
+    }
+
+    sidebar_change(id) => {
+        debug(id);
+    }
 }
 
 export global InstanceLogic {
@@ -112,4 +139,25 @@ export global InstanceLogic {
     }
     in-out property <string> search-text;
     callback search-changed(string);
+}
+
+export global PageAccountLogic {
+    in-out property <bool> is_logging_in: false;
+    in-out property <string> login_url: "";
+    in-out property <string> login_status_text: "正在初始化驗證程序...";
+    in-out property <bool> is_error: false;
+    
+    callback login_with_microsoft();
+    callback cancel_login();
+    callback open_browser_url(string);
+
+    login_with_microsoft => {
+        debug("Login button clicked");
+    }
+    cancel_login => {
+        debug("Login canceled by user");
+    }
+    open_browser_url(url) => {
+        debug("Opening URL in browser: " + url);
+    }
 }
