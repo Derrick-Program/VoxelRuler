@@ -137,7 +137,7 @@ impl McAction<Unauthenticated> {
 impl McAction<Authenticated> {
     // === Authenticated APIs (Bearer token required) ===
 
-    pub async fn get_user_profile(&self) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_user_profile(&self) -> anyhow::Result<crate::mc_types::McProfile> {
         let url = format!("{}/minecraft/profile", NEW_MC_SERVER);
         Ok(self
             .client
@@ -146,7 +146,8 @@ impl McAction<Authenticated> {
             .await?
             .error_for_status()?
             .json()
-            .await?)
+            .await
+            .inspect_err(|e| println!("{:#?}", e))?)
     }
 }
 

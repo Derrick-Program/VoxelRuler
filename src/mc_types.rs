@@ -40,7 +40,6 @@ pub enum McState {
     Inactive,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum McSkinVariant {
@@ -48,12 +47,12 @@ pub enum McSkinVariant {
     Slim,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McProfileSkin {
     pub id: String,
     pub state: McState,
-    pub texture_key: String, 
+    #[serde(rename = "textureKey")]
+    pub texture_key: String,
     pub url: String,
     pub variant: McSkinVariant,
 }
