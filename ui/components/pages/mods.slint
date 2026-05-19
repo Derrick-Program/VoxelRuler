@@ -40,14 +40,16 @@ component ModSearch inherits Rectangle {
                 width: 100%;
             }
             ti := TextInput {
-                text <=> ModLogic.search_text;
+                text <=> ModLogic.search-text;
                 width: 100%;
                 height: 100%;
                 color: white;
                 font-size: 16px * root.scale;
                 vertical-alignment: center;
+                edited => {
+                    ModLogic.search-changed(self.text);
+                }
                 accepted => {
-                    ModLogic.search_changed(self.text);
                     root._clear-focus();
                 }
             }
