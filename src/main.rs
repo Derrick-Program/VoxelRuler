@@ -1,7 +1,5 @@
 use std::sync::LazyLock;
-
 use dashmap::DashMap;
-
 use crate::view::open_view;
 
 mod mc_action;
@@ -13,7 +11,7 @@ static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(|| DashMa
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // let pdir = directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler").unwrap();
+    let _pdir = directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler").unwrap();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
             if *s.mc_token_expires_at() >= chrono::Utc::now().timestamp() {
@@ -38,10 +36,6 @@ async fn main() -> anyhow::Result<()> {
             GLOBAL_CACHE.insert("mc_ac_key".into(), token);
         }
     }
-    // println!("成功取得有效 Token，準備進入 VoxelRuler!");
-    // dbg!(&token);
     open_view().await?;
-    // mc_action::launch_game(&token).await?;
-
     Ok(())
 }
