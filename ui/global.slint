@@ -10,6 +10,12 @@ export enum SideTabId {
     settings
 }
 
+export struct AccountRow {
+    checked: bool,
+    username: string,
+    status: string,
+}
+
 export struct InstanceData {
     id: string,
     name: string,
@@ -147,6 +153,7 @@ export global PageAccountLogic {
     in-out property <string> login_status_text: "正在初始化驗證程序...";
     in-out property <bool> is_error: false;
     in-out property <int> selected-index: -1;
+    in-out property <[AccountRow]> accounts: [];
 
     callback login_with_microsoft();
     callback cancel_login();
@@ -157,6 +164,7 @@ export global PageAccountLogic {
     callback set-default-account();
     callback unset-default-account();
     callback manage-appearance();
+    callback account-save();
 
     login_with_microsoft => { debug("Login button clicked"); }
     cancel_login => { debug("Login canceled by user"); }
@@ -167,4 +175,5 @@ export global PageAccountLogic {
     set-default-account => { debug("Set default account"); }
     unset-default-account => { debug("Unset default account"); }
     manage-appearance => { debug("Manage appearance"); }
+    account-save => { debug("Account settings saved"); }
 }

@@ -1,11 +1,6 @@
 import { AppTheme } from "@theme";
 import { CheckBox, ListView } from "std-widgets.slint";
-
-export struct AccountRow {
-    checked: bool,
-    username: string,
-    status: string,
-}
+import { AccountRow } from "@global";
 
 export component AccountTable inherits VerticalLayout {
     in property <[AccountRow]> rows: [];
