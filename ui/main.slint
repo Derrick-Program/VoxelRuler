@@ -1,9 +1,9 @@
 import { SideBar, Footer, Pages } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
-import { AppData, InstanceLogic, AppLogic } from "@global";
+import { AppData, InstanceLogic, AppLogic, PageAccountLogic } from "@global";
 
-export { AppData, InstanceLogic, AppLogic }
+export { AppData, InstanceLogic, AppLogic, PageAccountLogic }
 export component MainApp inherits Window {
     min-width: 800px;
     min-height: 600px;
@@ -17,7 +17,10 @@ export component MainApp inherits Window {
         app := HorizontalLayout {
             vertical-stretch: 1;
             sidebar := SideBar {
-                tab-changed(id) => AppLogic.sidebar_change(id);
+                tab-changed(id) => {
+                    // debug(id);
+                    AppLogic.sidebar_change(id);
+                }
             }
 
             pages := Pages {

@@ -38,7 +38,7 @@ export global AppLogic {
     }
 
     sidebar_change(id) => {
-        debug(id)
+        debug(id);
     }
 }
 
@@ -139,4 +139,11 @@ export global InstanceLogic {
     }
     in-out property <string> search-text;
     callback search-changed(string);
+}
+
+export global PageAccountLogic {
+    callback login_with_microsoft();
+    login_with_microsoft => {
+        debug("Login button clicked");
+    }
 }

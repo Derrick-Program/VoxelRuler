@@ -1,4 +1,21 @@
+import {AppTheme} from "@theme";
+import { Button } from "std-widgets.slint";
+import {PageAccountLogic} from "@global";
+
 export component Account inherits Rectangle {
     width: 100%;
     height: 100%;
+    VerticalLayout {
+        alignment: center;
+        vertical-stretch: 1;
+        spacing: 25px;
+        HorizontalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Button {
+                text: @tr("Login with Microsoft");
+                clicked => PageAccountLogic.login_with_microsoft();
+            }
+        }
+    }
 }
