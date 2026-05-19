@@ -1,5 +1,15 @@
 import { AppTheme } from "@theme";
 import { Assets } from "@assets";
+
+export enum SideTabId {
+    home,
+    instances,
+    mods,
+    downloads,
+    account,
+    settings
+}
+
 export struct InstanceData {
     id: string,
     name: string,
@@ -12,7 +22,24 @@ export struct InstanceData {
 }
 
 export global AppData {
-    in property <string> version: "version not found";
+    in property <string> version: @tr("version not found");
+}
+
+export global AppLogic {
+    callback check_for_updates();
+    callback start_download();
+    callback sidebar_change(SideTabId);
+
+    check_for_updates => {
+        debug("Checking for updates...");
+    }
+    start_download => {
+        debug("Starting download...");
+    }
+
+    sidebar_change(id) => {
+        debug(id)
+    }
 }
 
 export global InstanceLogic {

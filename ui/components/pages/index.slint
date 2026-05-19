@@ -1,18 +1,20 @@
-import {SideTabId} from "../sidebar/index.slint";
+import { SideTabId } from "@global";
 import { AppTheme } from "@theme";
 import { Home } from "home.slint";
 import { Instances } from "instances.slint";
+import { Account } from "account.slint";
 export component Pages inherits Rectangle {
     in property <SideTabId> active-tab;
     property <bool> is-wip: active-tab == SideTabId.mods 
                      || active-tab == SideTabId.downloads
-                     || active-tab == SideTabId.account
+                    //  || active-tab == SideTabId.account
                      || active-tab == SideTabId.settings;
     background: AppTheme.colors.background;
     horizontal-stretch: 1;
     vertical-stretch: 1;
     if active-tab == SideTabId.home: Home {}
     if active-tab == SideTabId.instances: Instances {}
+    if active-tab == SideTabId.account: Account {}
     if root.is-wip: Rectangle {
         Text {
             text: @tr("WIP ...");

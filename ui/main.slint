@@ -1,9 +1,9 @@
-import { SideBar, Footer, SideTabId, Pages } from "components/index.slint";
+import { SideBar, Footer, Pages } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
-import { AppData,InstanceLogic } from "@global";
+import { AppData, InstanceLogic, AppLogic } from "@global";
 
-export { AppData, InstanceLogic }
+export { AppData, InstanceLogic, AppLogic }
 export component MainApp inherits Window {
     min-width: 800px;
     min-height: 600px;
@@ -12,19 +12,12 @@ export component MainApp inherits Window {
     title: "VoxelRuler";
     icon: Assets.logo;
 
-    // property <SideTabId> active-tab <=> sidebar.active-tab;
-    callback sidebar_change(SideTabId);
-
-    sidebar_change(id) => {
-        debug(id)
-    }
-
     VerticalLayout {
         spacing: 0;
         app := HorizontalLayout {
             vertical-stretch: 1;
             sidebar := SideBar {
-                tab-changed(id) => root.sidebar_change(id);
+                tab-changed(id) => AppLogic.sidebar_change(id);
             }
 
             pages := Pages {

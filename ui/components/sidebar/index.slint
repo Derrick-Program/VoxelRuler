@@ -2,14 +2,8 @@ import { AppTheme } from "@theme";
 import { SideButton } from "button.slint";
 import { Avatar } from "avatar.slint";
 import { Assets } from "@assets";
-export enum SideTabId {
-    home,
-    instances,
-    mods,
-    downloads,
-    account,
-    settings
-}
+import { SideTabId } from "@global";
+
 struct TabItem {
     id: SideTabId,
     icon: image,
