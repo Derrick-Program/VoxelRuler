@@ -142,8 +142,22 @@ export global InstanceLogic {
 }
 
 export global PageAccountLogic {
+    in-out property <bool> is_logging_in: false;
+    in-out property <string> login_url: "";
+    in-out property <string> login_status_text: "正在初始化驗證程序...";
+    in-out property <bool> is_error: false;
+    
     callback login_with_microsoft();
+    callback cancel_login();
+    callback open_browser_url(string);
+
     login_with_microsoft => {
         debug("Login button clicked");
+    }
+    cancel_login => {
+        debug("Login canceled by user");
+    }
+    open_browser_url(url) => {
+        debug("Opening URL in browser: " + url);
     }
 }

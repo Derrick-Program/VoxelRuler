@@ -2,6 +2,7 @@ import { SideBar, Footer, Pages } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
 import { AppData, InstanceLogic, AppLogic, PageAccountLogic } from "@global";
+import { StandardButton } from "std-widgets.slint";
 
 export { AppData, InstanceLogic, AppLogic, PageAccountLogic }
 export component MainApp inherits Window {
@@ -12,25 +13,93 @@ export component MainApp inherits Window {
     title: "VoxelRuler";
     icon: Assets.logo;
 
-    VerticalLayout {
-        spacing: 0;
-        app := HorizontalLayout {
-            vertical-stretch: 1;
-            sidebar := SideBar {
-                tab-changed(id) => {
-                    // debug(id);
+    FocusScope {
+        enabled: !PageAccountLogic.is_logging_in;
+        VerticalLayout {
+            spacing: 0;
+            app := HorizontalLayout {
+                vertical-stretch: 1;
+                sidebar := SideBar {
+                    tab-changed(id) => {
                     AppLogic.sidebar_change(id);
+                    }
+                }
+
+                pages := Pages {
+                    active-tab: sidebar.active-tab;
                 }
             }
 
-            pages := Pages {
-                active-tab: sidebar.active-tab;
+            footer := Footer {
+                vertical-stretch: 0;
+                version: AppData.version;
+            }
+        }
+    }
+
+    if PageAccountLogic.is_logging_in: Dialog {
+        // title: "微軟帳號登入驗證";
+        title: @tr("Microsoft Account Login Verification");
+        min-width: 420px;
+
+        StandardButton {
+            kind: ok; 
+            visible: PageAccountLogic.is_error;
+            clicked => {
+                PageAccountLogic.is_logging_in = false;
+                PageAccountLogic.cancel_login();
             }
         }
 
-        footer := Footer {
-            vertical-stretch: 0;
-            version: AppData.version;
+        StandardButton {
+            kind: cancel; 
+            visible: !PageAccountLogic.is_error; 
+            clicked => {
+                PageAccountLogic.is_logging_in = false;
+                PageAccountLogic.cancel_login();
+            }
+        }
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 15px;
+            alignment: center;
+
+            Text {
+                text: PageAccountLogic.login_status_text;
+                horizontal-alignment: center;
+                font-size: 14px;
+                wrap: word-wrap;
+                color: PageAccountLogic.is_error ? #e74c3c : AppTheme.colors.primary;
+            }
+
+            if PageAccountLogic.login_url != "" && !PageAccountLogic.is_error: VerticalLayout {
+                spacing: 8px;
+                alignment: center;
+
+                Text {
+                    // text: "如果系統未自動開啟瀏覽器，請手動點擊下方連結：";
+                    text: @tr("If the system did not automatically open the browser, please click the link below:");
+                    horizontal-alignment: center;
+                    color: #777;
+                    font-size: 12px;
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        PageAccountLogic.open_browser_url(PageAccountLogic.login_url);
+                    }
+                    Text {
+                        // text: "【 點擊此處前往微軟安全登入頁面 】";
+                        text: @tr("& Click here to go to the Microsoft security login page &");
+                        horizontal-alignment: center;
+                        color: parent.has-hover ? #3399ff : #0066cc;
+                        font-weight: 700;
+                        font-size: 14px;
+                    }
+                }
+            }
         }
     }
 }
