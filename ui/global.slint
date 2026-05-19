@@ -147,6 +147,116 @@ export global InstanceLogic {
     callback search-changed(string);
 }
 
+export struct ModData {
+    id: string,
+    name: string,
+    version: string,
+    mod_loader: string,
+    author: string,
+    description: string,
+    enabled: bool,
+}
+
+export global ModLogic {
+    in property <[ModData]> mod_list: [
+        {
+            id: "1",
+            name: "Sodium",
+            version: "0.5.8",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Sodium 是一款針對 Minecraft 客戶端的現代渲染引擎，可大幅提升幀率並修復圖形問題。透過重寫大量渲染代碼，在大多數硬體上都能顯著改善遊戲表現。",
+            enabled: true,
+        },
+        {
+            id: "2",
+            name: "Lithium",
+            version: "0.12.1",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Lithium 是一款免費開源的 Minecraft 模組，可最佳化伺服器端的多個系統，包括物理引擎、AI 邏輯和資料結構，從而減少伺服器負擔並提高 TPS。",
+            enabled: true,
+        },
+        {
+            id: "3",
+            name: "Iris Shaders",
+            version: "1.7.2",
+            mod_loader: "Fabric",
+            author: "coderbot",
+            description: "Iris 是一款與 Sodium 相容的著色器模組，讓玩家可以使用 OptiFine 著色器包，同時保有 Sodium 帶來的效能優勢。支援絕大多數主流著色器包。",
+            enabled: false,
+        },
+        {
+            id: "4",
+            name: "JEI",
+            version: "15.3.0",
+            mod_loader: "Forge",
+            author: "mezz",
+            description: "Just Enough Items（JEI）是一款物品與合成表查詢工具。在遊戲物品欄介面中，你可以快速瀏覽所有可用物品及其合成方式，是模組包中的必備工具。",
+            enabled: true,
+        },
+        {
+            id: "5",
+            name: "Waystones",
+            version: "14.1.3",
+            mod_loader: "Forge",
+            author: "BlayTheNinth",
+            description: "Waystones 新增可放置於世界中的路徑石，讓玩家和同服玩家能夠快速在已啟動的路徑石之間傳送，也可在村莊中自然生成。",
+            enabled: true,
+        },
+        {
+            id: "1",
+            name: "Sodium",
+            version: "0.5.8",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Sodium 是一款針對 Minecraft 客戶端的現代渲染引擎，可大幅提升幀率並修復圖形問題。透過重寫大量渲染代碼，在大多數硬體上都能顯著改善遊戲表現。",
+            enabled: true,
+        },
+        {
+            id: "2",
+            name: "Lithium",
+            version: "0.12.1",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Lithium 是一款免費開源的 Minecraft 模組，可最佳化伺服器端的多個系統，包括物理引擎、AI 邏輯和資料結構，從而減少伺服器負擔並提高 TPS。",
+            enabled: true,
+        },
+        {
+            id: "3",
+            name: "Iris Shaders",
+            version: "1.7.2",
+            mod_loader: "Fabric",
+            author: "coderbot",
+            description: "Iris 是一款與 Sodium 相容的著色器模組，讓玩家可以使用 OptiFine 著色器包，同時保有 Sodium 帶來的效能優勢。支援絕大多數主流著色器包。",
+            enabled: false,
+        },
+        {
+            id: "4",
+            name: "JEI",
+            version: "15.3.0",
+            mod_loader: "Forge",
+            author: "mezz",
+            description: "Just Enough Items（JEI）是一款物品與合成表查詢工具。在遊戲物品欄介面中，你可以快速瀏覽所有可用物品及其合成方式，是模組包中的必備工具。",
+            enabled: true,
+        },
+        {
+            id: "5",
+            name: "Waystones",
+            version: "14.1.3",
+            mod_loader: "Forge",
+            author: "BlayTheNinth",
+            description: "Waystones 新增可放置於世界中的路徑石，讓玩家和同服玩家能夠快速在已啟動的路徑石之間傳送，也可在村莊中自然生成。",
+            enabled: true,
+        },
+    ];
+    in-out property <int> selected_index: 0;
+    in-out property <string> search_text;
+    callback search_changed(string);
+    callback scan_local_mods(string);
+    callback toggle_mod(string);  // 參數為 mod id
+}
+
 export global PageAccountLogic {
     in-out property <bool> is_logging_in: false;
     in-out property <string> login_url: "";
