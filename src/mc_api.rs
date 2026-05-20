@@ -158,9 +158,7 @@ impl McAction<Unauthenticated> {
 
         Ok(detail)
     }
-    /// Fetches the Java runtime catalogue for all platforms.
-    /// The returned map is keyed by `get_mojang_os_arch()` then by component name
-    /// (e.g. `"java-runtime-delta"`).
+    
     pub async fn get_java_runtimes(&self) -> anyhow::Result<McJavaAll> {
         Ok(self
             .client
@@ -172,9 +170,6 @@ impl McAction<Unauthenticated> {
             .await?)
     }
 
-    /// Returns the file manifest for `component` on the current OS/arch.
-    /// `component` comes from `McSpecificVersionDetail.java_version.component`
-    /// (e.g. `"java-runtime-delta"`).
     pub async fn get_java_runtime_manifest(
         &self,
         component: &str,
@@ -204,9 +199,6 @@ impl McAction<Unauthenticated> {
             .await?)
     }
 
-    /// Convenience wrapper: extracts the component name from `version` and
-    /// calls [`get_java_runtime_manifest`].  Returns an error if the version
-    /// does not specify a `javaVersion` field.
     pub async fn get_java_runtime_manifest_for_version(
         &self,
         version: &McSpecificVersionDetail,
@@ -224,8 +216,6 @@ impl McAction<Unauthenticated> {
         self.get_java_runtime_manifest(component).await
     }
 
-    /// Fetches the asset object index from `url` (the `assetIndex.url` field
-    /// inside a `McSpecificVersionDetail`).
     pub async fn get_asset_index(&self, url: &str) -> anyhow::Result<McAssetObjects> {
         Ok(self
             .client
