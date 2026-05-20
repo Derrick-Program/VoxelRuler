@@ -29,6 +29,10 @@ pub struct LaunchContext {
     pub auth_player_name: String,
     pub auth_uuid: String,
     pub auth_access_token: String,
+    /// Microsoft launcher client ID (empty string for offline mode)
+    pub client_id: String,
+    /// Xbox Live user ID (empty string for offline mode)
+    pub xuid: String,
     /// Maximum heap size passed to JVM, e.g. `"2G"`
     pub xmx: String,
     /// Initial heap size passed to JVM, e.g. `"512M"`
@@ -121,6 +125,8 @@ impl LaunchContext {
         m.insert("auth_uuid", self.auth_uuid.clone());
         m.insert("auth_access_token", self.auth_access_token.clone());
         m.insert("auth_session", self.auth_access_token.clone());
+        m.insert("clientid", self.client_id.clone());
+        m.insert("auth_xuid", self.xuid.clone());
         m.insert("user_type", "msa".into());
         m.insert("version_name", self.version.id.clone());
         m.insert(
@@ -192,7 +198,59 @@ fn os_rule_matches(os: &McOsRule) -> bool {
             return false;
         }
     }
+    if let Some(pattern) = &os.version {
+        let ver = get_os_version();
+        let matches = Regex::new(pattern)
+            .map(|re| re.is_match(ver))
+            .unwrap_or(false);
+        if !matches {
+            return false;
+        }
+    }
     true
+}
+
+fn get_os_version() -> &'static str {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(detect_os_version)
+}
+
+#[cfg(target_os = "macos")]
+fn detect_os_version() -> String {
+    Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn detect_os_version() -> String {
+    Command::new("uname")
+        .arg("-r")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "windows")]
+fn detect_os_version() -> String {
+    Command::new("cmd")
+        .args(["/c", "ver"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_default()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn detect_os_version() -> String {
+    String::new()
 }
 
 fn feature_rule_matches(feat: &McFeatureRule) -> bool {
@@ -355,5 +413,144 @@ mod test {
     fn test_get_mojang_os_arch() {
         let os_arch = get_mojang_os_arch();
         println!("當前系統架構對應的 Mojang 字串: {}", os_arch);
+    }
+
+    fn make_ctx(version: McSpecificVersionDetail) -> LaunchContext {
+        LaunchContext {
+            version,
+            java_path: PathBuf::from("/usr/bin/java"),
+            game_dir: PathBuf::from("/game"),
+            libraries_dir: PathBuf::from("/libs"),
+            assets_dir: PathBuf::from("/assets"),
+            natives_dir: PathBuf::from("/natives"),
+            versions_dir: PathBuf::from("/versions"),
+            auth_player_name: "Steve".into(),
+            auth_uuid: "uuid-1234".into(),
+            auth_access_token: "token-abcd".into(),
+            client_id: "".into(),
+            xuid: "".into(),
+            xmx: "2G".into(),
+            xms: "512M".into(),
+        }
+    }
+
+    // 1.21 (modern)：從真實 JSON 解析，驗證 structured arguments 與 rule 評估
+    #[test]
+    fn test_build_command_from_1_21_json() {
+        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
+        let version: McSpecificVersionDetail =
+            serde_json::from_str(&data).expect("解析 1.21.json 失敗");
+        let cmd = make_ctx(version).build_command();
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+
+        // Heap flags
+        assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
+        assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
+
+        // Unconditional JVM args：變數替換正確
+        assert!(args.contains(&"-Djava.library.path=/natives".into()), "natives_directory 未替換");
+        assert!(args.contains(&"-Djna.tmpdir=/natives".into()), "natives_directory 未替換（jna）");
+        assert!(args.contains(&"-cp".into()), "缺少 -cp");
+
+        // Classpath：版本 JAR 在最後
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let classpath = &args[cp_pos + 1];
+        assert!(classpath.ends_with("1.21/1.21.jar"), "classpath 應以版本 JAR 結尾");
+
+        // OS-conditional 函式庫：macOS 包含 java-objc-bridge，排除 linux/windows natives
+        #[cfg(target_os = "macos")]
+        {
+            assert!(classpath.contains("java-objc-bridge"), "macOS classpath 應包含 java-objc-bridge");
+            assert!(!classpath.contains("natives-linux"), "macOS classpath 不應有 linux natives");
+            assert!(!classpath.contains("natives-windows"), "macOS classpath 不應有 windows natives");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(classpath.contains("natives-linux"), "Linux classpath 應包含 linux natives");
+            assert!(!classpath.contains("natives-macos"), "Linux classpath 不應有 macos natives");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert!(classpath.contains("natives-windows"), "Windows classpath 應包含 windows natives");
+            assert!(!classpath.contains("natives-linux"), "Windows classpath 不應有 linux natives");
+        }
+
+        // Main class
+        assert!(args.contains(&"net.minecraft.client.main.Main".into()), "缺少 main class");
+
+        // Game args：無條件項目都在，變數替換正確
+        assert!(args.contains(&"--username".into()));
+        assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
+        assert!(args.contains(&"1.21".into()), "version_name 未替換");
+        assert!(args.contains(&"--gameDir".into()));
+        assert!(args.contains(&"/game".into()), "game_directory 未替換");
+        assert!(args.contains(&"msa".into()), "user_type 應為 msa");
+
+        // Feature-gated game args：不應出現（feature_rule_matches 全部回傳 false）
+        assert!(!args.contains(&"--demo".into()), "--demo 不應出現（非 demo 模式）");
+        assert!(!args.contains(&"--width".into()), "--width 不應出現（無自訂解析度）");
+        assert!(!args.contains(&"--quickPlayPath".into()), "--quickPlayPath 不應出現");
+
+        // OS-conditional JVM args
+        #[cfg(target_os = "macos")]
+        assert!(args.contains(&"-XstartOnFirstThread".into()), "macOS 應有 -XstartOnFirstThread");
+        #[cfg(not(target_os = "macos"))]
+        assert!(!args.contains(&"-XstartOnFirstThread".into()), "非 macOS 不應有 -XstartOnFirstThread");
+        #[cfg(not(target_os = "windows"))]
+        assert!(!args.iter().any(|a| a.contains("HeapDumpPath")), "非 Windows 不應有 HeapDumpPath");
+        dbg!(&args);
+        dbg!(&cmd);
+    }
+
+    // 1.12.2 (legacy)：從真實 JSON 解析，驗證 minecraft_arguments 展開與 rule 評估
+    #[test]
+    fn test_build_command_from_1_12_2_json() {
+        let data = std::fs::read_to_string("data/1.12.2.json").expect("找不到 data/1.12.2.json");
+        let version: McSpecificVersionDetail =
+            serde_json::from_str(&data).expect("解析 1.12.2.json 失敗");
+        let cmd = make_ctx(version).build_command();
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+
+        // Heap flags
+        assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
+        assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
+
+        // Legacy JVM 路徑
+        assert!(args.contains(&"-Djava.library.path=/natives".into()), "缺少 natives_directory");
+        assert!(args.contains(&"-cp".into()), "缺少 -cp");
+
+        // Classpath：版本 JAR 在最後
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let classpath = &args[cp_pos + 1];
+        assert!(classpath.ends_with("1.12.2/1.12.2.jar"), "classpath 應以版本 JAR 結尾");
+
+        // 1.12.2 對 lwjgl 有兩套：2.9.4（[allow all, disallow osx]）和 2.9.2（[allow osx]）
+        // macOS：2.9.4 被 disallow，2.9.2 被 allow
+        #[cfg(target_os = "macos")]
+        {
+            assert!(!classpath.contains("lwjgl-2.9.4"), "macOS: lwjgl 2.9.4 應被 disallow 排除");
+            assert!(classpath.contains("lwjgl-2.9.2"), "macOS: lwjgl 2.9.2 應被 allow 包含");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(classpath.contains("lwjgl-2.9.4"), "非 macOS: lwjgl 2.9.4 應被包含");
+            assert!(!classpath.contains("lwjgl-2.9.2"), "非 macOS: lwjgl 2.9.2（macOS 專用）應被排除");
+        }
+
+        // Main class
+        assert!(args.contains(&"net.minecraft.client.main.Main".into()), "缺少 main class");
+
+        // minecraft_arguments 展開：所有變數替換正確
+        assert!(args.contains(&"--username".into()));
+        assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
+        assert!(args.contains(&"1.12.2".into()), "version_name 未替換");
+        assert!(args.contains(&"--gameDir".into()));
+        assert!(args.contains(&"/game".into()), "game_directory 未替換");
+        assert!(args.contains(&"--userType".into()));
+        assert!(args.contains(&"msa".into()), "user_type 應為 msa");
+        assert!(args.contains(&"--uuid".into()));
+        assert!(args.contains(&"uuid-1234".into()), "auth_uuid 未替換");
+        dbg!(&args);
+        dbg!(&cmd);
     }
 }
