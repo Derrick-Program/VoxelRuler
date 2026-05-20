@@ -11,8 +11,6 @@ use crate::mc_types::{
     McRuleOS, McSpecificVersionDetail,
 };
 
-// ── LaunchContext ─────────────────────────────────────────────────────────────
-
 pub struct LaunchContext {
     pub version: McSpecificVersionDetail,
     pub java_path: PathBuf,
@@ -74,7 +72,6 @@ impl LaunchContext {
                 cmd.arg(arg);
             }
         } else {
-            // Pre-1.13 versions have no structured jvm arguments
             cmd.arg(format!("-Djava.library.path={}", self.natives_dir.display()));
             cmd.arg("-cp");
             cmd.arg(&classpath);
@@ -195,8 +192,6 @@ impl LaunchContext {
     }
 }
 
-// ── Rule evaluation ───────────────────────────────────────────────────────────
-
 fn evaluate_rules(rules: &[McRule]) -> bool {
     if rules.is_empty() {
         return true;
@@ -295,8 +290,6 @@ fn feature_rule_matches(feat: &McFeatureRule) -> bool {
         && feat.is_quick_play_realms != Some(true)
 }
 
-// ── Argument helpers ──────────────────────────────────────────────────────────
-
 fn collect_args(out: &mut Vec<String>, items: &[McArgumentItem], vars: &HashMap<&'static str, String>) {
     for item in items {
         match item {
@@ -341,10 +334,6 @@ fn apply_arg(cmd: &mut Command, item: &McArgumentItem, vars: &HashMap<&'static s
     }
 }
 
-// ── Maven coordinate → relative path ─────────────────────────────────────────
-
-/// Converts a Maven coordinate (`group:artifact:version[:classifier]`) to a
-/// relative path suitable for joining with `libraries_dir`.
 pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
     let parts: Vec<&str> = coord.split(':').collect();
     if parts.len() < 3 {
@@ -366,7 +355,6 @@ pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn get_mojang_os_arch() -> &'static str {
     match (OS, ARCH) {
