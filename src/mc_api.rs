@@ -2,10 +2,15 @@
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::marker::PhantomData;
 
-use crate::mc_types::{McLatestVersion, McVersion, McVersionInfo};
+use crate::mc_types::{
+    McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail,
+    McVersion, McVersionInfo,
+};
 use futures_util::{StreamExt, stream};
 
 const NEW_MC_SERVER: &str = "https://api.minecraftservices.com";
+const JAVA_RUNTIME_ALL_URL: &str =
+    "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 pub struct Unauthenticated;
 pub struct Authenticated;
@@ -153,6 +158,85 @@ impl McAction<Unauthenticated> {
 
         Ok(detail)
     }
+    /// Fetches the Java runtime catalogue for all platforms.
+    /// The returned map is keyed by `get_mojang_os_arch()` then by component name
+    /// (e.g. `"java-runtime-delta"`).
+    pub async fn get_java_runtimes(&self) -> anyhow::Result<McJavaAll> {
+        Ok(self
+            .client
+            .get(JAVA_RUNTIME_ALL_URL)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?)
+    }
+
+    /// Returns the file manifest for `component` on the current OS/arch.
+    /// `component` comes from `McSpecificVersionDetail.java_version.component`
+    /// (e.g. `"java-runtime-delta"`).
+    pub async fn get_java_runtime_manifest(
+        &self,
+        component: &str,
+    ) -> anyhow::Result<McJavaManifest> {
+        let runtimes = self.get_java_runtimes().await?;
+        let os_arch = crate::mc_parser::get_mojang_os_arch();
+        let manifest_url = runtimes
+            .get(os_arch)
+            .and_then(|by_component| by_component.get(component))
+            .and_then(|entries| entries.first())
+            .map(|entry| entry.manifest.url.clone())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Java runtime '{}' not found for platform '{}'",
+                    component,
+                    os_arch
+                )
+            })?;
+
+        Ok(self
+            .client
+            .get(&manifest_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?)
+    }
+
+    /// Convenience wrapper: extracts the component name from `version` and
+    /// calls [`get_java_runtime_manifest`].  Returns an error if the version
+    /// does not specify a `javaVersion` field.
+    pub async fn get_java_runtime_manifest_for_version(
+        &self,
+        version: &McSpecificVersionDetail,
+    ) -> anyhow::Result<McJavaManifest> {
+        let component = version
+            .java_version
+            .as_ref()
+            .map(|j| j.component.as_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Version '{}' does not specify a javaVersion component",
+                    version.id
+                )
+            })?;
+        self.get_java_runtime_manifest(component).await
+    }
+
+    /// Fetches the asset object index from `url` (the `assetIndex.url` field
+    /// inside a `McSpecificVersionDetail`).
+    pub async fn get_asset_index(&self, url: &str) -> anyhow::Result<McAssetObjects> {
+        Ok(self
+            .client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?)
+    }
+
     pub async fn download_all_release_details(&self) -> anyhow::Result<()> {
         let versions = self.get_all_mc_versions().await?;
         let releases: Vec<_> = versions
