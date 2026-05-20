@@ -55,8 +55,23 @@ impl LaunchContext {
                     apply_arg(&mut cmd, item, &vars);
                 }
             }
-            for item in &arguments.jvm {
-                apply_arg(&mut cmd, item, &vars);
+
+            let mut jvm_args: Vec<String> = Vec::new();
+            collect_args(&mut jvm_args, &arguments.jvm, &vars);
+
+            let compat = self.java_compat_args();
+            if !compat.is_empty() {
+                let cp_pos = jvm_args
+                    .iter()
+                    .position(|a| a == "-cp")
+                    .unwrap_or(jvm_args.len());
+                for (i, arg) in compat.into_iter().enumerate() {
+                    jvm_args.insert(cp_pos + i, arg);
+                }
+            }
+
+            for arg in &jvm_args {
+                cmd.arg(arg);
             }
         } else {
             // Pre-1.13 versions have no structured jvm arguments
@@ -116,6 +131,24 @@ impl LaunchContext {
         );
 
         parts.join(sep)
+    }
+
+    fn java_compat_args(&self) -> Vec<String> {
+        let major = self
+            .version
+            .java_version
+            .as_ref()
+            .map_or(8, |jv| jv.major_version);
+
+        let mut args: Vec<String> = Vec::new();
+        if major >= 17 {
+            args.push("--add-modules=jdk.incubator.vector".into());
+            args.push("--enable-native-access=ALL-UNNAMED".into());
+        }
+        if major >= 21 {
+            args.push("--sun-misc-unsafe-memory-access=allow".into());
+        }
+        args
     }
 
     fn build_vars(&self, classpath: &str) -> HashMap<&'static str, String> {
@@ -263,6 +296,28 @@ fn feature_rule_matches(feat: &McFeatureRule) -> bool {
 }
 
 // ── Argument helpers ──────────────────────────────────────────────────────────
+
+fn collect_args(out: &mut Vec<String>, items: &[McArgumentItem], vars: &HashMap<&'static str, String>) {
+    for item in items {
+        match item {
+            McArgumentItem::Simple(s) => {
+                out.push(resolve_argument(s, vars));
+            }
+            McArgumentItem::Conditional(cond) => {
+                if evaluate_rules(&cond.rules) {
+                    match &cond.value {
+                        McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
+                        McArgumentValue::Many(args) => {
+                            for a in args {
+                                out.push(resolve_argument(a, vars));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 fn apply_arg(cmd: &mut Command, item: &McArgumentItem, vars: &HashMap<&'static str, String>) {
     match item {
@@ -432,6 +487,60 @@ mod test {
             xmx: "2G".into(),
             xms: "512M".into(),
         }
+    }
+
+    fn make_ctx_with_java(version: McSpecificVersionDetail, major_version: i32) -> LaunchContext {
+        let mut ctx = make_ctx(version);
+        if let Some(ref mut jv) = ctx.version.java_version {
+            jv.major_version = major_version;
+        }
+        ctx
+    }
+
+    #[test]
+    fn test_java21_compat_args_injected_before_cp() {
+        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
+        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
+        let cmd = make_ctx_with_java(version, 21).build_command();
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()), "缺少 incubator.vector");
+        assert!(args.contains(&"--enable-native-access=ALL-UNNAMED".into()), "缺少 native-access");
+        assert!(args.contains(&"--sun-misc-unsafe-memory-access=allow".into()), "缺少 unsafe-memory-access");
+
+        let native_pos = args.iter().position(|a| a == "--enable-native-access=ALL-UNNAMED").unwrap();
+        let unsafe_pos = args.iter().position(|a| a == "--sun-misc-unsafe-memory-access=allow").unwrap();
+        assert!(native_pos < cp_pos, "--enable-native-access 應在 -cp 之前");
+        assert!(unsafe_pos < cp_pos, "--sun-misc-unsafe-memory-access 應在 -cp 之前");
+    }
+
+    #[test]
+    fn test_java17_compat_args_no_unsafe_memory_access() {
+        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
+        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
+        let cmd = make_ctx_with_java(version, 17).build_command();
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()), "Java 17 應有 incubator.vector");
+        assert!(args.contains(&"--enable-native-access=ALL-UNNAMED".into()), "Java 17 應有 native-access");
+        assert!(!args.contains(&"--sun-misc-unsafe-memory-access=allow".into()), "Java 17 不應有 unsafe-memory-access（需要 >= 21）");
+
+        let native_pos = args.iter().position(|a| a == "--enable-native-access=ALL-UNNAMED").unwrap();
+        assert!(native_pos < cp_pos, "--enable-native-access 應在 -cp 之前");
+    }
+
+    #[test]
+    fn test_old_java_no_compat_args() {
+        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
+        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
+        let cmd = make_ctx_with_java(version, 8).build_command();
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+
+        assert!(!args.contains(&"--add-modules=jdk.incubator.vector".into()), "Java 8 不應有 compat args");
+        assert!(!args.contains(&"--enable-native-access=ALL-UNNAMED".into()), "Java 8 不應有 compat args");
+        assert!(!args.contains(&"--sun-misc-unsafe-memory-access=allow".into()), "Java 8 不應有 compat args");
     }
 
     #[test]
