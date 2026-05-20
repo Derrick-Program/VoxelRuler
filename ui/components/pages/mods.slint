@@ -80,7 +80,21 @@ component ModItem inherits Rectangle {
         padding-top: 10px;
         padding-bottom: 10px;
         spacing: 10px;
-        alignment: center;
+        alignment: start;
+
+        Rectangle {
+            width: 44px;
+            height: 44px;
+            background: AppTheme.colors.muted;
+            border-radius: AppTheme.radius-sm;
+            Image {
+                source: data.image;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+                padding: 4px;
+            }
+        }
 
         VerticalLayout {
             horizontal-stretch: 1;
@@ -105,21 +119,6 @@ component ModItem inherits Rectangle {
                         padding-right: 5px;
                         Text {
                             text: data.mod_loader;
-                            font-size: 12px * root.scale;
-                            color: AppTheme.colors.muted-foreground;
-                            vertical-alignment: center;
-                        }
-                    }
-                }
-                Rectangle {
-                    background: AppTheme.colors.muted;
-                    border-radius: 3px;
-                    height: 18px;
-                    HorizontalLayout {
-                        padding-left: 5px;
-                        padding-right: 5px;
-                        Text {
-                            text: data.version;
                             font-size: 12px * root.scale;
                             color: AppTheme.colors.muted-foreground;
                             vertical-alignment: center;
@@ -152,12 +151,13 @@ component ModDetail inherits Rectangle {
                 color: AppTheme.colors.foreground;
                 font-size: 22px * root.scale;
                 font-weight: 700;
-                overflow: elide;
+                wrap: word-wrap;
             }
             Text {
                 text: @tr("by {}", data.author);
                 color: AppTheme.colors.muted-foreground;
                 font-size: 14px * root.scale;
+                wrap: word-wrap;
             }
         }
 
@@ -168,20 +168,6 @@ component ModDetail inherits Rectangle {
 
         HorizontalLayout {
             spacing: 20px;
-            VerticalLayout {
-                spacing: 2px;
-                Text {
-                    text: @tr("Version");
-                    color: AppTheme.colors.muted-foreground;
-                    font-size: 13px * root.scale;
-                }
-                Text {
-                    text: data.version;
-                    color: AppTheme.colors.foreground;
-                    font-size: 15px * root.scale;
-                    font-weight: 500;
-                }
-            }
             VerticalLayout {
                 spacing: 2px;
                 Text {
@@ -232,7 +218,7 @@ export component Mods inherits Rectangle {
     width: 100%;
     height: 100%;
 
-    property <float> text-scale: max(1.0, min(1.5, root.width / 800px));
+    property <float> text-scale: 1.0;
 
     TouchArea {
         clicked => { search-c._clear-focus(); }
@@ -286,7 +272,6 @@ export component Mods inherits Rectangle {
             ScrollView {
                 horizontal-stretch: 1;
                 min-width: 220px; 
-                max-width: 350px; 
                 
                 viewport-height: mod-list.preferred-height;
 
@@ -308,7 +293,7 @@ export component Mods inherits Rectangle {
             }
 
             ModDetail {
-                horizontal-stretch: 2;
+                horizontal-stretch: 1;
                 min-width: 300px;
                 scale: root.text-scale;
 
