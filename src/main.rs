@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::sync::LazyLock;
 use dashmap::DashMap;
 use crate::view::open_view;
@@ -9,10 +10,11 @@ mod mc_types;
 mod view;
 
 static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(|| DashMap::new());
-
+static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> = LazyLock::new(|| {
+    directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler")
+});
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _pdir = directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler").unwrap();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
             if *s.mc_token_expires_at() >= chrono::Utc::now().timestamp() {
