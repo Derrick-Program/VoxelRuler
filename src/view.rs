@@ -1,5 +1,5 @@
 slint::include_modules!();
-use slint::{ModelRc, VecModel};
+use slint::{Model, ModelRc, VecModel};
 use std::{path::Path, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
 use crate::mc_token;
@@ -113,6 +113,21 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     logic.on_new_instance(|| {
         println!("Rust: 開啟建立視窗");
+    });
+
+    let mod_logic = ui.global::<ModLogic>();
+    let raw_mods: Vec<ModData> = mod_logic.get_mod_list().iter().collect();
+    let mod_logic_weak = ui.as_weak();
+    mod_logic.on_search_changed(move |text| {
+        let ui = mod_logic_weak.unwrap();
+        let logic = ui.global::<ModLogic>();
+        let filtered: Vec<ModData> = raw_mods
+            .iter()
+            .filter(|m| text.is_empty() || m.name.to_lowercase().contains(text.to_lowercase().as_str()))
+            .cloned()
+            .collect();
+        logic.set_selected_index(0);
+        logic.set_mod_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
 
     let applogic = ui.global::<AppLogic>();

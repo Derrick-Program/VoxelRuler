@@ -3,10 +3,11 @@ import { AppTheme } from "@theme";
 import { Home } from "home.slint";
 import { Instances } from "instances.slint";
 import { Account } from "account.slint";
+import { Mods } from "mods.slint";
 export component Pages inherits Rectangle {
     in property <SideTabId> active-tab;
-    property <bool> is-wip: active-tab == SideTabId.mods 
-                     || active-tab == SideTabId.downloads
+    property <bool> is-wip: //active-tab == SideTabId.mods 
+                     active-tab == SideTabId.downloads
                     //  || active-tab == SideTabId.account
                      || active-tab == SideTabId.settings;
     background: AppTheme.colors.background;
@@ -15,6 +16,7 @@ export component Pages inherits Rectangle {
     if active-tab == SideTabId.home: Home {}
     if active-tab == SideTabId.instances: Instances {}
     if active-tab == SideTabId.account: Account {}
+    if active-tab == SideTabId.mods: Mods {}
     if root.is-wip: Rectangle {
         Text {
             text: @tr("WIP ...");

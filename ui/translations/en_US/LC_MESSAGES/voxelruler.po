@@ -122,3 +122,38 @@ msgstr "Settings"
 msgctxt "SideBar"
 msgid "Switch Theme"
 msgstr "Switch Theme"
+
+#: ui/components/pages/mods.slint:33
+msgctxt "ModSearch"
+msgid "Search mods..."
+msgstr "Search mods..."
+
+#: ui/components/pages/mods.slint:151
+msgctxt "ModDetail"
+msgid "by {}"
+msgstr "by {}"
+
+#: ui/components/pages/mods.slint:167
+msgctxt "ModDetail"
+msgid "Version"
+msgstr "Version"
+
+#: ui/components/pages/mods.slint:181
+msgctxt "ModDetail"
+msgid "Loader"
+msgstr "Loader"
+
+#: ui/components/pages/mods.slint:186
+msgctxt "ModDetail"
+msgid "Vanilla"
+msgstr "Vanilla"
+
+#: ui/components/pages/mods.slint:202
+msgctxt "ModDetail"
+msgid "Description"
+msgstr "Description"
+
+#: ui/components/pages/mods.slint:253
+msgctxt "Mods"
+msgid "Mods"
+msgstr "Mods"

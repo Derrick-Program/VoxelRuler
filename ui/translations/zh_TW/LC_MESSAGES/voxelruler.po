@@ -121,3 +121,38 @@ msgstr "設定"
 msgctxt "SideBar"
 msgid "Switch Theme"
 msgstr "切換主題"
+
+#: ui/components/pages/mods.slint:33
+msgctxt "ModSearch"
+msgid "Search mods..."
+msgstr "搜尋模組..."
+
+#: ui/components/pages/mods.slint:151
+msgctxt "ModDetail"
+msgid "by {}"
+msgstr "作者：{}"
+
+#: ui/components/pages/mods.slint:167
+msgctxt "ModDetail"
+msgid "Version"
+msgstr "版本"
+
+#: ui/components/pages/mods.slint:181
+msgctxt "ModDetail"
+msgid "Loader"
+msgstr "載入器"
+
+#: ui/components/pages/mods.slint:186
+msgctxt "ModDetail"
+msgid "Vanilla"
+msgstr "原版"
+
+#: ui/components/pages/mods.slint:202
+msgctxt "ModDetail"
+msgid "Description"
+msgstr "說明"
+
+#: ui/components/pages/mods.slint:253
+msgctxt "Mods"
+msgid "Mods"
+msgstr "模組"
