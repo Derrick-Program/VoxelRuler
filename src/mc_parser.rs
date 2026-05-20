@@ -434,7 +434,6 @@ mod test {
         }
     }
 
-    // 1.21 (modern)：從真實 JSON 解析，驗證 structured arguments 與 rule 評估
     #[test]
     fn test_build_command_from_1_21_json() {
         let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
@@ -443,21 +442,16 @@ mod test {
         let cmd = make_ctx(version).build_command();
         let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
 
-        // Heap flags
         assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
         assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
-
-        // Unconditional JVM args：變數替換正確
         assert!(args.contains(&"-Djava.library.path=/natives".into()), "natives_directory 未替換");
         assert!(args.contains(&"-Djna.tmpdir=/natives".into()), "natives_directory 未替換（jna）");
         assert!(args.contains(&"-cp".into()), "缺少 -cp");
 
-        // Classpath：版本 JAR 在最後
         let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
         let classpath = &args[cp_pos + 1];
         assert!(classpath.ends_with("1.21/1.21.jar"), "classpath 應以版本 JAR 結尾");
 
-        // OS-conditional 函式庫：macOS 包含 java-objc-bridge，排除 linux/windows natives
         #[cfg(target_os = "macos")]
         {
             assert!(classpath.contains("java-objc-bridge"), "macOS classpath 應包含 java-objc-bridge");
@@ -475,10 +469,8 @@ mod test {
             assert!(!classpath.contains("natives-linux"), "Windows classpath 不應有 linux natives");
         }
 
-        // Main class
         assert!(args.contains(&"net.minecraft.client.main.Main".into()), "缺少 main class");
 
-        // Game args：無條件項目都在，變數替換正確
         assert!(args.contains(&"--username".into()));
         assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
         assert!(args.contains(&"1.21".into()), "version_name 未替換");
@@ -486,12 +478,10 @@ mod test {
         assert!(args.contains(&"/game".into()), "game_directory 未替換");
         assert!(args.contains(&"msa".into()), "user_type 應為 msa");
 
-        // Feature-gated game args：不應出現（feature_rule_matches 全部回傳 false）
         assert!(!args.contains(&"--demo".into()), "--demo 不應出現（非 demo 模式）");
         assert!(!args.contains(&"--width".into()), "--width 不應出現（無自訂解析度）");
         assert!(!args.contains(&"--quickPlayPath".into()), "--quickPlayPath 不應出現");
 
-        // OS-conditional JVM args
         #[cfg(target_os = "macos")]
         assert!(args.contains(&"-XstartOnFirstThread".into()), "macOS 應有 -XstartOnFirstThread");
         #[cfg(not(target_os = "macos"))]
@@ -502,7 +492,6 @@ mod test {
         dbg!(&cmd);
     }
 
-    // 1.12.2 (legacy)：從真實 JSON 解析，驗證 minecraft_arguments 展開與 rule 評估
     #[test]
     fn test_build_command_from_1_12_2_json() {
         let data = std::fs::read_to_string("data/1.12.2.json").expect("找不到 data/1.12.2.json");
@@ -511,21 +500,16 @@ mod test {
         let cmd = make_ctx(version).build_command();
         let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
 
-        // Heap flags
         assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
         assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
 
-        // Legacy JVM 路徑
         assert!(args.contains(&"-Djava.library.path=/natives".into()), "缺少 natives_directory");
         assert!(args.contains(&"-cp".into()), "缺少 -cp");
 
-        // Classpath：版本 JAR 在最後
         let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
         let classpath = &args[cp_pos + 1];
         assert!(classpath.ends_with("1.12.2/1.12.2.jar"), "classpath 應以版本 JAR 結尾");
 
-        // 1.12.2 對 lwjgl 有兩套：2.9.4（[allow all, disallow osx]）和 2.9.2（[allow osx]）
-        // macOS：2.9.4 被 disallow，2.9.2 被 allow
         #[cfg(target_os = "macos")]
         {
             assert!(!classpath.contains("lwjgl-2.9.4"), "macOS: lwjgl 2.9.4 應被 disallow 排除");
@@ -537,10 +521,8 @@ mod test {
             assert!(!classpath.contains("lwjgl-2.9.2"), "非 macOS: lwjgl 2.9.2（macOS 專用）應被排除");
         }
 
-        // Main class
         assert!(args.contains(&"net.minecraft.client.main.Main".into()), "缺少 main class");
 
-        // minecraft_arguments 展開：所有變數替換正確
         assert!(args.contains(&"--username".into()));
         assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
         assert!(args.contains(&"1.12.2".into()), "version_name 未替換");
