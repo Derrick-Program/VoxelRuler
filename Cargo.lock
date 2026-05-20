@@ -8167,6 +8167,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "directories",
+ "futures-util",
  "getset",
  "gluesql",
  "keyring",

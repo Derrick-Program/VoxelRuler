@@ -3,6 +3,7 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::marker::PhantomData;
 
 use crate::mc_types::{McLatestVersion, McVersion, McVersionInfo};
+use futures_util::{StreamExt, stream};
 
 const NEW_MC_SERVER: &str = "https://api.minecraftservices.com";
 
@@ -132,6 +133,49 @@ impl McAction<Unauthenticated> {
             .find(|v| v.id == release_id)
             .ok_or_else(|| anyhow::anyhow!("Latest release version not found"))
     }
+    pub async fn get_specific_mc_version_detail(
+        &self,
+        version_id: &str,
+    ) -> anyhow::Result<crate::mc_types::McSpecificVersionDetail> {
+        let version = self.get_specific_mc_version(version_id).await?;
+        let datail: serde_json::Value = self
+            .client
+            .get(&version.url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let detail: crate::mc_types::McSpecificVersionDetail = serde_json::from_value(datail)?;
+        let json_data = serde_json::to_vec_pretty(&detail)?;
+        tokio::fs::create_dir_all("data").await?; //TODO: runtime 需要放到系統特定資料夾
+        tokio::fs::write(format!("data/{}.json", version_id), json_data).await?;
+
+        Ok(detail)
+    }
+    pub async fn download_all_release_details(&self) -> anyhow::Result<()> {
+        let versions = self.get_all_mc_versions().await?;
+        let releases: Vec<_> = versions
+            .into_iter()
+            .filter(|v| v.r#type == "release")
+            .collect();
+        let mut stream = stream::iter(releases)
+            .map(|v| async move {
+                (
+                    v.id.clone(),
+                    self.get_specific_mc_version_detail(&v.id).await,
+                )
+            })
+            .buffer_unordered(5);
+        while let Some((id, result)) = stream.next().await {
+            match result {
+                Ok(_) => println!("Successfully downloaded: {}", id),
+                Err(e) => eprintln!("Failed to download {}: {}", id, e),
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl McAction<Authenticated> {
@@ -222,6 +266,27 @@ mod test {
         let mc = McAction::new().authenticate(session.minecraft_access_token());
         match mc.get_user_profile().await {
             Ok(profile) => println!("Profile: {:#?}", profile),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_specific_mc_version_detail() {
+        let mc = McAction::new();
+        match mc.get_specific_mc_version_detail("1.20.4").await {
+            Ok(detail) => {
+                println!("Detail for version 1.20.4: {:#?}", detail)
+            }
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_get_all_release_version_details() {
+        let mc = McAction::new();
+        match mc.download_all_release_details().await {
+            Ok(_) => println!("Successfully downloaded all release details"),
             Err(e) => eprintln!("Error: {}", e),
         }
     }
