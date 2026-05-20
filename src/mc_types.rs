@@ -289,3 +289,25 @@ pub struct McJavaDownloadInfo {
     pub size: u64,
     pub url: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McAssetObjects {
+    pub objects: HashMap<String, McAssetObject>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McAssetObject {
+    pub hash: String,
+    pub size: u64,
+}
+
+impl McAssetObject {
+    /// Download URL: `https://resources.download.minecraft.net/<first2>/<hash>`
+    pub fn download_url(&self) -> String {
+        format!(
+            "https://resources.download.minecraft.net/{}/{}",
+            &self.hash[..2],
+            self.hash
+        )
+    }
+}
