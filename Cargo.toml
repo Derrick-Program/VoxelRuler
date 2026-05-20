@@ -23,6 +23,8 @@ chrono = "0.4.44"
 getset = "0.1.6"
 dashmap = { version = "6.2.1", features = ["serde"] }
 open = "5.3.5"
+regex = "1.12.3"
+futures-util = "0.3.32"
 
 [profile.release]
 codegen-units = 1
