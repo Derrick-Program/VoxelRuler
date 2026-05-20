@@ -102,7 +102,7 @@ component ModItem inherits Rectangle {
             spacing: 4px;
             Text {
                 text: data.name;
-                color: data.enabled ? AppTheme.colors.foreground : AppTheme.colors.muted-foreground;
+                color: AppTheme.colors.foreground;
                 font-size: 16px * root.scale;
                 font-weight: 600;
                 overflow: elide;
@@ -299,7 +299,7 @@ export component Mods inherits Rectangle {
 
                 visible: ModLogic.mod_list.length > 0;
                 data: ModLogic.mod_list.length > 0 ? ModLogic.mod_list[ModLogic.selected_index] : {
-                    id: "", name: "", author: "", version: "", mod_loader: "", description: "", enabled: false
+                    id: "", name: "", author: "", version: "", mod_loader: "", description: ""
                 };
             }
         }
