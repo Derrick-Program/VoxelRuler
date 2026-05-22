@@ -55,3 +55,10 @@ formats = [
 # license-file = "LICENSE.rtf"
 [package.metadata.packager.linux]
 generate-desktop-entry = true
+
+[profile.dev]
+incremental = true
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
