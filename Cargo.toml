@@ -8,18 +8,18 @@ anyhow = "1.0.102"
 directories = "6.0.0"
 gluesql = { version = "0.19.0", default-features = false, features = ["gluesql-redb-storage"] }
 minecraft-msa-auth = "0.4.0"
-oauth2 = { version = "5.0.0", features = ["reqwest"] }
+oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 reqwest = { version = "0.12", features = ["stream"] }
 serde_json = "1.0.149"
 sha1 = "0.11.0"
 slint = "1.16.1"
 tempfile = "3.27.0"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["fs", "macros", "rt-multi-thread", "tracing", "windows-sys"] }
 url = "2"
 keyring = "4.0.1"
 keyring-core = "1.0.0"
-chrono = "0.4.44"
+chrono = { version = "0.4.44", features = ["clock", "oldtime"], default-features = false }
 getset = "0.1.6"
 dashmap = { version = "6.2.1", features = ["serde"] }
 open = "5.3.5"
@@ -28,7 +28,7 @@ futures-util = "0.3.32"
 
 [profile.release]
 codegen-units = 1
-lto = true
+lto = "thin"
 
 [build-dependencies]
 slint-build = "1.16.1"
@@ -58,7 +58,10 @@ generate-desktop-entry = true
 
 [profile.dev]
 incremental = true
-opt-level = 1
+opt-level = 0
+debug = true
+codegen-units = 16
+lto = false
 
-[profile.dev.package."*"]
-opt-level = 3
+# [profile.dev.package."*"]
+# opt-level = 3
