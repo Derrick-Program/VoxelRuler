@@ -1,4 +1,4 @@
-import { SideBar, Footer, Pages } from "components/index.slint";
+import { SideBar, Footer, Pages, DownloadDialog, LogDialog } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
 import { AppData, InstanceLogic, AppLogic, PageAccountLogic, ModLogic, ModData } from "@global";
@@ -35,6 +35,18 @@ export component MainApp inherits Window {
                 version: AppData.version;
             }
         }
+    }
+
+    if InstanceLogic.show-log: LogDialog {
+        lines: InstanceLogic.log-lines;
+        closed => { InstanceLogic.close-log(); }
+    }
+
+    if InstanceLogic.is-installing: DownloadDialog {
+        download-progress: InstanceLogic.install-progress;
+        download-status: InstanceLogic.install-status;
+        is-error: InstanceLogic.install-is-error;
+        dismissed => { InstanceLogic.dismiss-install-dialog(); }
     }
 
     if PageAccountLogic.is_logging_in: Dialog {

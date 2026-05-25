@@ -133,6 +133,7 @@ export global InstanceLogic {
     ];
     callback new_instance();
     callback launch_instance(string);
+    callback kill_instance(string);
     callback open_instance_settings(string);
     new_instance => {
         debug("Create new instance");
@@ -140,11 +141,26 @@ export global InstanceLogic {
     launch_instance(id) => {
         debug("Launch instance with id: " + id);
     }
+    kill_instance(id) => {
+        debug("Kill instance with id: " + id);
+    }
     open_instance_settings(id) => {
         debug("Open settings for instance with id: " + id);
     }
     in-out property <string> search-text;
     callback search-changed(string);
+
+    in-out property <bool> is-installing: false;
+    in-out property <float> install-progress: 0.0;
+    in-out property <string> install-status: "";
+    in-out property <bool> install-is-error: false;
+    callback dismiss-install-dialog();
+
+    in-out property <bool> show-log: false;
+    in-out property <string> log-instance-id: "";
+    in-out property <[string]> log-lines: [];
+    callback open-log(string);
+    callback close-log();
 }
 
 export struct ModData {

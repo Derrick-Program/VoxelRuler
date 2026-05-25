@@ -15,10 +15,19 @@ fn sha1_hex(data: &[u8]) -> String {
 
 // ── Core downloader ───────────────────────────────────────────────────────────
 
-/// Download `url` to `dest`, skip if file already exists with matching SHA1.
-async fn download_and_verify(url: &str, dest: &Path, expected_sha1: &str) -> anyhow::Result<()> {
-    if dest.exists() && sha1_hex(&tokio::fs::read(dest).await?) == expected_sha1 {
-        return Ok(());
+/// Download `url` to `dest`.
+/// Skip if file already exists with matching size (fast path, mirrors official launcher).
+/// SHA1 is only verified after downloading to confirm download integrity.
+async fn download_and_verify(
+    url: &str,
+    dest: &Path,
+    expected_size: u64,
+    expected_sha1: &str,
+) -> anyhow::Result<()> {
+    if dest.exists() {
+        if tokio::fs::metadata(dest).await?.len() == expected_size {
+            return Ok(());
+        }
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -47,7 +56,7 @@ pub async fn install_java(manifest: &McJavaManifest, java_dir: &Path) -> anyhow:
                 tokio::fs::create_dir_all(&dest).await?;
             }
             McJavaFileEntry::File { executable, downloads } => {
-                download_and_verify(&downloads.raw.url, &dest, &downloads.raw.sha1).await?;
+                download_and_verify(&downloads.raw.url, &dest, downloads.raw.size, &downloads.raw.sha1).await?;
                 #[cfg(unix)]
                 if *executable {
                     use std::os::unix::fs::PermissionsExt;
@@ -85,7 +94,7 @@ pub async fn install_client(version: &McSpecificVersionDetail, versions_dir: &Pa
     let dest = versions_dir
         .join(&version.id)
         .join(format!("{}.jar", version.id));
-    download_and_verify(&info.url, &dest, &info.sha1).await
+    download_and_verify(&info.url, &dest, info.size, &info.sha1).await
 }
 
 // ── Libraries ─────────────────────────────────────────────────────────────────
@@ -110,7 +119,7 @@ pub async fn install_libraries(
             .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)));
 
         if let Some(dest) = dest {
-            download_and_verify(&artifact.url, &dest, &artifact.sha1).await?;
+            download_and_verify(&artifact.url, &dest, artifact.size, &artifact.sha1).await?;
         }
     }
     Ok(())
@@ -173,27 +182,43 @@ mod test {
     // ── download_and_verify ───────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_download_and_verify_skips_when_sha1_matches() {
+    async fn test_download_and_verify_skips_when_size_matches() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("file.bin");
-        tokio::fs::write(&dest, b"hello").await.unwrap();
+        tokio::fs::write(&dest, b"hello").await.unwrap(); // 5 bytes
 
-        // URL 無效；函式應在 SHA1 相符時跳過下載
-        download_and_verify("http://0.0.0.0/invalid", &dest, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d")
+        // size 相符 (5) → 跳過，URL 無效也不會嘗試下載
+        download_and_verify("http://0.0.0.0/invalid", &dest, 5, "any-sha1")
             .await
             .unwrap();
     }
 
     #[tokio::test]
-    async fn test_download_and_verify_errors_on_sha1_mismatch() {
+    async fn test_download_and_verify_redownloads_when_size_mismatch() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("file.bin");
-        tokio::fs::write(&dest, b"wrong content").await.unwrap();
+        tokio::fs::write(&dest, b"wrong content").await.unwrap(); // 13 bytes
 
-        // SHA1 不符 → 嘗試重下 → URL 無效 → 應回傳錯誤
+        // size 不符 (expected 5) → 嘗試重下 → URL 無效 → 應回傳錯誤
         let result = download_and_verify(
             "http://0.0.0.0/invalid",
             &dest,
+            5,
+            "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_download_and_verify_downloads_when_missing() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("file.bin");
+        // 不預先寫入 → 觸發下載路徑 → URL 無效 → 應回傳錯誤
+        let result = download_and_verify(
+            "http://0.0.0.0/invalid",
+            &dest,
+            5,
             "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d",
         )
         .await;
@@ -205,9 +230,10 @@ mod test {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("a/b/c/file.bin");
         tokio::fs::create_dir_all(dest.parent().unwrap()).await.unwrap();
-        tokio::fs::write(&dest, b"hello").await.unwrap();
+        tokio::fs::write(&dest, b"hello").await.unwrap(); // 5 bytes
 
-        download_and_verify("http://0.0.0.0/invalid", &dest, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d")
+        // size 相符 → 跳過
+        download_and_verify("http://0.0.0.0/invalid", &dest, 5, "any-sha1")
             .await
             .unwrap();
         assert!(dest.exists());
@@ -387,7 +413,7 @@ pub async fn install_assets(
 
     // Download and cache the index JSON
     let index_path = assets_dir.join("indexes").join(format!("{}.json", index.id));
-    download_and_verify(&index.url, &index_path, &index.sha1).await?;
+    download_and_verify(&index.url, &index_path, index.size, &index.sha1).await?;
 
     let raw = tokio::fs::read(&index_path).await?;
     let objects: crate::mc_types::McAssetObjects = serde_json::from_slice(&raw)?;
@@ -398,8 +424,9 @@ pub async fn install_assets(
         .map(|obj| {
             let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
             let url = obj.download_url();
+            let size = obj.size;
             let hash = obj.hash.clone();
-            async move { download_and_verify(&url, &dest, &hash).await }
+            async move { download_and_verify(&url, &dest, size, &hash).await }
         })
         .buffer_unordered(ASSET_CONCURRENCY)
         .collect()

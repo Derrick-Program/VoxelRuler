@@ -1,8 +1,8 @@
 slint::include_modules!();
 use slint::{Model, ModelRc, VecModel};
-use std::{path::{Path, PathBuf}, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}};
+use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, process::Child, rc::Rc, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
 
-use crate::{mc_parser::LaunchContext, mc_token, mc_types::McSpecificVersionDetail};
+use crate::{mc_install, mc_parser::LaunchContext, mc_paths::McPaths, mc_token, mc_types::McSpecificVersionDetail};
 #[allow(unused)]
 pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
@@ -106,30 +106,104 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
     // --- 設定回調 ---
-    logic.on_launch_instance(|id| {
-        println!("Rust: 正在啟動實例 ID: {}", id);
-        let data = std::fs::read_to_string("data/1.20.4.json").expect("找不到 data/1.20.4.json");
-        let version: McSpecificVersionDetail =
-            serde_json::from_str(&data).expect("解析 1.20.4.json 失敗");
-        let temp = LaunchContext {
-            version,
-            java_path: PathBuf::from("/usr/bin/java"),
-            game_dir: PathBuf::from("/game"),
-            libraries_dir: PathBuf::from("/libs"),
-            assets_dir: PathBuf::from("/assets"),
-            natives_dir: PathBuf::from("/natives"),
-            versions_dir: PathBuf::from("/versions"),
-            auth_player_name: "Steve".into(),
-            auth_uuid: "uuid-1234".into(),
-            auth_access_token: "token-abcd".into(),
-            client_id: "".into(),
-            xuid: "".into(),
-            xmx: "2G".into(),
-            xms: "512M".into(),
+    let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
+    let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let raw_instances_for_launch = raw_instances.clone();
+    let running_procs_for_launch = Arc::clone(&running_procs);
+    let instance_logs_for_launch = Arc::clone(&instance_logs);
+    let ui_weak_for_launch = ui.as_weak();
+    logic.on_launch_instance(move |id| {
+        let version_id = raw_instances_for_launch
+            .iter()
+            .find(|inst| inst.id == id)
+            .map(|inst| inst.version.to_string())
+            .unwrap_or_else(|| id.to_string());
+        let instance_id = id.to_string();
+        let running_procs = Arc::clone(&running_procs_for_launch);
+        let ui_weak = ui_weak_for_launch.clone();
+        let logs = Arc::clone(&instance_logs_for_launch);
+        if running_procs.lock().unwrap().contains_key(&instance_id) {
+            return;
+        }
+        tokio::spawn(async move {
+            match do_launch(version_id, instance_id.clone(), ui_weak.clone(), logs).await {
+                Ok(child) => {
+                    running_procs.lock().unwrap().insert(instance_id.clone(), child);
+                    set_instance_status(&ui_weak, &instance_id, "running");
+                    // Watch for process exit and reset status
+                    let running_procs_watch = Arc::clone(&running_procs);
+                    let ui_weak_watch = ui_weak.clone();
+                    let id_watch = instance_id.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                            let mut map = running_procs_watch.lock().unwrap();
+                            let Some(child) = map.get_mut(&id_watch) else { break };
+                            match child.try_wait() {
+                                Ok(Some(_)) | Err(_) => {
+                                    map.remove(&id_watch);
+                                    drop(map);
+                                    set_instance_status(&ui_weak_watch, &id_watch, "ready");
+                                    break;
+                                }
+                                Ok(None) => {}
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("啟動失敗：{e:#}");
+                    set_install_state(&ui_weak, true, 0.0, &format!("啟動失敗：{e:#}"), true);
+                }
+            }
+        });
+    });
+
+    let running_procs_for_kill = Arc::clone(&running_procs);
+    let ui_weak_for_kill = ui.as_weak();
+    logic.on_kill_instance(move |id| {
+        let mut map = running_procs_for_kill.lock().unwrap();
+        if let Some(mut child) = map.remove(id.as_str()) {
+            let _ = child.kill();
+            drop(map);
+            set_instance_status(&ui_weak_for_kill, id.as_str(), "ready");
+        }
+    });
+
+    let ui_weak_for_dismiss = ui.as_weak();
+    logic.on_dismiss_install_dialog(move || {
+        if let Some(ui) = ui_weak_for_dismiss.upgrade() {
+            let logic = ui.global::<InstanceLogic>();
+            logic.set_is_installing(false);
+            logic.set_install_is_error(false);
+            logic.set_install_status("".into());
+        }
+    });
+
+    let instance_logs_for_open = Arc::clone(&instance_logs);
+    let ui_weak_for_open = ui.as_weak();
+    logic.on_open_log(move |id| {
+        let id = id.to_string();
+        let lines: Vec<slint::SharedString> = {
+            let logs = instance_logs_for_open.lock().unwrap();
+            logs.get(&id)
+                .map(|deque| deque.iter().map(|s| s.as_str().into()).collect())
+                .unwrap_or_default()
         };
-        let cmd = temp.build_command();
-        println!("啟動指令：{:#?}", cmd);
-        // 在這裡呼叫 Command::new("java")...
+        if let Some(ui) = ui_weak_for_open.upgrade() {
+            let logic = ui.global::<InstanceLogic>();
+            logic.set_log_instance_id(id.into());
+            logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
+            logic.set_show_log(true);
+        }
+    });
+
+    let ui_weak_for_close_log = ui.as_weak();
+    logic.on_close_log(move || {
+        if let Some(ui) = ui_weak_for_close_log.upgrade() {
+            ui.global::<InstanceLogic>().set_show_log(false);
+        }
     });
 
     logic.on_new_instance(|| {
@@ -219,4 +293,152 @@ pub async fn open_view() -> anyhow::Result<()> {
     // slint::select_bundled_translation("zh_TW").unwrap();
     ui.run()?;
     Ok(())
+}
+
+fn set_install_state(ui_weak: &slint::Weak<MainApp>, installing: bool, progress: f32, status: &str, is_error: bool) {
+    let status = status.to_string();
+    let ui_weak = ui_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        let logic = ui.global::<InstanceLogic>();
+        logic.set_is_installing(installing);
+        logic.set_install_progress(progress);
+        logic.set_install_status(status.into());
+        logic.set_install_is_error(is_error);
+    });
+}
+
+fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status: &str) {
+    let id = instance_id.to_string();
+    let status = status.to_string();
+    let ui_weak = ui_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(ui) = ui_weak.upgrade() else { return };
+        let list = ui.global::<InstanceLogic>().get_instance_list();
+        for i in 0..list.row_count() {
+            if let Some(mut item) = list.row_data(i) {
+                if item.id.as_str() == id {
+                    item.status = status.into();
+                    list.set_row_data(i, item);
+                    break;
+                }
+            }
+        }
+    });
+}
+
+async fn do_launch(
+    version_id: String,
+    instance_id: String,
+    ui_weak: slint::Weak<MainApp>,
+    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+) -> anyhow::Result<Child> {
+    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
+
+    let api = crate::mc_api::McAction::new();
+    let version = api.get_specific_mc_version_detail(&version_id).await?;
+    let java_manifest = api.get_java_runtime_manifest_for_version(&version).await?;
+
+    let paths = McPaths::new()?;
+    let java_component = version.java_version.as_ref()
+        .map(|j| j.component.clone())
+        .unwrap_or_else(|| "jre-legacy".into());
+
+    set_install_state(&ui_weak, true, 0.1, "下載 Java 執行環境...", false);
+    mc_install::install_java(&java_manifest, &paths.java_dir(&java_component)).await?;
+
+    set_install_state(&ui_weak, true, 0.4, "下載 Minecraft 主程式...", false);
+    mc_install::install_client(&version, &paths.versions_dir()).await?;
+
+    set_install_state(&ui_weak, true, 0.6, "下載函式庫...", false);
+    mc_install::install_libraries(&version, &paths.libraries_dir()).await?;
+
+    set_install_state(&ui_weak, true, 0.8, "下載遊戲資源...", false);
+    mc_install::install_assets(&version, &paths.assets_dir()).await?;
+
+    set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
+
+    let token = crate::GLOBAL_CACHE
+        .get("mc_ac_key")
+        .map(|v| v.clone())
+        .unwrap_or_default();
+
+    let (player_name, player_uuid) = if !token.is_empty() {
+        match crate::mc_api::McAction::new().authenticate(&token).get_user_profile().await {
+            Ok(profile) => (profile.name, profile.id),
+            Err(_) => ("Player".into(), "00000000-0000-0000-0000-000000000000".into()),
+        }
+    } else {
+        ("Player".into(), "00000000-0000-0000-0000-000000000000".into())
+    };
+
+    let ctx = LaunchContext {
+        version,
+        java_path: paths.java_bin(&java_component),
+        game_dir: paths.instance_dir(&version_id),
+        libraries_dir: paths.libraries_dir(),
+        assets_dir: paths.assets_dir(),
+        natives_dir: paths.natives_dir(&version_id),
+        versions_dir: paths.versions_dir(),
+        auth_player_name: player_name,
+        auth_uuid: player_uuid,
+        auth_access_token: token,
+        client_id: String::new(),
+        xuid: String::new(),
+        xmx: "2G".into(),
+        xms: "512M".into(),
+    };
+
+    let mut cmd = ctx.build_command();
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn()?;
+    set_install_state(&ui_weak, false, 0.0, "", false);
+
+    instance_logs.lock().unwrap().insert(instance_id.clone(), VecDeque::with_capacity(500));
+
+    if let Some(stdout) = child.stdout.take() {
+        spawn_log_reader(stdout, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_log_reader(stderr, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+    }
+
+    Ok(child)
+}
+
+fn spawn_log_reader<R: std::io::Read + Send + 'static>(
+    reader: R,
+    instance_id: String,
+    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+    ui_weak: slint::Weak<MainApp>,
+) {
+    tokio::task::spawn_blocking(move || {
+        use std::io::BufRead;
+        let buf = std::io::BufReader::new(reader);
+        for line in buf.lines().flatten() {
+            {
+                let mut logs = instance_logs.lock().unwrap();
+                if let Some(deque) = logs.get_mut(&instance_id) {
+                    if deque.len() >= 500 {
+                        deque.pop_front();
+                    }
+                    deque.push_back(line.clone());
+                }
+            }
+            let id = instance_id.clone();
+            let line_shared: slint::SharedString = line.into();
+            let ui = ui_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui_handle) = ui.upgrade() else { return };
+                let logic = ui_handle.global::<InstanceLogic>();
+                if logic.get_show_log() && logic.get_log_instance_id().as_str() == id {
+                    let current = logic.get_log_lines();
+                    let mut lines: Vec<slint::SharedString> =
+                        (0..current.row_count()).filter_map(|i| current.row_data(i)).collect();
+                    lines.push(line_shared);
+                    logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
+                }
+            });
+        }
+    });
 }
