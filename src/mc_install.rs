@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
@@ -48,8 +48,14 @@ async fn download_and_verify(
 
 // ── Java runtime ──────────────────────────────────────────────────────────────
 
-pub async fn install_java(manifest: &McJavaManifest, java_dir: &Path) -> anyhow::Result<()> {
-    for (rel_path, entry) in &manifest.files {
+pub async fn install_java(
+    manifest: &McJavaManifest,
+    java_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
+) -> anyhow::Result<()> {
+    let entries: Vec<_> = manifest.files.iter().collect();
+    let total = entries.len().max(1);
+    for (i, (rel_path, entry)) in entries.iter().enumerate() {
         let dest = java_dir.join(rel_path);
         match entry {
             McJavaFileEntry::Directory => {
@@ -78,13 +84,18 @@ pub async fn install_java(manifest: &McJavaManifest, java_dir: &Path) -> anyhow:
                 }
             }
         }
+        on_progress((i + 1) as f32 / total as f32);
     }
     Ok(())
 }
 
 // ── Client JAR ────────────────────────────────────────────────────────────────
 
-pub async fn install_client(version: &McSpecificVersionDetail, versions_dir: &Path) -> anyhow::Result<()> {
+pub async fn install_client(
+    version: &McSpecificVersionDetail,
+    versions_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
+) -> anyhow::Result<()> {
     let info = version
         .downloads
         .as_ref()
@@ -94,7 +105,9 @@ pub async fn install_client(version: &McSpecificVersionDetail, versions_dir: &Pa
     let dest = versions_dir
         .join(&version.id)
         .join(format!("{}.jar", version.id));
-    download_and_verify(&info.url, &dest, info.size, &info.sha1).await
+    download_and_verify(&info.url, &dest, info.size, &info.sha1).await?;
+    on_progress(1.0);
+    Ok(())
 }
 
 // ── Libraries ─────────────────────────────────────────────────────────────────
@@ -102,25 +115,23 @@ pub async fn install_client(version: &McSpecificVersionDetail, versions_dir: &Pa
 pub async fn install_libraries(
     version: &McSpecificVersionDetail,
     libraries_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    for lib in &version.libraries {
-        if let Some(rules) = &lib.rules {
-            if !evaluate_rules(rules) {
-                continue;
-            }
-        }
-        let Some(artifact) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) else {
-            continue;
-        };
-        let dest = artifact
-            .path
-            .as_deref()
-            .map(|p| libraries_dir.join(p))
-            .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)));
+    let applicable: Vec<(PathBuf, String, u64, String)> = version.libraries.iter()
+        .filter(|lib| lib.rules.as_ref().map_or(true, |r| evaluate_rules(r)))
+        .filter_map(|lib| {
+            let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
+            let dest = artifact.path.as_deref()
+                .map(|p| libraries_dir.join(p))
+                .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)))?;
+            Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
+        })
+        .collect();
 
-        if let Some(dest) = dest {
-            download_and_verify(&artifact.url, &dest, artifact.size, &artifact.sha1).await?;
-        }
+    let total = applicable.len().max(1);
+    for (i, (dest, url, size, sha1)) in applicable.iter().enumerate() {
+        download_and_verify(url, dest, *size, sha1).await?;
+        on_progress((i + 1) as f32 / total as f32);
     }
     Ok(())
 }
@@ -245,7 +256,7 @@ mod test {
     async fn test_install_java_empty_manifest() {
         let dir = TempDir::new().unwrap();
         let manifest = McJavaManifest { files: HashMap::new() };
-        install_java(&manifest, dir.path()).await.unwrap();
+        install_java(&manifest, dir.path(), |_| {}).await.unwrap();
     }
 
     #[tokio::test]
@@ -256,7 +267,7 @@ mod test {
         files.insert("lib".into(), McJavaFileEntry::Directory);
         let manifest = McJavaManifest { files };
 
-        install_java(&manifest, dir.path()).await.unwrap();
+        install_java(&manifest, dir.path(), |_| {}).await.unwrap();
 
         assert!(dir.path().join("bin").is_dir());
         assert!(dir.path().join("lib").is_dir());
@@ -272,7 +283,7 @@ mod test {
             .await
             .unwrap();
         let manifest = api.get_java_runtime_manifest_for_version(&version).await.unwrap();
-        install_java(&manifest, dir.path()).await.unwrap();
+        install_java(&manifest, dir.path(), |_| {}).await.unwrap();
 
         #[cfg(not(windows))]
         assert!(dir.path().join("bin/java").exists());
@@ -286,7 +297,7 @@ mod test {
     async fn test_install_client_errors_if_no_downloads() {
         let dir = TempDir::new().unwrap();
         let version = empty_version(); // downloads: None
-        let result = install_client(&version, dir.path()).await;
+        let result = install_client(&version, dir.path(), |_| {}).await;
         assert!(result.is_err());
     }
 
@@ -298,7 +309,7 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        install_client(&version, dir.path()).await.unwrap();
+        install_client(&version, dir.path(), |_| {}).await.unwrap();
         assert!(dir.path().join("1.20.4/1.20.4.jar").exists());
     }
 
@@ -326,7 +337,7 @@ mod test {
             }]),
         }];
 
-        install_libraries(&version, dir.path()).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
 
         // Disallow 規則 → 不應下載
         assert!(!dir.path().join("test/lib/1.0/lib-1.0.jar").exists());
@@ -342,7 +353,7 @@ mod test {
             rules: None,
         }];
 
-        install_libraries(&version, dir.path()).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
     }
 
     #[tokio::test]
@@ -353,7 +364,7 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        install_libraries(&version, dir.path()).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
 
         // 驗證至少有一個 library JAR 存在
         let count = count_jars(dir.path());
@@ -366,7 +377,7 @@ mod test {
     async fn test_install_assets_errors_if_no_asset_index() {
         let dir = TempDir::new().unwrap();
         let version = empty_version(); // asset_index: None
-        let result = install_assets(&version, dir.path()).await;
+        let result = install_assets(&version, dir.path(), |_| {}).await;
         assert!(result.is_err());
     }
 
@@ -378,7 +389,7 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        install_assets(&version, dir.path()).await.unwrap();
+        install_assets(&version, dir.path(), |_| {}).await.unwrap();
 
         let index_id = version.asset_index.unwrap().id;
         assert!(dir.path().join(format!("indexes/{index_id}.json")).exists());
@@ -405,22 +416,27 @@ mod test {
 pub async fn install_assets(
     version: &McSpecificVersionDetail,
     assets_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
     let index = version
         .asset_index
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
 
-    // Download and cache the index JSON
+    let objects = crate::mc_api::McAction::new()
+        .get_asset_index(&index.url)
+        .await?;
+
     let index_path = assets_dir.join("indexes").join(format!("{}.json", index.id));
-    download_and_verify(&index.url, &index_path, index.size, &index.sha1).await?;
+    if let Some(parent) = index_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
 
-    let raw = tokio::fs::read(&index_path).await?;
-    let objects: crate::mc_types::McAssetObjects = serde_json::from_slice(&raw)?;
-
-    // Download all asset objects concurrently
     let objects_dir = assets_dir.join("objects");
-    let results: Vec<anyhow::Result<()>> = stream::iter(objects.objects.into_values())
+    let total = objects.objects.len().max(1);
+    let mut completed = 0usize;
+    let mut stream = stream::iter(objects.objects.into_values())
         .map(|obj| {
             let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
             let url = obj.download_url();
@@ -428,12 +444,12 @@ pub async fn install_assets(
             let hash = obj.hash.clone();
             async move { download_and_verify(&url, &dest, size, &hash).await }
         })
-        .buffer_unordered(ASSET_CONCURRENCY)
-        .collect()
-        .await;
+        .buffer_unordered(ASSET_CONCURRENCY);
 
-    for r in results {
-        r?;
+    while let Some(result) = stream.next().await {
+        result?;
+        completed += 1;
+        on_progress(completed as f32 / total as f32);
     }
     Ok(())
 }

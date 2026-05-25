@@ -344,17 +344,37 @@ async fn do_launch(
         .map(|j| j.component.clone())
         .unwrap_or_else(|| "jre-legacy".into());
 
-    set_install_state(&ui_weak, true, 0.1, "下載 Java 執行環境...", false);
-    mc_install::install_java(&java_manifest, &paths.java_dir(&java_component)).await?;
+    mc_install::install_java(&java_manifest, &paths.java_dir(&java_component), {
+        let ui_weak = ui_weak.clone();
+        move |p| {
+            let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
+            set_install_state(&ui_weak, true, 0.1 + p * 0.3, &status, false);
+        }
+    }).await?;
 
-    set_install_state(&ui_weak, true, 0.4, "下載 Minecraft 主程式...", false);
-    mc_install::install_client(&version, &paths.versions_dir()).await?;
+    mc_install::install_client(&version, &paths.versions_dir(), {
+        let ui_weak = ui_weak.clone();
+        move |p| {
+            let status = format!("下載 Minecraft 主程式... {:.0}%", p * 100.0);
+            set_install_state(&ui_weak, true, 0.4 + p * 0.2, &status, false);
+        }
+    }).await?;
 
-    set_install_state(&ui_weak, true, 0.6, "下載函式庫...", false);
-    mc_install::install_libraries(&version, &paths.libraries_dir()).await?;
+    mc_install::install_libraries(&version, &paths.libraries_dir(), {
+        let ui_weak = ui_weak.clone();
+        move |p| {
+            let status = format!("下載函式庫... {:.0}%", p * 100.0);
+            set_install_state(&ui_weak, true, 0.6 + p * 0.2, &status, false);
+        }
+    }).await?;
 
-    set_install_state(&ui_weak, true, 0.8, "下載遊戲資源...", false);
-    mc_install::install_assets(&version, &paths.assets_dir()).await?;
+    mc_install::install_assets(&version, &paths.assets_dir(), {
+        let ui_weak = ui_weak.clone();
+        move |p| {
+            let status = format!("下載遊戲資源... {:.0}%", p * 100.0);
+            set_install_state(&ui_weak, true, 0.8 + p * 0.2, &status, false);
+        }
+    }).await?;
 
     set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
 

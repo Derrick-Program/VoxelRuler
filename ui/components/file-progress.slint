@@ -28,6 +28,14 @@ export component DownloadDialog inherits Dialog {
             color: root.is-error ? #e74c3c : #ffffff;
         }
 
+        if !root.is-error: Text {
+            text: Math.round(root.download-progress * 100) + "%";
+            font-size: 36px;
+            font-weight: 700;
+            color: #50fa7b;
+            horizontal-alignment: center;
+        }
+
         if !root.is-error: ProgressIndicator {
             progress: root.download-progress;
         }
