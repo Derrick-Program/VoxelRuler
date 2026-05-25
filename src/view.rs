@@ -1,8 +1,8 @@
 slint::include_modules!();
 use slint::{Model, ModelRc, VecModel};
-use std::{path::Path, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}};
+use std::{path::{Path, PathBuf}, rc::Rc, sync::{Arc, atomic::{AtomicBool, Ordering}}};
 
-use crate::mc_token;
+use crate::{mc_parser::LaunchContext, mc_token, mc_types::McSpecificVersionDetail};
 #[allow(unused)]
 pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
@@ -108,6 +108,27 @@ pub async fn open_view() -> anyhow::Result<()> {
     // --- 設定回調 ---
     logic.on_launch_instance(|id| {
         println!("Rust: 正在啟動實例 ID: {}", id);
+        let data = std::fs::read_to_string("data/1.20.4.json").expect("找不到 data/1.20.4.json");
+        let version: McSpecificVersionDetail =
+            serde_json::from_str(&data).expect("解析 1.20.4.json 失敗");
+        let temp = LaunchContext {
+            version,
+            java_path: PathBuf::from("/usr/bin/java"),
+            game_dir: PathBuf::from("/game"),
+            libraries_dir: PathBuf::from("/libs"),
+            assets_dir: PathBuf::from("/assets"),
+            natives_dir: PathBuf::from("/natives"),
+            versions_dir: PathBuf::from("/versions"),
+            auth_player_name: "Steve".into(),
+            auth_uuid: "uuid-1234".into(),
+            auth_access_token: "token-abcd".into(),
+            client_id: "".into(),
+            xuid: "".into(),
+            xmx: "2G".into(),
+            xms: "512M".into(),
+        };
+        let cmd = temp.build_command();
+        println!("啟動指令：{:#?}", cmd);
         // 在這裡呼叫 Command::new("java")...
     });
 

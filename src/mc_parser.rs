@@ -43,54 +43,34 @@ impl LaunchContext {
     pub fn build_command(&self) -> Command {
         let classpath = self.build_classpath();
         let vars = self.build_vars(&classpath);
-
         let mut cmd = Command::new(&self.java_path);
 
         cmd.arg(format!("-Xmx{}", self.xmx));
         cmd.arg(format!("-Xms{}", self.xms));
 
         if let Some(arguments) = &self.version.arguments {
-            if let Some(default_jvm) = &arguments.default_user_jvm {
-                for item in default_jvm {
-                    apply_arg(&mut cmd, item, &vars);
-                }
+            if let Some(defaults) = &arguments.default_user_jvm {
+                cmd.args(collect_args(defaults, &vars));
             }
 
-            let mut jvm_args: Vec<String> = Vec::new();
-            collect_args(&mut jvm_args, &arguments.jvm, &vars);
-
+            let mut jvm_args = collect_args(&arguments.jvm, &vars);
             let compat = self.java_compat_args();
             if !compat.is_empty() {
-                let cp_pos = jvm_args
-                    .iter()
-                    .position(|a| a == "-cp")
-                    .unwrap_or(jvm_args.len());
+                let pos = jvm_args.iter().position(|a| a == "-cp").unwrap_or(jvm_args.len());
                 for (i, arg) in compat.into_iter().enumerate() {
-                    jvm_args.insert(cp_pos + i, arg);
+                    jvm_args.insert(pos + i, arg);
                 }
             }
-
-            for arg in &jvm_args {
-                cmd.arg(arg);
-            }
+            cmd.args(jvm_args);
+            cmd.arg(&self.version.main_class);
+            cmd.args(collect_args(&arguments.game, &vars));
         } else {
-            cmd.arg(format!(
-                "-Djava.library.path={}",
-                self.natives_dir.display()
-            ));
+            cmd.arg(format!("-Djava.library.path={}", self.natives_dir.display()));
             cmd.arg("-cp");
-            cmd.arg(&classpath);
-        }
-
-        cmd.arg(&self.version.main_class);
-
-        if let Some(arguments) = &self.version.arguments {
-            for item in &arguments.game {
-                apply_arg(&mut cmd, item, &vars);
-            }
-        } else if let Some(mc_args) = &self.version.minecraft_arguments {
-            for part in mc_args.split_whitespace() {
-                cmd.arg(resolve_argument(part, &vars));
+            cmd.arg(classpath);
+            cmd.arg(&self.version.main_class);
+            if let Some(mc_args) = &self.version.minecraft_arguments {
+                cmd.args(mc_args.split_whitespace().map(|p| resolve_argument(p, &vars)));
             }
         }
 
@@ -229,6 +209,8 @@ fn os_rule_matches(os: &McOsRule) -> bool {
     if let Some(arch) = &os.arch {
         let ok = match arch {
             McRuleArch::X86 => ARCH == "x86",
+            // McRuleArch::X64 => ARCH == "x86_64",
+            // McRuleArch::Arm64 => ARCH == "aarch64",
         };
         if !ok {
             return false;
@@ -298,52 +280,23 @@ fn feature_rule_matches(feat: &McFeatureRule) -> bool {
         && feat.is_quick_play_realms != Some(true)
 }
 
-fn collect_args(
-    out: &mut Vec<String>,
-    items: &[McArgumentItem],
-    vars: &HashMap<&'static str, String>,
-) {
+fn collect_args(items: &[McArgumentItem], vars: &HashMap<&'static str, String>) -> Vec<String> {
+    let mut out = Vec::new();
     for item in items {
         match item {
-            McArgumentItem::Simple(s) => {
-                out.push(resolve_argument(s, vars));
-            }
-            McArgumentItem::Conditional(cond) => {
-                if evaluate_rules(&cond.rules) {
-                    match &cond.value {
-                        McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
-                        McArgumentValue::Many(args) => {
-                            for a in args {
-                                out.push(resolve_argument(a, vars));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn apply_arg(cmd: &mut Command, item: &McArgumentItem, vars: &HashMap<&'static str, String>) {
-    match item {
-        McArgumentItem::Simple(s) => {
-            cmd.arg(resolve_argument(s, vars));
-        }
-        McArgumentItem::Conditional(cond) => {
-            if evaluate_rules(&cond.rules) {
+            McArgumentItem::Simple(s) => out.push(resolve_argument(s, vars)),
+            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => {
                 match &cond.value {
-                    McArgumentValue::Single(s) => {
-                        cmd.arg(resolve_argument(s, vars));
-                    }
+                    McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
                     McArgumentValue::Many(args) => {
-                        for a in args {
-                            cmd.arg(resolve_argument(a, vars));
-                        }
+                        out.extend(args.iter().map(|a| resolve_argument(a, vars)));
                     }
                 }
             }
+            _ => {}
         }
     }
+    out
 }
 
 pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
@@ -409,6 +362,15 @@ mod test {
     #[allow(unused_imports)]
     use std::collections::HashMap;
 
+    fn cmd_args(cmd: &Command) -> Vec<String> {
+        cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    fn load_version(path: &str) -> McSpecificVersionDetail {
+        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("找不到 {path}"));
+        serde_json::from_str(&data).unwrap_or_else(|_| panic!("解析 {path} 失敗"))
+    }
+
     #[test]
     fn test_parse_var_args() {
         let data = r#"${auth_player_name}"#;
@@ -420,16 +382,8 @@ mod test {
 
     #[tokio::test]
     async fn test_parse_mc_specific_version_detail() {
-        let data = std::fs::read_to_string("data/26.1.2.json").expect("can't read file");
-        match serde_json::from_str::<McSpecificVersionDetail>(&data) {
-            Ok(v) => {
-                println!("解析成功！");
-                println!("完整結構體: {:#?}", v.arguments.unwrap().jvm);
-            }
-            Err(e) => {
-                println!("解析失敗: {}", e);
-            }
-        }
+        let v = load_version("data/26.1.2.json");
+        println!("完整結構體: {:#?}", v.arguments.unwrap().jvm);
     }
 
     #[tokio::test]
@@ -509,13 +463,8 @@ mod test {
 
     #[test]
     fn test_java21_compat_args_injected_before_cp() {
-        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
-        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
-        let cmd = make_ctx_with_java(version, 21).build_command();
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let cmd = make_ctx_with_java(load_version("data/1.21.json"), 21).build_command();
+        let args = cmd_args(&cmd);
 
         let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
         assert!(
@@ -548,13 +497,8 @@ mod test {
 
     #[test]
     fn test_java17_compat_args_no_unsafe_memory_access() {
-        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
-        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
-        let cmd = make_ctx_with_java(version, 17).build_command();
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let cmd = make_ctx_with_java(load_version("data/1.21.json"), 17).build_command();
+        let args = cmd_args(&cmd);
 
         let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
         assert!(
@@ -579,13 +523,8 @@ mod test {
 
     #[test]
     fn test_old_java_no_compat_args() {
-        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
-        let version: McSpecificVersionDetail = serde_json::from_str(&data).expect("解析失敗");
-        let cmd = make_ctx_with_java(version, 8).build_command();
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let cmd = make_ctx_with_java(load_version("data/1.21.json"), 8).build_command();
+        let args = cmd_args(&cmd);
 
         assert!(
             !args.contains(&"--add-modules=jdk.incubator.vector".into()),
@@ -603,14 +542,8 @@ mod test {
 
     #[test]
     fn test_build_command_from_1_21_json() {
-        let data = std::fs::read_to_string("data/1.21.json").expect("找不到 data/1.21.json");
-        let version: McSpecificVersionDetail =
-            serde_json::from_str(&data).expect("解析 1.21.json 失敗");
-        let cmd = make_ctx(version).build_command();
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let cmd = make_ctx(load_version("data/1.21.json")).build_command();
+        let args = cmd_args(&cmd);
 
         assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
         assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
@@ -715,14 +648,8 @@ mod test {
 
     #[test]
     fn test_build_command_from_1_12_2_json() {
-        let data = std::fs::read_to_string("data/1.12.2.json").expect("找不到 data/1.12.2.json");
-        let version: McSpecificVersionDetail =
-            serde_json::from_str(&data).expect("解析 1.12.2.json 失敗");
-        let cmd = make_ctx(version).build_command();
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let cmd = make_ctx(load_version("data/1.12.2.json")).build_command();
+        let args = cmd_args(&cmd);
 
         assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
         assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
