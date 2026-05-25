@@ -267,6 +267,31 @@ impl McAction<Authenticated> {
             .await
             .inspect_err(|e| println!("{:#?}", e))?)
     }
+
+    pub async fn check_game_ownership(&self) -> anyhow::Result<bool> {
+        let url = format!("{}/entitlements/mcstore", NEW_MC_SERVER);
+        let entitlements: serde_json::Value = self
+            .client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let owns_games = entitlements
+            .get("items")
+            .and_then(|items| items.as_array())
+            .map(|arr| {
+                arr.iter().any(|item| {
+                    item.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s == "game_minecraft")
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        Ok(owns_games)
+    }
 }
 
 #[cfg(test)]

@@ -12,8 +12,10 @@ export enum SideTabId {
 
 export struct AccountRow {
     checked: bool,
+    authenticator: string,
     username: string,
     status: string,
+    avatar: image,
 }
 
 export struct InstanceData {
@@ -298,13 +300,23 @@ export global PageAccountLogic {
     in-out property <string> login_url: "";
     in-out property <string> login_status_text: "正在初始化驗證程序...";
     in-out property <bool> is_error: false;
+    in-out property <bool> show_offline_dialog: false;
+    in-out property <string> offline_username: "";
     in-out property <int> selected-index: -1;
     in-out property <[AccountRow]> accounts: [];
+    in-out property <AccountRow> active-account: {
+        username: "Guest",
+        authenticator: "No Account",
+        status: "Offline",
+        checked: false,
+        avatar: Assets.user
+    };
 
     callback login_with_microsoft();
     callback cancel_login();
     callback open_browser_url(string);
     callback add-offline-account();
+    callback confirm-add-offline-account(string);
     callback refresh-account();
     callback remove-account();
     callback set-default-account();

@@ -1,4 +1,4 @@
-import { SideBar, Footer, Pages, DownloadDialog, LogDialog } from "components/index.slint";
+import { SideBar, Footer, Pages, DownloadDialog, LogDialog, OfflineAccountDialog } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
 import { AppData, InstanceLogic, AppLogic, PageAccountLogic, ModLogic, ModData } from "@global";
@@ -112,6 +112,16 @@ export component MainApp inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    if PageAccountLogic.show_offline_dialog: OfflineAccountDialog {
+        closed => {
+            PageAccountLogic.show_offline_dialog = false;
+        }
+        confirmed(name) => {
+            PageAccountLogic.show_offline_dialog = false;
+            PageAccountLogic.confirm-add-offline-account(name);
         }
     }
 }

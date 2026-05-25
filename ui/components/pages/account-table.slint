@@ -27,6 +27,13 @@ export component AccountTable inherits VerticalLayout {
             }
             Text {
                 horizontal-stretch: 1;
+                text: @tr("Authenticator");
+                color: AppTheme.colors.muted-foreground;
+                font-size: AppTheme.font-size-base;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
                 text: @tr("Status");
                 color: AppTheme.colors.muted-foreground;
                 font-size: AppTheme.font-size-base;
@@ -62,6 +69,15 @@ export component AccountTable inherits VerticalLayout {
                 Text {
                     horizontal-stretch: 4;
                     text: row.username;
+                    color: AppTheme.colors.foreground;
+                    font-size: AppTheme.font-size-base;
+                    vertical-alignment: center;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: row.authenticator;
                     color: AppTheme.colors.foreground;
                     font-size: AppTheme.font-size-base;
                     vertical-alignment: center;
