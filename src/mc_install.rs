@@ -138,7 +138,7 @@ pub async fn install_libraries(
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 
-const ASSET_CONCURRENCY: usize = 16;
+const ASSET_CONCURRENCY: usize = 8;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

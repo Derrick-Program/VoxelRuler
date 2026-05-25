@@ -17,6 +17,7 @@ static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> = LazyLock::new(|
 });
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    console_subscriber::init();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
             if *s.mc_token_expires_at() >= chrono::Utc::now().timestamp() {

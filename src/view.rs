@@ -120,6 +120,11 @@ pub async fn open_view() -> anyhow::Result<()> {
             .map(|inst| inst.version.to_string())
             .unwrap_or_else(|| id.to_string());
         let instance_id = id.to_string();
+        let instance_name = raw_instances_for_launch
+            .iter()
+            .find(|inst| inst.id == id)
+            .map(|inst| inst.name.to_string())
+            .unwrap_or_else(|| id.to_string());
         let running_procs = Arc::clone(&running_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
@@ -127,7 +132,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             return;
         }
         tokio::spawn(async move {
-            match do_launch(version_id, instance_id.clone(), ui_weak.clone(), logs).await {
+            match do_launch(version_id, instance_id.clone(), instance_name.clone(),ui_weak.clone(), logs).await {
                 Ok(child) => {
                     running_procs.lock().unwrap().insert(instance_id.clone(), child);
                     set_instance_status(&ui_weak, &instance_id, "running");
@@ -208,6 +213,7 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     logic.on_new_instance(|| {
         println!("Rust: 開啟建立視窗");
+        //TODO: 需要建立實例資料夾
     });
 
     let mod_logic = ui.global::<ModLogic>();
@@ -259,7 +265,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak_for_url.upgrade() {
                         let pal = ui.global::<PageAccountLogic>();
-                        pal.set_login_url(url.into()); // 網址塞進 Dialog 超連結！
+                        pal.set_login_url(url.into());
                         pal.set_login_status_text("請在打開的瀏覽器網頁中完成驗證。".into());
                     }
                 });
@@ -330,6 +336,7 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
 async fn do_launch(
     version_id: String,
     instance_id: String,
+    instance_name: String,
     ui_weak: slint::Weak<MainApp>,
     instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
 ) -> anyhow::Result<Child> {
@@ -395,7 +402,7 @@ async fn do_launch(
     let ctx = LaunchContext {
         version,
         java_path: paths.java_bin(&java_component),
-        game_dir: paths.instance_dir(&version_id),
+        game_dir: paths.instance_dir(&instance_name),
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
         natives_dir: paths.natives_dir(&version_id),
@@ -408,8 +415,10 @@ async fn do_launch(
         xmx: "2G".into(),
         xms: "512M".into(),
     };
+    dbg!("啟動參數: {:?}", &ctx);
 
     let mut cmd = ctx.build_command();
+    dbg!("啟動指令: {:?}", &cmd);
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn()?;
     set_install_state(&ui_weak, false, 0.0, "", false);
