@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use crate::view::open_view;
 
 mod mc_api;
+mod mc_install;
 mod mc_parser;
 mod mc_paths;
 mod mc_token;

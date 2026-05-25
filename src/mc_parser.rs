@@ -180,7 +180,7 @@ impl LaunchContext {
     }
 }
 
-fn evaluate_rules(rules: &[McRule]) -> bool {
+pub(crate) fn evaluate_rules(rules: &[McRule]) -> bool {
     if rules.is_empty() {
         return true;
     }
