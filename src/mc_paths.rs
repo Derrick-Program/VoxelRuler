@@ -97,7 +97,6 @@ impl McPaths {
             .join("Home")
             .join("bin")
             .join("java");
-        // jre.bundle/Contents/Home/bin
     }
 
     pub fn instance_dir(&self, instance_id: &str) -> PathBuf {

@@ -7,17 +7,12 @@ use sha1::{Digest, Sha1};
 use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
-// ── SHA1 ─────────────────────────────────────────────────────────────────────
+const ASSET_CONCURRENCY: usize = 8;
 
 fn sha1_hex(data: &[u8]) -> String {
     Sha1::digest(data).iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-// ── Core downloader ───────────────────────────────────────────────────────────
-
-/// Download `url` to `dest`.
-/// Skip if file already exists with matching size (fast path, mirrors official launcher).
-/// SHA1 is only verified after downloading to confirm download integrity.
 async fn download_and_verify(
     url: &str,
     dest: &Path,
@@ -45,8 +40,6 @@ async fn download_and_verify(
     tokio::fs::write(dest, &bytes).await?;
     Ok(())
 }
-
-// ── Java runtime ──────────────────────────────────────────────────────────────
 
 pub async fn install_java(
     manifest: &McJavaManifest,
@@ -89,7 +82,6 @@ pub async fn install_java(
     Ok(())
 }
 
-// ── Client JAR ────────────────────────────────────────────────────────────────
 
 pub async fn install_client(
     version: &McSpecificVersionDetail,
@@ -109,8 +101,6 @@ pub async fn install_client(
     on_progress(1.0);
     Ok(())
 }
-
-// ── Libraries ─────────────────────────────────────────────────────────────────
 
 pub async fn install_libraries(
     version: &McSpecificVersionDetail,
@@ -136,12 +126,6 @@ pub async fn install_libraries(
     Ok(())
 }
 
-// ── Assets ────────────────────────────────────────────────────────────────────
-
-const ASSET_CONCURRENCY: usize = 8;
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
@@ -150,8 +134,6 @@ mod test {
 
     use super::*;
     use crate::mc_types::*;
-
-    // ── helpers ───────────────────────────────────────────────────────────────
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
         let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("找不到 {path}"));
@@ -178,8 +160,6 @@ mod test {
         }
     }
 
-    // ── sha1_hex ──────────────────────────────────────────────────────────────
-
     #[test]
     fn test_sha1_hex_empty_string() {
         assert_eq!(sha1_hex(b""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
@@ -190,15 +170,12 @@ mod test {
         assert_eq!(sha1_hex(b"hello"), "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
     }
 
-    // ── download_and_verify ───────────────────────────────────────────────────
-
     #[tokio::test]
     async fn test_download_and_verify_skips_when_size_matches() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("file.bin");
-        tokio::fs::write(&dest, b"hello").await.unwrap(); // 5 bytes
+        tokio::fs::write(&dest, b"hello").await.unwrap();
 
-        // size 相符 (5) → 跳過，URL 無效也不會嘗試下載
         download_and_verify("http://0.0.0.0/invalid", &dest, 5, "any-sha1")
             .await
             .unwrap();
@@ -208,9 +185,8 @@ mod test {
     async fn test_download_and_verify_redownloads_when_size_mismatch() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("file.bin");
-        tokio::fs::write(&dest, b"wrong content").await.unwrap(); // 13 bytes
+        tokio::fs::write(&dest, b"wrong content").await.unwrap();
 
-        // size 不符 (expected 5) → 嘗試重下 → URL 無效 → 應回傳錯誤
         let result = download_and_verify(
             "http://0.0.0.0/invalid",
             &dest,
@@ -225,7 +201,6 @@ mod test {
     async fn test_download_and_verify_downloads_when_missing() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("file.bin");
-        // 不預先寫入 → 觸發下載路徑 → URL 無效 → 應回傳錯誤
         let result = download_and_verify(
             "http://0.0.0.0/invalid",
             &dest,
@@ -241,16 +216,13 @@ mod test {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("a/b/c/file.bin");
         tokio::fs::create_dir_all(dest.parent().unwrap()).await.unwrap();
-        tokio::fs::write(&dest, b"hello").await.unwrap(); // 5 bytes
+        tokio::fs::write(&dest, b"hello").await.unwrap();
 
-        // size 相符 → 跳過
         download_and_verify("http://0.0.0.0/invalid", &dest, 5, "any-sha1")
             .await
             .unwrap();
         assert!(dest.exists());
     }
-
-    // ── install_java ──────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_install_java_empty_manifest() {
@@ -291,12 +263,10 @@ mod test {
         assert!(dir.path().join("bin/javaw.exe").exists());
     }
 
-    // ── install_client ────────────────────────────────────────────────────────
-
     #[tokio::test]
     async fn test_install_client_errors_if_no_downloads() {
         let dir = TempDir::new().unwrap();
-        let version = empty_version(); // downloads: None
+        let version = empty_version();
         let result = install_client(&version, dir.path(), |_| {}).await;
         assert!(result.is_err());
     }
@@ -312,8 +282,6 @@ mod test {
         install_client(&version, dir.path(), |_| {}).await.unwrap();
         assert!(dir.path().join("1.20.4/1.20.4.jar").exists());
     }
-
-    // ── install_libraries ─────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_install_libraries_skips_disallowed_rules() {
@@ -339,7 +307,6 @@ mod test {
 
         install_libraries(&version, dir.path(), |_| {}).await.unwrap();
 
-        // Disallow 規則 → 不應下載
         assert!(!dir.path().join("test/lib/1.0/lib-1.0.jar").exists());
     }
 
@@ -349,7 +316,7 @@ mod test {
         let mut version = empty_version();
         version.libraries = vec![McLibrary {
             name: "test:lib:1.0".into(),
-            downloads: None, // 無 artifact
+            downloads: None,
             rules: None,
         }];
 
@@ -365,18 +332,14 @@ mod test {
             .await
             .unwrap();
         install_libraries(&version, dir.path(), |_| {}).await.unwrap();
-
-        // 驗證至少有一個 library JAR 存在
         let count = count_jars(dir.path());
         assert!(count > 0, "libraries 目錄應有 JAR 檔案，實際：{count}");
     }
 
-    // ── install_assets ────────────────────────────────────────────────────────
-
     #[tokio::test]
     async fn test_install_assets_errors_if_no_asset_index() {
         let dir = TempDir::new().unwrap();
-        let version = empty_version(); // asset_index: None
+        let version = empty_version();
         let result = install_assets(&version, dir.path(), |_| {}).await;
         assert!(result.is_err());
     }
@@ -395,8 +358,6 @@ mod test {
         assert!(dir.path().join(format!("indexes/{index_id}.json")).exists());
         assert!(dir.path().join("objects").is_dir());
     }
-
-    // ── helper ────────────────────────────────────────────────────────────────
 
     fn count_jars(dir: &std::path::Path) -> usize {
         let Ok(entries) = std::fs::read_dir(dir) else { return 0 };

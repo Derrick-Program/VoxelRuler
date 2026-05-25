@@ -101,11 +101,8 @@ pub async fn open_view() -> anyhow::Result<()> {
             })
             .cloned()
             .collect();
-
-        // 更新 UI 的 Model
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
-    // --- 設定回調 ---
     let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
     let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> = Arc::new(Mutex::new(HashMap::new()));
 
@@ -136,7 +133,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                 Ok(child) => {
                     running_procs.lock().unwrap().insert(instance_id.clone(), child);
                     set_instance_status(&ui_weak, &instance_id, "running");
-                    // Watch for process exit and reset status
                     let running_procs_watch = Arc::clone(&running_procs);
                     let ui_weak_watch = ui_weak.clone();
                     let id_watch = instance_id.clone();

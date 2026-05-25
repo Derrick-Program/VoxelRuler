@@ -302,7 +302,6 @@ pub struct McAssetObject {
 }
 
 impl McAssetObject {
-    /// Download URL: `https://resources.download.minecraft.net/<first2>/<hash>`
     pub fn download_url(&self) -> String {
         format!(
             "https://resources.download.minecraft.net/{}/{}",
