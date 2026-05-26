@@ -477,11 +477,11 @@
           "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209.jar"
         },
         "classifiers": {
-          "natives-windows": {
-            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar",
-            "sha1": "b84d5102b9dbfabfeb5e43c7e2828d98a7fc80e0",
-            "size": 613748,
-            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar"
+          "natives-linux": {
+            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-linux.jar",
+            "sha1": "931074f46c795d2f7b30ed6395df5715cfd7675b",
+            "size": 578680,
+            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-linux.jar"
           },
           "natives-osx": {
             "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-osx.jar",
@@ -489,11 +489,11 @@
             "size": 426822,
             "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-osx.jar"
           },
-          "natives-linux": {
-            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-linux.jar",
-            "sha1": "931074f46c795d2f7b30ed6395df5715cfd7675b",
-            "size": 578680,
-            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-linux.jar"
+          "natives-windows": {
+            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar",
+            "sha1": "b84d5102b9dbfabfeb5e43c7e2828d98a7fc80e0",
+            "size": 613748,
+            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-windows.jar"
           }
         }
       },
@@ -568,17 +568,17 @@
       "downloads": {
         "artifact": null,
         "classifiers": {
-          "natives-linux": {
-            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-linux.jar",
-            "sha1": "d898a33b5d0a6ef3fed3a4ead506566dce6720a5",
-            "size": 578539,
-            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-linux.jar"
-          },
           "natives-windows": {
             "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-windows.jar",
             "sha1": "78b2a55ce4dc29c6b3ec4df8ca165eba05f9b341",
             "size": 613680,
             "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-windows.jar"
+          },
+          "natives-linux": {
+            "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-linux.jar",
+            "sha1": "d898a33b5d0a6ef3fed3a4ead506566dce6720a5",
+            "size": 578539,
+            "url": "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-linux.jar"
           },
           "natives-osx": {
             "path": "org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-osx.jar",
@@ -606,17 +606,17 @@
       "downloads": {
         "artifact": null,
         "classifiers": {
-          "natives-linux": {
-            "path": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar",
-            "sha1": "7ff832a6eb9ab6a767f1ade2b548092d0fa64795",
-            "size": 10362,
-            "url": "https://libraries.minecraft.net/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar"
-          },
           "natives-osx": {
             "path": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-osx.jar",
             "sha1": "53f9c919f34d2ca9de8c51fc4e1e8282029a9232",
             "size": 12186,
             "url": "https://libraries.minecraft.net/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-osx.jar"
+          },
+          "natives-linux": {
+            "path": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar",
+            "sha1": "7ff832a6eb9ab6a767f1ade2b548092d0fa64795",
+            "size": 10362,
+            "url": "https://libraries.minecraft.net/net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-linux.jar"
           },
           "natives-windows": {
             "path": "net/java/jinput/jinput-platform/2.0.5/jinput-platform-2.0.5-natives-windows.jar",
@@ -651,17 +651,17 @@
           "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.10.3/text2speech-1.10.3.jar"
         },
         "classifiers": {
-          "natives-linux": {
-            "path": "com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-linux.jar",
-            "sha1": "ab7896aec3b3dd272b06194357f2d98f832c0cfc",
-            "size": 7833,
-            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-linux.jar"
-          },
           "natives-windows": {
             "path": "com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-windows.jar",
             "sha1": "84a4b856389cc4f485275b1f63497a95a857a443",
             "size": 81217,
             "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-windows.jar"
+          },
+          "natives-linux": {
+            "path": "com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-linux.jar",
+            "sha1": "ab7896aec3b3dd272b06194357f2d98f832c0cfc",
+            "size": 7833,
+            "url": "https://libraries.minecraft.net/com/mojang/text2speech/1.10.3/text2speech-1.10.3-natives-linux.jar"
           }
         }
       },

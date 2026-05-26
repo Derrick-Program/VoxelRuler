@@ -45,6 +45,7 @@ impl LaunchContext {
         let vars = self.build_vars(&classpath);
         let mut cmd = Command::new(&self.java_path);
 
+        cmd.current_dir(&self.game_dir);
         cmd.arg(format!("-Xmx{}", self.xmx));
         cmd.arg(format!("-Xms{}", self.xms));
 
@@ -54,9 +55,21 @@ impl LaunchContext {
             }
 
             let mut jvm_args = collect_args(&arguments.jvm, &vars);
-            let compat = self.java_compat_args();
+            let mut compat = self.java_compat_args();
+            if cfg!(target_os = "macos") {
+                let natives_str = self.natives_dir.to_string_lossy().into_owned();
+                compat.push(format!("-Djna.tmpdir={}", natives_str));
+                compat.push(format!(
+                    "-Dorg.lwjgl.system.SharedLibraryExtractPath={}",
+                    natives_str
+                ));
+                compat.push(format!("-Dio.netty.native.workdir={}", natives_str));
+            }
             if !compat.is_empty() {
-                let pos = jvm_args.iter().position(|a| a == "-cp").unwrap_or(jvm_args.len());
+                let pos = jvm_args
+                    .iter()
+                    .position(|a| a == "-cp")
+                    .unwrap_or(jvm_args.len());
                 for (i, arg) in compat.into_iter().enumerate() {
                     jvm_args.insert(pos + i, arg);
                 }
@@ -65,12 +78,19 @@ impl LaunchContext {
             cmd.arg(&self.version.main_class);
             cmd.args(collect_args(&arguments.game, &vars));
         } else {
-            cmd.arg(format!("-Djava.library.path={}", self.natives_dir.display()));
+            cmd.arg(format!(
+                "-Djava.library.path={}",
+                self.natives_dir.display()
+            ));
             cmd.arg("-cp");
             cmd.arg(classpath);
             cmd.arg(&self.version.main_class);
             if let Some(mc_args) = &self.version.minecraft_arguments {
-                cmd.args(mc_args.split_whitespace().map(|p| resolve_argument(p, &vars)));
+                cmd.args(
+                    mc_args
+                        .split_whitespace()
+                        .map(|p| resolve_argument(p, &vars)),
+                );
             }
         }
 
@@ -99,7 +119,10 @@ impl LaunchContext {
                         .map(|p| self.libraries_dir.join(p).to_string_lossy().into_owned())
                 });
 
-            if let Some(p) = path {
+            if let Some(mut p) = path {
+                if cfg!(target_os = "macos") && p.contains("net/java/dev/jna") {
+                    p = p.replace("5.10.0", "5.13.0");
+                }
                 parts.push(p);
             }
         }
@@ -285,14 +308,12 @@ fn collect_args(items: &[McArgumentItem], vars: &HashMap<&'static str, String>) 
     for item in items {
         match item {
             McArgumentItem::Simple(s) => out.push(resolve_argument(s, vars)),
-            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => {
-                match &cond.value {
-                    McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
-                    McArgumentValue::Many(args) => {
-                        out.extend(args.iter().map(|a| resolve_argument(a, vars)));
-                    }
+            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => match &cond.value {
+                McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
+                McArgumentValue::Many(args) => {
+                    out.extend(args.iter().map(|a| resolve_argument(a, vars)));
                 }
-            }
+            },
             _ => {}
         }
     }
@@ -363,7 +384,9 @@ mod test {
     use std::collections::HashMap;
 
     fn cmd_args(cmd: &Command) -> Vec<String> {
-        cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
     }
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
@@ -642,8 +665,6 @@ mod test {
             !args.iter().any(|a| a.contains("HeapDumpPath")),
             "非 Windows 不應有 HeapDumpPath"
         );
-        dbg!(&args);
-        dbg!(&cmd);
     }
 
     #[test]
@@ -704,7 +725,5 @@ mod test {
         assert!(args.contains(&"msa".into()), "user_type 應為 msa");
         assert!(args.contains(&"--uuid".into()));
         assert!(args.contains(&"uuid-1234".into()), "auth_uuid 未替換");
-        dbg!(&args);
-        dbg!(&cmd);
     }
 }
