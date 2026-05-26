@@ -25,9 +25,6 @@ export component Account inherits Rectangle {
 
             AccountTable {
                 horizontal-stretch: 1;
-                // rows: [
-                //     { checked: true, username: "derrick921213", status: "Ready" },
-                // ];
                 rows <=> PageAccountLogic.accounts;
                 selected-index <=> PageAccountLogic.selected-index;
             }
@@ -63,6 +60,7 @@ export component Account inherits Rectangle {
                     clicked => PageAccountLogic.set-default-account();
                 }
                 Button {
+                    enabled: PageAccountLogic.accounts.length > 0;
                     text: @tr("Unset Default Account");
                     clicked => PageAccountLogic.unset-default-account();
                 }
@@ -73,6 +71,7 @@ export component Account inherits Rectangle {
                 }
 
                 Button {
+                    enabled: PageAccountLogic.accounts.length > 0;
                     text: @tr("Manage Appearance");
                     clicked => PageAccountLogic.manage-appearance();
                 }
@@ -81,14 +80,7 @@ export component Account inherits Rectangle {
 
         HorizontalLayout {
             spacing: 8px;
-            // Button {
-            //     text: @tr("Help");
-            // }
             Rectangle { horizontal-stretch: 1; }
-            // Button {
-            //     text: @tr("Cancel");
-            //     clicked => PageAccountLogic.cancel_login();
-            // }
             Button {
                 text: @tr("Save");
                 clicked => PageAccountLogic.account-save();

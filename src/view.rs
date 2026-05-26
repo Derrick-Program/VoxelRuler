@@ -252,7 +252,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         println!("Sidebar changed to: {:#?}", id);
     });
 
-    // 啟動時從磁碟載入已儲存的帳號
     if let Ok(Some(session)) = SessionData::load_session() {
         if !session.mc_username().is_empty() {
             let is_expired = *session.mc_token_expires_at() < chrono::Utc::now().timestamp();
@@ -403,15 +402,9 @@ pub async fn open_view() -> anyhow::Result<()> {
         pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts.clone()))));
         pal.set_selected_index(-1);
 
-        // Update active account: 
-        // 1. If there's a checked account (default), use it.
-        // 2. Otherwise, if there are still accounts, use the first one as a fallback? 
-        //    Actually, user might want it to be Guest if no default is set.
-        //    Let's stick to: if no checked account, reset to Guest.
         if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
             pal.set_active_account(default_acc.clone());
         } else {
-            // Reset to Guest
             let mut guest = pal.get_active_account();
             guest.username = "Guest".into();
             guest.authenticator = "No Account".into();
@@ -460,7 +453,6 @@ pub async fn open_view() -> anyhow::Result<()> {
             })
             .collect();
         
-        // Reset to Guest
         let mut guest = pal.get_active_account();
         guest.username = "Guest".into();
         guest.authenticator = "No Account".into();
@@ -479,11 +471,11 @@ pub async fn open_view() -> anyhow::Result<()> {
         
         let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
         let new_row = AccountRow {
-            checked: accounts.is_empty(), // First account added is default
+            checked: accounts.is_empty(),
             authenticator: "Offline".into(),
             username: username.clone().into(),
             status: "Ready".into(),
-            avatar: slint::Image::default(), // Offline accounts might not have avatars easily
+            avatar: slint::Image::default(),
         };
         
         if new_row.checked {
@@ -512,14 +504,10 @@ pub async fn open_view() -> anyhow::Result<()> {
                 pal.set_active_account(row);
             }
         } else {
-            // For Microsoft accounts, we could re-check game ownership or refresh token
-            // For now, let's just trigger a re-check if online
             let ui_weak_async = ui_weak_refresh.clone();
             let username = row.username.to_string();
             tokio::spawn(async move {
                 let avatar_path = fetch_avatar_path(&username).await;
-                // Simplified refresh logic: just re-fetch avatar and check ownership if we had a token
-                // Real implementation would need the token from SessionData
                 if let Ok(Some(session)) = SessionData::load_session() {
                     let token = session.minecraft_access_token().clone();
                     let api = crate::mc_api::McAction::new().authenticate(&token);
