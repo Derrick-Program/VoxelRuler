@@ -70,7 +70,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         InstanceData {
             id: "5".into(),
             name: "冒險模式".into(),
-            version: "1.19.2".into(),
+            version: "1.12.2".into(),
             mod_loader: "Forge".into(),
             status: "ready".into(),
             image: slint::Image::load_from_path(&path_buf)?,
@@ -80,7 +80,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         InstanceData {
             id: "6".into(),
             name: "建築專用".into(),
-            version: "1.18.1".into(),
+            version: "1.14.1".into(),
             mod_loader: "Fabric".into(),
             status: "ready".into(),
             image: slint::Image::load_from_path(&path_buf)?,
@@ -90,7 +90,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         InstanceData {
             id: "7".into(),
             name: "生存模式 1.20".into(),
-            version: "1.20.4".into(),
+            version: "1.7.10".into(),
             mod_loader: "Fabric".into(),
             status: "ready".into(),
             image: slint::Image::load_from_path(&path_buf)?,
@@ -657,8 +657,6 @@ async fn do_launch(
         xmx: "2G".into(),
         xms: "512M".into(),
     };
-    dbg!("啟動參數: {:?}", &ctx);
-
     let mut cmd = ctx.build_command();
     dbg!("啟動指令: {:?}", &cmd);
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
@@ -687,6 +685,7 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
         use std::io::BufRead;
         let buf = std::io::BufReader::new(reader);
         for line in buf.lines().flatten() {
+            println!("[Java Runtime Log] {}", line);
             {
                 let mut logs = instance_logs.lock().unwrap();
                 if let Some(deque) = logs.get_mut(&instance_id) {

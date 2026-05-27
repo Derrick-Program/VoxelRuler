@@ -10,7 +10,10 @@ use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 const ASSET_CONCURRENCY: usize = 8;
 
 fn sha1_hex(data: &[u8]) -> String {
-    Sha1::digest(data).iter().map(|b| format!("{:02x}", b)).collect()
+    Sha1::digest(data)
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 async fn download_and_verify(
@@ -31,7 +34,7 @@ async fn download_and_verify(
     let actual = sha1_hex(&bytes);
     if actual != expected_sha1 {
         anyhow::bail!(
-            "SHA1 不符 {}：expected={} actual={}",
+            "SHA1 不符 {}: expected={} actual={}",
             dest.display(),
             expected_sha1,
             actual
@@ -54,8 +57,17 @@ pub async fn install_java(
             McJavaFileEntry::Directory => {
                 tokio::fs::create_dir_all(&dest).await?;
             }
-            McJavaFileEntry::File { executable, downloads } => {
-                download_and_verify(&downloads.raw.url, &dest, downloads.raw.size, &downloads.raw.sha1).await?;
+            McJavaFileEntry::File {
+                executable,
+                downloads,
+            } => {
+                download_and_verify(
+                    &downloads.raw.url,
+                    &dest,
+                    downloads.raw.size,
+                    &downloads.raw.sha1,
+                )
+                .await?;
                 #[cfg(unix)]
                 if *executable {
                     use std::os::unix::fs::PermissionsExt;
@@ -81,7 +93,6 @@ pub async fn install_java(
     }
     Ok(())
 }
-
 
 pub async fn install_client(
     version: &McSpecificVersionDetail,
@@ -110,6 +121,17 @@ pub async fn install_libraries(
     let applicable: Vec<(PathBuf, String, u64, String)> = version.libraries.iter()
         .filter(|lib| lib.rules.as_ref().map_or(true, |r| evaluate_rules(r)))
         .filter_map(|lib| {
+            if cfg!(target_os = "macos") && lib.name.starts_with("net.java.dev.jna:") {
+                if lib.name.contains("jna-platform") {
+                    let dest = libraries_dir.join("net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar");
+                    let url = "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar".to_string();
+                    return Some((dest, url, 1345511, "88e9a306715e9379f3122415ef4ae759a352640d".to_string()));
+                } else {
+                    let dest = libraries_dir.join("net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar");
+                    let url = "https://libraries.minecraft.net/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar".to_string();
+                    return Some((dest, url, 1877665, "1200e7ebeedbe0d10062093f32925a912020e747".to_string()));
+                }
+            }
             let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
             let dest = artifact.path.as_deref()
                 .map(|p| libraries_dir.join(p))
@@ -167,7 +189,10 @@ mod test {
 
     #[test]
     fn test_sha1_hex_known_value() {
-        assert_eq!(sha1_hex(b"hello"), "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
+        assert_eq!(
+            sha1_hex(b"hello"),
+            "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+        );
     }
 
     #[tokio::test]
@@ -215,7 +240,9 @@ mod test {
     async fn test_download_and_verify_creates_parent_dirs() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("a/b/c/file.bin");
-        tokio::fs::create_dir_all(dest.parent().unwrap()).await.unwrap();
+        tokio::fs::create_dir_all(dest.parent().unwrap())
+            .await
+            .unwrap();
         tokio::fs::write(&dest, b"hello").await.unwrap();
 
         download_and_verify("http://0.0.0.0/invalid", &dest, 5, "any-sha1")
@@ -227,7 +254,9 @@ mod test {
     #[tokio::test]
     async fn test_install_java_empty_manifest() {
         let dir = TempDir::new().unwrap();
-        let manifest = McJavaManifest { files: HashMap::new() };
+        let manifest = McJavaManifest {
+            files: HashMap::new(),
+        };
         install_java(&manifest, dir.path(), |_| {}).await.unwrap();
     }
 
@@ -254,7 +283,10 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        let manifest = api.get_java_runtime_manifest_for_version(&version).await.unwrap();
+        let manifest = api
+            .get_java_runtime_manifest_for_version(&version)
+            .await
+            .unwrap();
         install_java(&manifest, dir.path(), |_| {}).await.unwrap();
 
         #[cfg(not(windows))]
@@ -305,7 +337,9 @@ mod test {
             }]),
         }];
 
-        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {})
+            .await
+            .unwrap();
 
         assert!(!dir.path().join("test/lib/1.0/lib-1.0.jar").exists());
     }
@@ -320,7 +354,9 @@ mod test {
             rules: None,
         }];
 
-        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {})
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -331,7 +367,9 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        install_libraries(&version, dir.path(), |_| {}).await.unwrap();
+        install_libraries(&version, dir.path(), |_| {})
+            .await
+            .unwrap();
         let count = count_jars(dir.path());
         assert!(count > 0, "libraries 目錄應有 JAR 檔案，實際：{count}");
     }
@@ -360,7 +398,9 @@ mod test {
     }
 
     fn count_jars(dir: &std::path::Path) -> usize {
-        let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return 0;
+        };
         entries.filter_map(|e| e.ok()).fold(0, |acc, entry| {
             let path = entry.path();
             if path.is_dir() {
@@ -388,7 +428,9 @@ pub async fn install_assets(
         .get_asset_index(&index.url)
         .await?;
 
-    let index_path = assets_dir.join("indexes").join(format!("{}.json", index.id));
+    let index_path = assets_dir
+        .join("indexes")
+        .join(format!("{}.json", index.id));
     if let Some(parent) = index_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
