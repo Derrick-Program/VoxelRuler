@@ -323,3 +323,32 @@ export global PageAccountLogic {
     manage-appearance => { debug("Manage appearance"); }
     account-save => { debug("Account settings saved"); }
 }
+
+export global InstanceCreateLogic {
+    // Dialog control
+    in-out property <bool>     show-dialog: false;
+    in-out property <int>      active-tab: 0;
+
+    // Basic Tab
+    in-out property <string>   name: "";
+    in-out property <[string]> version-list: [];
+    in-out property <string>   selected-version: "";
+    in-out property <string>   mod-loader: "None";
+
+    // Advanced Tab
+    in-out property <string>   xmx: "2G";
+    in-out property <string>   xms: "512M";
+    in-out property <bool>     logs-enabled: true;
+
+    // Resources Tab
+    in-out property <string>   world-path: "";
+    in-out property <string>   resource-pack: "";
+    in-out property <string>   shader-pack: "";
+
+    // State
+    in-out property <string>   error-msg: "";
+    in-out property <bool>     is-loading: false;
+
+    callback confirm-create();
+    callback cancel-create();
+}
