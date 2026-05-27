@@ -36,47 +36,61 @@ impl Default for InstanceConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct InstancesFile {
-    #[serde(default)]
-    instances: Vec<InstanceConfig>,
-}
-
 pub struct InstanceStore {
-    path: PathBuf,
+    base_dir: PathBuf,
 }
 
 impl InstanceStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    pub fn new(base_dir: PathBuf) -> Self {
+        Self { base_dir }
     }
 
     pub fn load(&self) -> anyhow::Result<Vec<InstanceConfig>> {
-        if !self.path.exists() {
+        if !self.base_dir.exists() {
             return Ok(Vec::new());
         }
-        let content = std::fs::read_to_string(&self.path)?;
-        let file: InstancesFile = toml::from_str(&content)?;
-        Ok(file.instances)
+        let mut instances = Vec::new();
+        for entry in std::fs::read_dir(&self.base_dir)? {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let instance_toml = entry.path().join("instance.toml");
+            if !instance_toml.is_file() {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&instance_toml) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let cfg: InstanceConfig = match toml::from_str(&content) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            instances.push(cfg);
+        }
+        Ok(instances)
     }
 
-    pub fn save(&self, instances: &[InstanceConfig]) -> anyhow::Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
+    pub fn save_one(&self, instance: &InstanceConfig) -> anyhow::Result<()> {
+        let dir = self.base_dir.join(&instance.id);
+        std::fs::create_dir_all(&dir)?;
+        let content = toml::to_string_pretty(instance)?;
+        std::fs::write(dir.join("instance.toml"), content)?;
+        Ok(())
+    }
+
+    pub fn delete_one(&self, instance_id: &str) -> anyhow::Result<()> {
+        let dir = self.base_dir.join(instance_id);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
         }
-        let file = InstancesFile {
-            instances: instances.to_vec(),
-        };
-        let content = toml::to_string_pretty(&file)?;
-        std::fs::write(&self.path, content)?;
         Ok(())
     }
 
     pub fn append(&self, instance: InstanceConfig) -> anyhow::Result<Vec<InstanceConfig>> {
-        let mut instances = self.load()?;
-        instances.push(instance);
-        self.save(&instances)?;
-        Ok(instances)
+        self.save_one(&instance)?;
+        self.load()
     }
 }
 
@@ -84,23 +98,23 @@ impl InstanceStore {
 mod tests {
     use super::*;
 
-    fn tmp_store() -> (InstanceStore, tempfile::NamedTempFile) {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        let store = InstanceStore::new(f.path().to_path_buf());
-        (store, f)
+    fn tmp_store() -> (InstanceStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().to_path_buf());
+        (store, dir)
     }
 
     #[test]
     fn test_instance_store_load_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let store = InstanceStore::new(dir.path().join("no-such.toml"));
+        let store = InstanceStore::new(dir.path().join("no-such-dir"));
         let result = store.load().unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_instance_store_append_and_reload() {
-        let (store, _f) = tmp_store();
+        let (store, _dir) = tmp_store();
         let cfg = InstanceConfig {
             id: "test-id".into(),
             name: "Test Instance".into(),
@@ -118,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_instance_store_save_preserves_all_fields() {
-        let (store, _f) = tmp_store();
+        let (store, _dir) = tmp_store();
         let cfg = InstanceConfig {
             id: "full-id".into(),
             name: "Full Test".into(),
@@ -146,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_instance_store_append_multiple() {
-        let (store, _f) = tmp_store();
+        let (store, _dir) = tmp_store();
         for i in 0..3_usize {
             let cfg = InstanceConfig {
                 id: format!("id-{i}"),
@@ -158,6 +172,22 @@ mod tests {
         }
         let loaded = store.load().unwrap();
         assert_eq!(loaded.len(), 3);
-        assert_eq!(loaded[2].name, "Instance 2");
+        assert!(loaded.iter().any(|c| c.name == "Instance 2"));
+    }
+
+    #[test]
+    fn test_instance_store_delete_one() {
+        let (store, _dir) = tmp_store();
+        let cfg = InstanceConfig {
+            id: "del-id".into(),
+            name: "To Delete".into(),
+            version: "1.20.4".into(),
+            ..Default::default()
+        };
+        store.append(cfg).unwrap();
+        assert_eq!(store.load().unwrap().len(), 1);
+
+        store.delete_one("del-id").unwrap();
+        assert!(store.load().unwrap().is_empty());
     }
 }

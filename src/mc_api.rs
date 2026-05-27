@@ -12,6 +12,26 @@ const NEW_MC_SERVER: &str = "https://api.minecraftservices.com";
 const JAVA_RUNTIME_ALL_URL: &str =
     "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
+const API_MAX_RETRIES: u32 = 4;
+const API_RETRY_BASE_MS: u64 = 1000;
+
+async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwest::Response> {
+    use anyhow::Context;
+    let mut last_err: anyhow::Error = anyhow::anyhow!("尚未嘗試");
+    for attempt in 0..API_MAX_RETRIES {
+        if attempt > 0 {
+            let delay = API_RETRY_BASE_MS * (1u64 << (attempt - 1));
+            eprintln!("[api-retry] 第 {}/{} 次重試，等待 {}ms：{}", attempt, API_MAX_RETRIES - 1, delay, url);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+        }
+        match client.get(url).send().await {
+            Ok(resp) => return Ok(resp),
+            Err(e) => { last_err = e.into(); }
+        }
+    }
+    Err(last_err).with_context(|| format!("API 請求失敗（重試 {} 次）：{}", API_MAX_RETRIES, url))
+}
+
 pub struct Unauthenticated;
 pub struct Authenticated;
 
@@ -64,10 +84,7 @@ impl McAction<Unauthenticated> {
             "{}/minecraft/profile/lookup/name/{}",
             NEW_MC_SERVER, username
         );
-        let json: serde_json::Value = self
-            .client
-            .get(&url)
-            .send()
+        let json: serde_json::Value = retry_get(&self.client, &url)
             .await?
             .error_for_status()?
             .json()
@@ -80,10 +97,7 @@ impl McAction<Unauthenticated> {
 
     pub async fn get_player_name(&self, uuid: &str) -> anyhow::Result<String> {
         let url = format!("{}/minecraft/profile/lookup/{}", NEW_MC_SERVER, uuid);
-        let json: serde_json::Value = self
-            .client
-            .get(&url)
-            .send()
+        let json: serde_json::Value = retry_get(&self.client, &url)
             .await?
             .error_for_status()?
             .json()
@@ -96,10 +110,7 @@ impl McAction<Unauthenticated> {
 
     async fn get_mc_manifest(&self) -> anyhow::Result<McVersionInfo> {
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-        Ok(self
-            .client
-            .get(url)
-            .send()
+        Ok(retry_get(&self.client, url)
             .await?
             .error_for_status()?
             .json()
@@ -143,10 +154,7 @@ impl McAction<Unauthenticated> {
         version_id: &str,
     ) -> anyhow::Result<crate::mc_types::McSpecificVersionDetail> {
         let version = self.get_specific_mc_version(version_id).await?;
-        let datail: serde_json::Value = self
-            .client
-            .get(&version.url)
-            .send()
+        let datail: serde_json::Value = retry_get(&self.client, &version.url)
             .await?
             .error_for_status()?
             .json()

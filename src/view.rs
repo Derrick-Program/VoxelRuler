@@ -31,9 +31,8 @@ pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
     let logic = ui.global::<InstanceLogic>();
 
-    // ── Load instances from TOML ──────────────────────────────────────
     let store = Arc::new(Mutex::new(InstanceStore::new(
-        McPaths::new()?.instances_file(),
+        McPaths::new()?.instances_base_dir(),
     )));
     let master_configs: Arc<Mutex<Vec<InstanceConfig>>> = {
         let loaded = store.lock().unwrap().load().unwrap_or_default();
@@ -45,7 +44,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
     }
 
-    // ── Background: fetch MC version list ────────────────────────────
     let ui_weak_for_versions = ui.as_weak();
     {
         if let Some(ui) = ui_weak_for_versions.upgrade() {
@@ -82,7 +80,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    // ── Search: filter from master store ─────────────────────────────
     let master_for_search = Arc::clone(&master_configs);
     let ui_weak_for_search = ui.as_weak();
     logic.on_search_changed(move |text| {
@@ -162,6 +159,10 @@ pub async fn open_view() -> anyhow::Result<()> {
             drop(map);
             set_instance_status(&ui_weak_for_kill, id.as_str(), "ready");
         }
+    });
+
+    logic.on_open_instance_settings(move |_id| {
+        // TODO: 開啟 instance 設定頁面（M4 里程碑實作）
     });
 
     let ui_weak_for_dismiss = ui.as_weak();
@@ -352,7 +353,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             }
         });
     });
-    // slint::select_bundled_translation("zh_TW").unwrap();
+    slint::select_bundled_translation("en_US").unwrap();
     ui.run()?;
     Ok(())
 }
@@ -460,7 +461,7 @@ async fn do_launch(
     let ctx = LaunchContext {
         version,
         java_path: paths.java_bin(&java_component),
-        game_dir: paths.instance_dir(&instance_name),
+        game_dir: paths.instance_dir(&instance_id),
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
         natives_dir: paths.natives_dir(&version_id),

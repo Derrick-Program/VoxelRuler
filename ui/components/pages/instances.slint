@@ -47,7 +47,7 @@ export component InstanceCard inherits Rectangle {
                     alignment: space-between;
                     HorizontalLayout {
                         spacing: 4px;
-                        if (root.data.mod_loader != ""): Rectangle {
+                        if (root.data.mod_loader != "" && root.data.mod_loader != "None"): Rectangle {
                             background: black.with-alpha(0.6);
                             border-radius: 4px;
                             height: 18px;
@@ -300,6 +300,9 @@ component Search inherits Rectangle {
                 accepted => {
                     InstanceLogic.search-changed(self.text);
                     root._clear-focus();
+                }
+                edited => {
+                    InstanceLogic.search-changed(self.text);
                 }
             }
         }
