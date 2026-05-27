@@ -1,8 +1,24 @@
 slint::include_modules!();
 use slint::{Model, ModelRc, VecModel};
-use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, process::Child, rc::Rc, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::{Path, PathBuf},
+    process::Child,
+    rc::Rc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
-use crate::{mc_install, mc_instance::{InstanceConfig, InstanceStore}, mc_parser::LaunchContext, mc_paths::McPaths, mc_token, mc_types::McSpecificVersionDetail};
+use crate::{
+    mc_install,
+    mc_instance::{InstanceConfig, InstanceStore},
+    mc_parser::LaunchContext,
+    mc_paths::McPaths,
+    mc_token,
+    mc_types::McSpecificVersionDetail,
+};
 
 fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
     let play_time = if config.play_time_secs == 0 {
@@ -44,6 +60,46 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
     }
 
+    let (_debouncer, rx) = store.lock().unwrap().watch_changes()?;
+    let ui_weak_for_watch = ui.as_weak();
+    let store_for_watch = Arc::clone(&store);
+    let master_for_watch = Arc::clone(&master_configs);
+    tokio::spawn(async move {
+        while let Ok(_) = rx.recv() {
+            println!("🔄 偵測到遊戲實例資料夾變動，正在同步至 UI 列表...");
+            let latest_configs = match store_for_watch.lock() {
+                Ok(s) => s.load().unwrap_or_default(),
+                Err(_) => continue,
+            };
+            if let Ok(mut master) = master_for_watch.lock() {
+                *master = latest_configs.clone();
+            }
+            let ui_weak = ui_weak_for_watch.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui_handle) = ui_weak.upgrade() {
+                    let logic = ui_handle.global::<InstanceLogic>();
+                    let mut ui_items: Vec<InstanceData> =
+                        latest_configs.iter().map(config_to_ui_data).collect();
+                    if ui_items.is_empty() {
+                        ui_items.push(InstanceData {
+                            id: "".into(),
+                            name: "".into(),
+                            version: "".into(),
+                            mod_loader: "".into(),
+                            last_played: "".into(),
+                            play_time: "".into(),
+                            image: Default::default(),
+                            status: "".into(),
+                        });
+                    }
+
+                    logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
+                    println!("✨ UI 列表已與硬碟安全同步！");
+                }
+            });
+        }
+    });
+
     let ui_weak_for_versions = ui.as_weak();
     {
         if let Some(ui) = ui_weak_for_versions.upgrade() {
@@ -83,7 +139,9 @@ pub async fn open_view() -> anyhow::Result<()> {
     let master_for_search = Arc::clone(&master_configs);
     let ui_weak_for_search = ui.as_weak();
     logic.on_search_changed(move |text| {
-        let Some(ui) = ui_weak_for_search.upgrade() else { return };
+        let Some(ui) = ui_weak_for_search.upgrade() else {
+            return;
+        };
         let logic = ui.global::<InstanceLogic>();
         let configs = master_for_search.lock().unwrap();
         let filtered: Vec<InstanceData> = configs
@@ -106,9 +164,21 @@ pub async fn open_view() -> anyhow::Result<()> {
         let (version_id, instance_id, instance_name, xmx, xms) = {
             let configs = master_for_launch.lock().unwrap();
             if let Some(c) = configs.iter().find(|c| c.id == id.as_str()) {
-                (c.version.clone(), c.id.clone(), c.name.clone(), c.xmx.clone(), c.xms.clone())
+                (
+                    c.version.clone(),
+                    c.id.clone(),
+                    c.name.clone(),
+                    c.xmx.clone(),
+                    c.xms.clone(),
+                )
             } else {
-                (id.to_string(), id.to_string(), id.to_string(), "2G".into(), "512M".into())
+                (
+                    id.to_string(),
+                    id.to_string(),
+                    id.to_string(),
+                    "2G".into(),
+                    "512M".into(),
+                )
             }
         };
         let running_procs = Arc::clone(&running_procs_for_launch);
@@ -118,9 +188,22 @@ pub async fn open_view() -> anyhow::Result<()> {
             return;
         }
         tokio::spawn(async move {
-            match do_launch(version_id, instance_id.clone(), instance_name.clone(), xmx, xms, ui_weak.clone(), logs).await {
+            match do_launch(
+                version_id,
+                instance_id.clone(),
+                instance_name.clone(),
+                xmx,
+                xms,
+                ui_weak.clone(),
+                logs,
+            )
+            .await
+            {
                 Ok(child) => {
-                    running_procs.lock().unwrap().insert(instance_id.clone(), child);
+                    running_procs
+                        .lock()
+                        .unwrap()
+                        .insert(instance_id.clone(), child);
                     set_instance_status(&ui_weak, &instance_id, "running");
                     let running_procs_watch = Arc::clone(&running_procs);
                     let ui_weak_watch = ui_weak.clone();
@@ -129,7 +212,9 @@ pub async fn open_view() -> anyhow::Result<()> {
                         loop {
                             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                             let mut map = running_procs_watch.lock().unwrap();
-                            let Some(child) = map.get_mut(&id_watch) else { break };
+                            let Some(child) = map.get_mut(&id_watch) else {
+                                break;
+                            };
                             match child.try_wait() {
                                 Ok(Some(_)) | Err(_) => {
                                     map.remove(&id_watch);
@@ -202,7 +287,9 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     let ui_weak_for_new = ui.as_weak();
     logic.on_new_instance(move || {
-        let Some(ui) = ui_weak_for_new.upgrade() else { return };
+        let Some(ui) = ui_weak_for_new.upgrade() else {
+            return;
+        };
         let create = ui.global::<InstanceCreateLogic>();
         create.set_name("".into());
         create.set_mod_loader("None".into());
@@ -230,7 +317,9 @@ pub async fn open_view() -> anyhow::Result<()> {
     let master_for_create = Arc::clone(&master_configs);
     let ui_weak_for_confirm = ui.as_weak();
     create_logic.on_confirm_create(move || {
-        let Some(ui) = ui_weak_for_confirm.upgrade() else { return };
+        let Some(ui) = ui_weak_for_confirm.upgrade() else {
+            return;
+        };
         let create = ui.global::<InstanceCreateLogic>();
 
         let name = create.get_name().to_string();
@@ -281,7 +370,9 @@ pub async fn open_view() -> anyhow::Result<()> {
         let logic = ui.global::<ModLogic>();
         let filtered: Vec<ModData> = raw_mods
             .iter()
-            .filter(|m| text.is_empty() || m.name.to_lowercase().contains(text.to_lowercase().as_str()))
+            .filter(|m| {
+                text.is_empty() || m.name.to_lowercase().contains(text.to_lowercase().as_str())
+            })
             .cloned()
             .collect();
         logic.set_selected_index(0);
@@ -305,7 +396,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     });
     let ui_weak = ui.as_weak();
     let page_account_logic = ui.global::<PageAccountLogic>();
-    page_account_logic.on_login_with_microsoft(move ||{
+    page_account_logic.on_login_with_microsoft(move || {
         let ui_weak = ui_weak.clone();
         let cancel_flag = Arc::clone(&cancel_flag);
         cancel_flag.store(false, Ordering::SeqCst);
@@ -358,7 +449,13 @@ pub async fn open_view() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_install_state(ui_weak: &slint::Weak<MainApp>, installing: bool, progress: f32, status: &str, is_error: bool) {
+fn set_install_state(
+    ui_weak: &slint::Weak<MainApp>,
+    installing: bool,
+    progress: f32,
+    status: &str,
+    is_error: bool,
+) {
     let status = status.to_string();
     let ui_weak = ui_weak.clone();
     let _ = slint::invoke_from_event_loop(move || {
@@ -379,10 +476,15 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
         let Some(ui) = ui_weak.upgrade() else { return };
         let list = ui.global::<InstanceLogic>().get_instance_list();
         for i in 0..list.row_count() {
+            if i >= list.row_count() {
+                break;
+            }
             if let Some(mut item) = list.row_data(i) {
                 if item.id.as_str() == id {
                     item.status = status.into();
-                    list.set_row_data(i, item);
+                    if i < list.row_count() {
+                        list.set_row_data(i, item);
+                    }
                     break;
                 }
             }
@@ -406,7 +508,9 @@ async fn do_launch(
     let java_manifest = api.get_java_runtime_manifest_for_version(&version).await?;
 
     let paths = McPaths::new()?;
-    let java_component = version.java_version.as_ref()
+    let java_component = version
+        .java_version
+        .as_ref()
         .map(|j| j.component.clone())
         .unwrap_or_else(|| "jre-legacy".into());
 
@@ -416,7 +520,8 @@ async fn do_launch(
             let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.1 + p * 0.3, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_client(&version, &paths.versions_dir(), {
         let ui_weak = ui_weak.clone();
@@ -424,7 +529,8 @@ async fn do_launch(
             let status = format!("下載 Minecraft 主程式... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.4 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_libraries(&version, &paths.libraries_dir(), {
         let ui_weak = ui_weak.clone();
@@ -432,7 +538,8 @@ async fn do_launch(
             let status = format!("下載函式庫... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.6 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_assets(&version, &paths.assets_dir(), {
         let ui_weak = ui_weak.clone();
@@ -440,7 +547,8 @@ async fn do_launch(
             let status = format!("下載遊戲資源... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.8 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
 
@@ -450,12 +558,22 @@ async fn do_launch(
         .unwrap_or_default();
 
     let (player_name, player_uuid) = if !token.is_empty() {
-        match crate::mc_api::McAction::new().authenticate(&token).get_user_profile().await {
+        match crate::mc_api::McAction::new()
+            .authenticate(&token)
+            .get_user_profile()
+            .await
+        {
             Ok(profile) => (profile.name, profile.id),
-            Err(_) => ("Player".into(), "00000000-0000-0000-0000-000000000000".into()),
+            Err(_) => (
+                "Player".into(),
+                "00000000-0000-0000-0000-000000000000".into(),
+            ),
         }
     } else {
-        ("Player".into(), "00000000-0000-0000-0000-000000000000".into())
+        (
+            "Player".into(),
+            "00000000-0000-0000-0000-000000000000".into(),
+        )
     };
 
     let ctx = LaunchContext {
@@ -476,17 +594,31 @@ async fn do_launch(
     };
     let mut cmd = ctx.build_command();
     dbg!("啟動指令: {:?}", &cmd);
-    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn()?;
     set_install_state(&ui_weak, false, 0.0, "", false);
 
-    instance_logs.lock().unwrap().insert(instance_id.clone(), VecDeque::with_capacity(500));
+    instance_logs
+        .lock()
+        .unwrap()
+        .insert(instance_id.clone(), VecDeque::with_capacity(500));
 
     if let Some(stdout) = child.stdout.take() {
-        spawn_log_reader(stdout, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+        spawn_log_reader(
+            stdout,
+            instance_id.clone(),
+            Arc::clone(&instance_logs),
+            ui_weak.clone(),
+        );
     }
     if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(stderr, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+        spawn_log_reader(
+            stderr,
+            instance_id.clone(),
+            Arc::clone(&instance_logs),
+            ui_weak.clone(),
+        );
     }
 
     Ok(child)
@@ -516,12 +648,15 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
             let line_shared: slint::SharedString = line.into();
             let ui = ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                let Some(ui_handle) = ui.upgrade() else { return };
+                let Some(ui_handle) = ui.upgrade() else {
+                    return;
+                };
                 let logic = ui_handle.global::<InstanceLogic>();
                 if logic.get_show_log() && logic.get_log_instance_id().as_str() == id {
                     let current = logic.get_log_lines();
-                    let mut lines: Vec<slint::SharedString> =
-                        (0..current.row_count()).filter_map(|i| current.row_data(i)).collect();
+                    let mut lines: Vec<slint::SharedString> = (0..current.row_count())
+                        .filter_map(|i| current.row_data(i))
+                        .collect();
                     lines.push(line_shared);
                     logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
                 }

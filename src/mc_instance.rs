@@ -1,5 +1,11 @@
-use std::path::PathBuf;
+use std::time::Duration;
+use notify_debouncer_mini::{
+    Debouncer, new_debouncer,
+    notify::{RecommendedWatcher, RecursiveMode},
+};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, channel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
@@ -91,6 +97,31 @@ impl InstanceStore {
     pub fn append(&self, instance: InstanceConfig) -> anyhow::Result<Vec<InstanceConfig>> {
         self.save_one(&instance)?;
         self.load()
+    }
+
+    pub fn watch_changes(&self) -> anyhow::Result<(Debouncer<RecommendedWatcher>, Receiver<()>)> {
+        let (tx, rx) = channel();
+        if !self.base_dir.exists() {
+            std::fs::create_dir_all(&self.base_dir)?;
+        }
+        let mut debouncer = new_debouncer(
+            Duration::from_millis(200),
+            move |res: notify_debouncer_mini::DebounceEventResult| match res {
+                Ok(events) => {
+                    if !events.is_empty() {
+                        let _ = tx.send(());
+                    }
+                }
+                Err(errors) => {
+                    eprintln!("Notify 監聽錯誤: {:#?}", errors);
+                }
+            },
+        )?;
+
+        debouncer
+            .watcher()
+            .watch(&self.base_dir, RecursiveMode::Recursive)?;
+        Ok((debouncer, rx))
     }
 }
 
