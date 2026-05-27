@@ -1,4 +1,4 @@
-import { SideBar, Footer, Pages, DownloadDialog, LogDialog } from "components/index.slint";
+import { SideBar, Footer, Pages, DownloadDialog, LogDialog, OfflineAccountDialog } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
 import { AppData, InstanceLogic, AppLogic, PageAccountLogic, ModLogic, ModData } from "@global";
@@ -50,7 +50,6 @@ export component MainApp inherits Window {
     }
 
     if PageAccountLogic.is_logging_in: Dialog {
-        // title: "微軟帳號登入驗證";
         title: @tr("Microsoft Account Login Verification");
         min-width: 420px;
 
@@ -81,19 +80,15 @@ export component MainApp inherits Window {
                 text: PageAccountLogic.login_status_text;
                 horizontal-alignment: center;
                 font-size: 14px;
-                wrap: word-wrap;
-                color: PageAccountLogic.is_error ? #e74c3c : AppTheme.colors.primary;
             }
-
             if PageAccountLogic.login_url != "" && !PageAccountLogic.is_error: VerticalLayout {
                 spacing: 8px;
                 alignment: center;
 
                 Text {
-                    // text: "如果系統未自動開啟瀏覽器，請手動點擊下方連結：";
                     text: @tr("If the system did not automatically open the browser, please click the link below:");
                     horizontal-alignment: center;
-                    color: #777;
+                    color: AppTheme.colors.muted-foreground;
                     font-size: 12px;
                 }
 
@@ -103,15 +98,24 @@ export component MainApp inherits Window {
                         PageAccountLogic.open_browser_url(PageAccountLogic.login_url);
                     }
                     Text {
-                        // text: "【 點擊此處前往微軟安全登入頁面 】";
                         text: @tr("& Click here to go to the Microsoft security login page &");
                         horizontal-alignment: center;
-                        color: parent.has-hover ? #3399ff : #0066cc;
+                        color: parent.has-hover ? AppTheme.colors.accent.darker(10%) : AppTheme.colors.accent;
                         font-weight: 700;
                         font-size: 14px;
                     }
                 }
             }
+        }
+    }
+
+    if PageAccountLogic.show_offline_dialog: OfflineAccountDialog {
+        closed => {
+            PageAccountLogic.show_offline_dialog = false;
+        }
+        confirmed(name) => {
+            PageAccountLogic.show_offline_dialog = false;
+            PageAccountLogic.confirm-add-offline-account(name);
         }
     }
 }

@@ -1,8 +1,28 @@
 slint::include_modules!();
 use slint::{Model, ModelRc, VecModel};
 use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, process::Child, rc::Rc, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
+use crate::{mc_install, mc_parser::LaunchContext, mc_paths::McPaths, mc_token::{self, SessionData}, mc_types::McSpecificVersionDetail};
 
-use crate::{mc_install, mc_parser::LaunchContext, mc_paths::McPaths, mc_token, mc_types::McSpecificVersionDetail};
+async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
+    let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let avatar_path = cache_dir.join(format!("{}.png", username));
+
+    if avatar_path.exists() {
+        return Some(avatar_path);
+    }
+
+    let url = format!("https://minotar.net/helm/{}/100.png", username);
+    if let Ok(resp) = reqwest::get(url).await {
+        if let Ok(bytes) = resp.bytes().await {
+            if let Ok(_) = std::fs::write(&avatar_path, bytes) {
+                return Some(avatar_path);
+            }
+        }
+    }
+    None
+}
+
 #[allow(unused)]
 pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
@@ -232,6 +252,48 @@ pub async fn open_view() -> anyhow::Result<()> {
         println!("Sidebar changed to: {:#?}", id);
     });
 
+    if let Ok(Some(session)) = SessionData::load_session() {
+        if !session.mc_username().is_empty() {
+            let is_expired = *session.mc_token_expires_at() < chrono::Utc::now().timestamp();
+            let username = session.mc_username().clone();
+            let token = session.minecraft_access_token().clone();
+            let ui_weak_for_init = ui.as_weak();
+
+            tokio::spawn(async move {
+                let avatar_path = fetch_avatar_path(&username).await;
+                let (authenticator_text, status_text) = if is_expired {
+                    ("Microsoft".to_string(), "Offline".to_string())
+                } else {
+                    let api = crate::mc_api::McAction::new().authenticate(&token);
+                    match api.check_game_ownership().await {
+                        Ok(true) => ("Microsoft (Premium)".to_string(), "Online".to_string()),
+                        Ok(false) => ("Microsoft (Unpaid)".to_string(), "Online".to_string()),
+                        Err(_) => ("Microsoft".to_string(), "Offline".to_string()), 
+                    }
+                };
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_for_init.upgrade() {
+                        let avatar_img = avatar_path
+                            .and_then(|p| slint::Image::load_from_path(&p).ok())
+                            .unwrap_or_default();
+                        let pal = ui.global::<PageAccountLogic>();
+                        let row = AccountRow {
+                            checked: true,
+                            authenticator: authenticator_text.into(),
+                            username: username.into(),
+                            status: status_text.into(),
+                            avatar: avatar_img,
+                        };
+                        pal.set_active_account(row.clone());
+                        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(vec![row]))));
+                    }
+                });
+            });
+        }
+    }
+
+
     let page_account_logic_clone = ui.global::<PageAccountLogic>();
     page_account_logic_clone.on_open_browser_url(|url| {
         let _ = open::that(url.as_str());
@@ -267,13 +329,43 @@ pub async fn open_view() -> anyhow::Result<()> {
                 });
             };
             match mc_token::set_token_in_native_store(on_url_ready).await {
-                Ok(new_token) => {
+                Ok(_new_token) => {
                     if cancel_flag.load(Ordering::SeqCst) {
                         return;
                     }
+                    let api = crate::mc_api::McAction::new().authenticate(&_new_token);
+                    let is_premium = api.check_game_ownership().await.unwrap_or(false);
+                    let authenticator_text = if is_premium {
+                        "Microsoft (Premium)".to_string()
+                    } else {
+                        "Microsoft (Unpaid)".to_string()
+                    };
+                    let username = SessionData::load_session()
+                        .ok()
+                        .flatten()
+                        .map(|s| s.mc_username().clone())
+                        .unwrap_or_default();
+
+                    let avatar_path = fetch_avatar_path(&username).await;
+
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak.upgrade() {
-                            ui.global::<PageAccountLogic>().set_is_logging_in(false);
+                            let avatar_img = avatar_path
+                                .and_then(|p| slint::Image::load_from_path(&p).ok())
+                                .unwrap_or_default();
+                            let pal = ui.global::<PageAccountLogic>();
+                            pal.set_is_logging_in(false);
+                            if !username.is_empty() {
+                                let row = AccountRow {
+                                    checked: true,
+                                    authenticator: authenticator_text.into(),
+                                    username: username.into(),
+                                    status: "Online".into(),
+                                    avatar: avatar_img,
+                                };
+                                pal.set_active_account(row.clone());
+                                pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(vec![row]))));
+                            }
                         }
                     });
                 }
@@ -292,7 +384,161 @@ pub async fn open_view() -> anyhow::Result<()> {
             }
         });
     }); 
+    let ui_weak_remove = ui.as_weak();
+    ui.global::<PageAccountLogic>().on_remove_account(move || {
+        let Some(ui) = ui_weak_remove.upgrade() else { return };
+        let pal = ui.global::<PageAccountLogic>();
+        let idx = pal.get_selected_index();
+        if idx < 0 { return; }
+
+        let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+        let new_accounts: Vec<AccountRow> = accounts
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| *i != idx as usize)
+            .map(|(_, r)| r)
+            .collect();
+
+        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts.clone()))));
+        pal.set_selected_index(-1);
+
+        if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
+            pal.set_active_account(default_acc.clone());
+        } else {
+            let mut guest = pal.get_active_account();
+            guest.username = "Guest".into();
+            guest.authenticator = "No Account".into();
+            guest.status = "Offline".into();
+            guest.checked = false;
+            pal.set_active_account(guest);
+        }
+
+        let _ = mc_token::SessionData::delete_session();
+    });
+
+    let ui_weak_set_default = ui.as_weak();
+    ui.global::<PageAccountLogic>().on_set_default_account(move || {
+        let Some(ui) = ui_weak_set_default.upgrade() else { return };
+        let pal = ui.global::<PageAccountLogic>();
+        let idx = pal.get_selected_index();
+        if idx < 0 { return; }
+
+        let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+        let new_accounts: Vec<AccountRow> = accounts
+            .into_iter()
+            .enumerate()
+            .map(|(i, mut r)| {
+                r.checked = i == idx as usize;
+                r
+            })
+            .collect();
+        
+        if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
+            pal.set_active_account(default_acc.clone());
+        }
+
+        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
+    });
+
+    let ui_weak_unset_default = ui.as_weak();
+    ui.global::<PageAccountLogic>().on_unset_default_account(move || {
+        let Some(ui) = ui_weak_unset_default.upgrade() else { return };
+        let pal = ui.global::<PageAccountLogic>();
+        let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+        let new_accounts: Vec<AccountRow> = accounts
+            .into_iter()
+            .map(|mut r| {
+                r.checked = false;
+                r
+            })
+            .collect();
+        
+        let mut guest = pal.get_active_account();
+        guest.username = "Guest".into();
+        guest.authenticator = "No Account".into();
+        guest.status = "Offline".into();
+        guest.checked = false;
+        pal.set_active_account(guest);
+
+        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
+    });
+
+    let ui_weak_add_offline = ui.as_weak();
+    ui.global::<PageAccountLogic>().on_confirm_add_offline_account(move |username| {
+        let Some(ui) = ui_weak_add_offline.upgrade() else { return };
+        let pal = ui.global::<PageAccountLogic>();
+        let username = username.to_string();
+        
+        let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+        let new_row = AccountRow {
+            checked: accounts.is_empty(),
+            authenticator: "Offline".into(),
+            username: username.clone().into(),
+            status: "Ready".into(),
+            avatar: slint::Image::default(),
+        };
+        
+        if new_row.checked {
+            pal.set_active_account(new_row.clone());
+        }
+        
+        accounts.push(new_row);
+        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
+    });
+
+    let ui_weak_refresh = ui.as_weak();
+    ui.global::<PageAccountLogic>().on_refresh_account(move || {
+        let Some(ui) = ui_weak_refresh.upgrade() else { return };
+        let pal = ui.global::<PageAccountLogic>();
+        let idx = pal.get_selected_index();
+        if idx < 0 { return; }
+
+        let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+        let mut row = accounts[idx as usize].clone();
+
+        if row.authenticator == "Offline" {
+            row.status = "Ready".into();
+            accounts[idx as usize] = row.clone();
+            pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
+            if row.checked {
+                pal.set_active_account(row);
+            }
+        } else {
+            let ui_weak_async = ui_weak_refresh.clone();
+            let username = row.username.to_string();
+            tokio::spawn(async move {
+                let avatar_path = fetch_avatar_path(&username).await;
+                if let Ok(Some(session)) = SessionData::load_session() {
+                    let token = session.minecraft_access_token().clone();
+                    let api = crate::mc_api::McAction::new().authenticate(&token);
+                    let ownership = api.check_game_ownership().await.unwrap_or(false);
+                    let status_text = if ownership { "Online" } else { "Offline" };
+                    
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_async.upgrade() {
+                            let pal = ui.global::<PageAccountLogic>();
+                            let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+                            if (idx as usize) < accounts.len() {
+                                let mut row = accounts[idx as usize].clone();
+                                row.status = status_text.into();
+                                if let Some(p) = avatar_path.and_then(|p| slint::Image::load_from_path(&p).ok()) {
+                                    row.avatar = p;
+                                }
+                                accounts[idx as usize] = row.clone();
+                                pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
+                                if row.checked {
+                                    pal.set_active_account(row);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    });
+
     // slint::select_bundled_translation("zh_TW").unwrap();
+    slint::select_bundled_translation("en_US").unwrap();
     ui.run()?;
     Ok(())
 }

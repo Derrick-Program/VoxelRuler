@@ -27,7 +27,7 @@ pub struct McVersion {
     pub compliance_level: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct McProfile {
     pub id: String,
     pub name: String,

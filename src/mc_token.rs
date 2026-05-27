@@ -29,6 +29,12 @@ pub struct SessionData {
     minecraft_access_token: String,
     #[getset(get = "pub")]
     mc_token_expires_at: i64,
+    #[getset(get = "pub")]
+    #[serde(default)]
+    mc_username: String,
+    #[getset(get = "pub")]
+    #[serde(default)]
+    mc_uuid: String,
 }
 
 impl SessionData {
@@ -38,6 +44,15 @@ impl SessionData {
         let session_json = serde_json::to_string(self)?;
         keyring.set_password(&session_json)?;
         Ok(())
+    }
+
+    pub fn delete_session() -> anyhow::Result<()> {
+        use_native_store(false)?;
+        let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
+        match keyring.delete_credential() {
+            Ok(()) | Err(keyring_core::error::Error::NoEntry) => Ok(()),
+            Err(e) => Err(anyhow::anyhow!("Failed to delete session: {:?}", e)),
+        }
     }
 
     pub fn load_session() -> anyhow::Result<Option<SessionData>> {
@@ -71,10 +86,18 @@ async fn mint_and_save_mc_session(
     let token_string = mc_token.access_token().as_ref().to_string();
     let expires_at = mc_token.expires_in() as i64 + chrono::Utc::now().timestamp();
 
+    let profile = crate::mc_api::McAction::new()
+        .authenticate(&token_string)
+        .get_user_profile()
+        .await
+        .unwrap_or_default();
+
     SessionData {
         microsoft_refresh_token: ms_refresh_token,
         minecraft_access_token: token_string.clone(),
         mc_token_expires_at: expires_at,
+        mc_username: profile.name,
+        mc_uuid: profile.id,
     }
     .save_session()?;
 

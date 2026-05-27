@@ -1,0 +1,73 @@
+import { AppTheme } from "@theme";
+import { Button, LineEdit } from "std-widgets.slint";
+import { PageAccountLogic } from "@global";
+
+export component OfflineAccountDialog inherits Rectangle {
+    callback closed();
+    callback confirmed(string);
+
+    width: 100%;
+    height: 100%;
+    background: AppTheme.colors.background.with-alpha(0.8);
+
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    Rectangle {
+        width: 320px;
+        height: 200px;
+        background: AppTheme.colors.background;
+        border-radius: AppTheme.radius-lg;
+        border-width: 1px;
+        border-color: AppTheme.colors.border;
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 20px;
+            alignment: center;
+
+            Text {
+                text: @tr("Add Offline Account");
+                font-size: AppTheme.h3;
+                font-weight: AppTheme.font-weight-medium;
+                horizontal-alignment: center;
+                color: AppTheme.colors.foreground;
+            }
+
+            VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: @tr("Username");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 12px;
+                }
+                LineEdit {
+                    placeholder-text: @tr("Enter username");
+                    text <=> PageAccountLogic.offline_username;
+                    accepted => {
+                        if (PageAccountLogic.offline_username != "") {
+                            root.confirmed(PageAccountLogic.offline_username);
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: end;
+                Button {
+                    text: @tr("Cancel");
+                    clicked => { root.closed(); }
+                }
+                Button {
+                    text: @tr("Confirm");
+                    enabled: PageAccountLogic.offline_username != "";
+                    clicked => {
+                        root.confirmed(PageAccountLogic.offline_username);
+                    }
+                }
+            }
+        }
+    }
+}
