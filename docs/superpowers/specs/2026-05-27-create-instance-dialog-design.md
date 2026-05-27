@@ -217,10 +217,13 @@ export global InstanceCreateLogic {
 
 ```rust
 // 1. 載入實例
-let store = InstanceStore::new(McPaths::new()?.instances_file());
-let loaded_instances = store.load().unwrap_or_default();
+// InstanceStore 包裝在 Arc<Mutex<>> 以供跨 thread 使用
+let store = Arc::new(Mutex::new(InstanceStore::new(McPaths::new()?.instances_file())));
+let loaded_instances = store.lock().unwrap().load().unwrap_or_default();
 let raw_instances: Vec<InstanceData> = loaded_instances.iter().map(config_to_ui_data).collect();
-// ... 設到 VecModel
+// VecModel 也用 Arc 包裝，供 confirm_create 閉包 push 新資料
+let instances_model = Arc::new(VecModel::from(raw_instances));
+// ... 設到 UI
 
 // 2. 背景取得版本列表
 let ui_weak_for_versions = ui.as_weak();
@@ -360,14 +363,27 @@ pub fn instances_file(&self) -> PathBuf {
 
 ```rust
 fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
+    // play_time：0 秒 → 空字串；其他 → 格式化為 "Xh Ym"
+    let play_time = if config.play_time_secs == 0 {
+        String::new()
+    } else {
+        let h = config.play_time_secs / 3600;
+        let m = (config.play_time_secs % 3600) / 60;
+        format!("{}h {}m", h, m)
+    };
+
+    // 預設圖片：使用 CARGO_MANIFEST_DIR 下的 voxelruler.png
+    let icon_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/assets/icons/voxelruler.png");
+    let image = slint::Image::load_from_path(&icon_path).unwrap_or_default();
+
     InstanceData {
         id: config.id.as_str().into(),
         name: config.name.as_str().into(),
         version: config.version.as_str().into(),
         mod_loader: config.mod_loader.as_str().into(),
         last_played: config.last_played.as_str().into(),
-        play_time: format_play_time(config.play_time_secs).into(),
-        image: default_instance_image(),  // 或依 id 查找
+        play_time: play_time.into(),
+        image,
         status: "ready".into(),
     }
 }
