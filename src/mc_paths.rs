@@ -99,6 +99,14 @@ impl McPaths {
             .join("java");
     }
 
+    pub fn instances_base_dir(&self) -> PathBuf {
+        let d = self.base.join("instances");
+        if !d.exists() {
+            std::fs::create_dir_all(&d).ok();
+        }
+        d
+    }
+
     pub fn instance_dir(&self, instance_id: &str) -> PathBuf {
         let d = self.base.join("instances").join(instance_id);
         if !d.exists() {

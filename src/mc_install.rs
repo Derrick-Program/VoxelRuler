@@ -1,13 +1,17 @@
 #![allow(unused)]
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
 
 use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
-const ASSET_CONCURRENCY: usize = 8;
+const ASSET_CONCURRENCY: usize = 128;
+const LIBRARY_CONCURRENCY: usize = 64;
+const MAX_RETRIES: u32 = 5;
+const RETRY_BASE_DELAY_MS: u64 = 1000;
 
 fn sha1_hex(data: &[u8]) -> String {
     Sha1::digest(data)
@@ -30,18 +34,47 @@ async fn download_and_verify(
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    let actual = sha1_hex(&bytes);
-    if actual != expected_sha1 {
-        anyhow::bail!(
-            "SHA1 不符 {}: expected={} actual={}",
-            dest.display(),
-            expected_sha1,
-            actual
-        );
+
+    let mut last_err: anyhow::Error = anyhow::anyhow!("下載尚未嘗試");
+    for attempt in 0..MAX_RETRIES {
+        if attempt > 0 {
+            let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
+            eprintln!(
+                "[retry] 第 {}/{} 次重試，等待 {}ms：{}",
+                attempt, MAX_RETRIES - 1, delay, url
+            );
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+        }
+
+        let result: anyhow::Result<()> = async {
+            let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+            let actual = sha1_hex(&bytes);
+            if actual != expected_sha1 {
+                anyhow::bail!(
+                    "SHA1 不符 {}: expected={} actual={}",
+                    dest.display(),
+                    expected_sha1,
+                    actual
+                );
+            }
+            tokio::fs::write(dest, &bytes).await?;
+            Ok(())
+        }
+        .await;
+
+        match result {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("SHA1 不符") {
+                    return Err(e);
+                }
+                last_err = e;
+            }
+        }
     }
-    tokio::fs::write(dest, &bytes).await?;
-    Ok(())
+
+    Err(last_err).with_context(|| format!("下載失敗（重試 {} 次）：{}", MAX_RETRIES, url))
 }
 
 pub async fn install_java(
@@ -118,20 +151,9 @@ pub async fn install_libraries(
     libraries_dir: &Path,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    let applicable: Vec<(PathBuf, String, u64, String)> = version.libraries.iter()
+    let mut applicable: Vec<(PathBuf, String, u64, String)> = version.libraries.iter()
         .filter(|lib| lib.rules.as_ref().map_or(true, |r| evaluate_rules(r)))
         .filter_map(|lib| {
-            if cfg!(target_os = "macos") && lib.name.starts_with("net.java.dev.jna:") {
-                if lib.name.contains("jna-platform") {
-                    let dest = libraries_dir.join("net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar");
-                    let url = "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar".to_string();
-                    return Some((dest, url, 1345511, "88e9a306715e9379f3122415ef4ae759a352640d".to_string()));
-                } else {
-                    let dest = libraries_dir.join("net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar");
-                    let url = "https://libraries.minecraft.net/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar".to_string();
-                    return Some((dest, url, 1877665, "1200e7ebeedbe0d10062093f32925a912020e747".to_string()));
-                }
-            }
             let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
             let dest = artifact.path.as_deref()
                 .map(|p| libraries_dir.join(p))
@@ -140,13 +162,96 @@ pub async fn install_libraries(
         })
         .collect();
 
+    #[cfg(target_os = "macos")]
+    {
+        let jna_version_opt = version.libraries.iter()
+            .find(|lib| lib.name.starts_with("net.java.dev.jna:jna:"))
+            .and_then(|lib| lib.name.split(':').nth(2));
+
+        if let Some(jna_ver) = jna_version_opt {
+            let has_platform = version.libraries.iter()
+                .any(|lib| lib.name.starts_with("net.java.dev.jna:jna-platform:"));
+            if !has_platform {
+                eprintln!("[compat] 舊版本缺少 jna-platform，自動對齊補入版本: {}", jna_ver);
+                let (url, size, sha1) = match jna_ver {
+                    "5.13.0" => (
+                        "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar",
+                        1345511,
+                        "88e9a306715e9379f3122415ef4ae759a352640d"
+                    ),
+                    "5.11.0" | _ => (
+                        "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.11.0/jna-platform-5.11.0.jar",
+                        1330369,
+                        "1d60447fa0dbd7fae266a87df2c2bbf893fcff66"
+                    ),
+                };
+                let path_str = format!("net/java/dev/jna/jna-platform/{}/jna-platform-{}.jar", jna_ver, jna_ver);
+                applicable.push((libraries_dir.join(path_str), url.to_string(), size, sha1.to_string()));
+            }
+        }
+    }
+
     let total = applicable.len().max(1);
-    for (i, (dest, url, size, sha1)) in applicable.iter().enumerate() {
-        download_and_verify(url, dest, *size, sha1).await?;
-        on_progress((i + 1) as f32 / total as f32);
+    let mut completed = 0usize;
+    let mut stream = stream::iter(applicable)
+        .map(|(dest, url, size, sha1)| {
+            async move { download_and_verify(&url, &dest, size, &sha1).await }
+        })
+        .buffer_unordered(LIBRARY_CONCURRENCY);
+
+    while let Some(result) = stream.next().await {
+        result?;
+        completed += 1;
+        on_progress(completed as f32 / total as f32);
+    }
+
+    Ok(())
+}
+
+
+pub async fn install_assets(
+    version: &McSpecificVersionDetail,
+    assets_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
+) -> anyhow::Result<()> {
+    let index = version
+        .asset_index
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
+
+    let objects = crate::mc_api::McAction::new()
+        .get_asset_index(&index.url)
+        .await?;
+
+    let index_path = assets_dir
+        .join("indexes")
+        .join(format!("{}.json", index.id));
+    if let Some(parent) = index_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
+
+    let objects_dir = assets_dir.join("objects");
+    let total = objects.objects.len().max(1);
+    let mut completed = 0usize;
+    let mut stream = stream::iter(objects.objects.into_values())
+        .map(|obj| {
+            let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
+            let url = obj.download_url();
+            let size = obj.size;
+            let hash = obj.hash.clone();
+            async move { download_and_verify(&url, &dest, size, &hash).await }
+        })
+        .buffer_unordered(ASSET_CONCURRENCY);
+
+    while let Some(result) = stream.next().await {
+        result?;
+        completed += 1;
+        on_progress(completed as f32 / total as f32);
     }
     Ok(())
 }
+
 
 #[cfg(test)]
 mod test {
@@ -412,47 +517,4 @@ mod test {
             }
         })
     }
-}
-
-pub async fn install_assets(
-    version: &McSpecificVersionDetail,
-    assets_dir: &Path,
-    on_progress: impl Fn(f32) + Send,
-) -> anyhow::Result<()> {
-    let index = version
-        .asset_index
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
-
-    let objects = crate::mc_api::McAction::new()
-        .get_asset_index(&index.url)
-        .await?;
-
-    let index_path = assets_dir
-        .join("indexes")
-        .join(format!("{}.json", index.id));
-    if let Some(parent) = index_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
-
-    let objects_dir = assets_dir.join("objects");
-    let total = objects.objects.len().max(1);
-    let mut completed = 0usize;
-    let mut stream = stream::iter(objects.objects.into_values())
-        .map(|obj| {
-            let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
-            let url = obj.download_url();
-            let size = obj.size;
-            let hash = obj.hash.clone();
-            async move { download_and_verify(&url, &dest, size, &hash).await }
-        })
-        .buffer_unordered(ASSET_CONCURRENCY);
-
-    while let Some(result) = stream.next().await {
-        result?;
-        completed += 1;
-        on_progress(completed as f32 / total as f32);
-    }
-    Ok(())
 }

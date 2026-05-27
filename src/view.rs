@@ -1,7 +1,23 @@
 slint::include_modules!();
 use slint::{Model, ModelRc, VecModel};
-use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, process::Child, rc::Rc, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
-use crate::{mc_install, mc_parser::LaunchContext, mc_paths::McPaths, mc_token::{self, SessionData}, mc_types::McSpecificVersionDetail};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::{Path, PathBuf},
+    process::Child,
+    rc::Rc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use crate::{
+    mc_install,
+    mc_instance::{InstanceConfig, InstanceStore},
+    mc_parser::LaunchContext,
+    mc_paths::McPaths,
+    mc_token::{self, SessionData},
+    mc_types::McSpecificVersionDetail,
+};
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
@@ -23,125 +39,168 @@ async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+
+fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
+    let play_time = if config.play_time_secs == 0 {
+        String::new()
+    } else {
+        let h = config.play_time_secs / 3600;
+        let m = (config.play_time_secs % 3600) / 60;
+        format!("{}h {}m", h, m)
+    };
+    let icon_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/assets/icons/voxelruler.png");
+    let image = slint::Image::load_from_path(&icon_path).unwrap_or_default();
+    InstanceData {
+        id: config.id.as_str().into(),
+        name: config.name.as_str().into(),
+        version: config.version.as_str().into(),
+        mod_loader: config.mod_loader.as_str().into(),
+        last_played: config.last_played.as_str().into(),
+        play_time: play_time.into(),
+        image,
+        status: "ready".into(),
+    }
+}
+
 #[allow(unused)]
 pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
     let logic = ui.global::<InstanceLogic>();
-    let path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/assets/icons/voxelruler.png");
-    let raw_instances = vec![
-        InstanceData {
-            id: "1".into(),
-            name: "生存模式 1.20".into(),
-            version: "1.20.4".into(),
-            mod_loader: "Fabric".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            ..Default::default()
-        },
-        InstanceData {
-            id: "2".into(),
-            name: "紅石測試".into(),
-            version: "1.19.2".into(),
-            mod_loader: "Forge".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            last_played: "2024-06-01".into(),
-            play_time: "2h 15m".into(),
-        },
-        InstanceData {
-            id: "3".into(),
-            name: "模組測試".into(),
-            version: "1.18.1".into(),
-            mod_loader: "Fabric".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            last_played: "2024-05-28".into(),
-            play_time: "5h 42m".into(),
-        },
-        InstanceData {
-            id: "4".into(),
-            name: "實驗性版本".into(),
-            version: "1.20.4".into(),
-            mod_loader: "None".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            ..Default::default()
-        },
-        InstanceData {
-            id: "5".into(),
-            name: "冒險模式".into(),
-            version: "1.12.2".into(),
-            mod_loader: "Forge".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            last_played: "2024-06-02".into(),
-            play_time: "3h 20m".into(),
-        },
-        InstanceData {
-            id: "6".into(),
-            name: "建築專用".into(),
-            version: "1.14.1".into(),
-            mod_loader: "Fabric".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            last_played: "2024-05-30".into(),
-            play_time: "10h 5m".into(),
-        },
-        InstanceData {
-            id: "7".into(),
-            name: "生存模式 1.20".into(),
-            version: "1.7.10".into(),
-            mod_loader: "Fabric".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            ..Default::default()
-        },
-        InstanceData {
-            id: "8".into(),
-            name: "紅石測試".into(),
-            version: "1.19.2".into(),
-            mod_loader: "Forge".into(),
-            status: "ready".into(),
-            image: slint::Image::load_from_path(&path_buf)?,
-            last_played: "2024-06-01".into(),
-            play_time: "2h 15m".into(),
-        },
-    ];
-    let model = Rc::new(VecModel::from(raw_instances.clone()));
-    logic.set_instance_list(ModelRc::from(Rc::clone(&model)));
-    let logic_weak = ui.as_weak();
-    let raw_data_for_search = raw_instances.clone();
+
+    let store = Arc::new(Mutex::new(InstanceStore::new(
+        McPaths::new()?.instances_base_dir(),
+    )));
+    let master_configs: Arc<Mutex<Vec<InstanceConfig>>> = {
+        let loaded = store.lock().unwrap().load().unwrap_or_default();
+        Arc::new(Mutex::new(loaded))
+    };
+    {
+        let configs = master_configs.lock().unwrap();
+        let ui_items: Vec<InstanceData> = configs.iter().map(config_to_ui_data).collect();
+        logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
+    }
+
+    let (_debouncer, rx) = store.lock().unwrap().watch_changes()?;
+    let ui_weak_for_watch = ui.as_weak();
+    let store_for_watch = Arc::clone(&store);
+    let master_for_watch = Arc::clone(&master_configs);
+    tokio::spawn(async move {
+        while let Ok(_) = rx.recv() {
+            println!("🔄 偵測到遊戲實例資料夾變動，正在同步至 UI 列表...");
+            let latest_configs = match store_for_watch.lock() {
+                Ok(s) => s.load().unwrap_or_default(),
+                Err(_) => continue,
+            };
+            if let Ok(mut master) = master_for_watch.lock() {
+                *master = latest_configs.clone();
+            }
+            let ui_weak = ui_weak_for_watch.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui_handle) = ui_weak.upgrade() {
+                    let logic = ui_handle.global::<InstanceLogic>();
+                    let mut ui_items: Vec<InstanceData> =
+                        latest_configs.iter().map(config_to_ui_data).collect();
+                    if ui_items.is_empty() {
+                        ui_items.push(InstanceData {
+                            id: "".into(),
+                            name: "".into(),
+                            version: "".into(),
+                            mod_loader: "".into(),
+                            last_played: "".into(),
+                            play_time: "".into(),
+                            image: Default::default(),
+                            status: "".into(),
+                        });
+                    }
+
+                    logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
+                    println!("✨ UI 列表已與硬碟安全同步！");
+                }
+            });
+        }
+    });
+
+    let ui_weak_for_versions = ui.as_weak();
+    {
+        if let Some(ui) = ui_weak_for_versions.upgrade() {
+            ui.global::<InstanceCreateLogic>().set_is_loading(true);
+        }
+    }
+    tokio::spawn(async move {
+        let api = crate::mc_api::McAction::new();
+        match api.get_all_mc_versions().await {
+            Ok(versions) => {
+                let list: Vec<String> = versions.iter().map(|v| v.id.clone()).collect();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_for_versions.upgrade() {
+                        let create = ui.global::<InstanceCreateLogic>();
+                        let shared: Vec<slint::SharedString> =
+                            list.iter().map(|s| s.as_str().into()).collect();
+                        let first = shared.first().cloned().unwrap_or_default();
+                        create.set_version_list(ModelRc::from(Rc::new(VecModel::from(shared))));
+                        create.set_selected_version(first);
+                        create.set_is_loading(false);
+                    }
+                })
+                .ok();
+            }
+            Err(e) => {
+                eprintln!("Failed to fetch MC versions: {e}");
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_for_versions.upgrade() {
+                        ui.global::<InstanceCreateLogic>().set_is_loading(false);
+                    }
+                })
+                .ok();
+            }
+        }
+    });
+
+    let master_for_search = Arc::clone(&master_configs);
+    let ui_weak_for_search = ui.as_weak();
     logic.on_search_changed(move |text| {
-        let ui = logic_weak.unwrap();
+        let Some(ui) = ui_weak_for_search.upgrade() else {
+            return;
+        };
         let logic = ui.global::<InstanceLogic>();
-        let filtered: Vec<InstanceData> = raw_data_for_search
+        let configs = master_for_search.lock().unwrap();
+        let filtered: Vec<InstanceData> = configs
             .iter()
-            .filter(|inst| {
-                text.is_empty() || inst.name.to_lowercase().contains(&text.to_lowercase())
-            })
-            .cloned()
+            .filter(|c| text.is_empty() || c.name.to_lowercase().contains(&text.to_lowercase()))
+            .map(config_to_ui_data)
             .collect();
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
-    let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
-    let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    let raw_instances_for_launch = raw_instances.clone();
+    let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
+    let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    let master_for_launch = Arc::clone(&master_configs);
     let running_procs_for_launch = Arc::clone(&running_procs);
     let instance_logs_for_launch = Arc::clone(&instance_logs);
     let ui_weak_for_launch = ui.as_weak();
     logic.on_launch_instance(move |id| {
-        let version_id = raw_instances_for_launch
-            .iter()
-            .find(|inst| inst.id == id)
-            .map(|inst| inst.version.to_string())
-            .unwrap_or_else(|| id.to_string());
-        let instance_id = id.to_string();
-        let instance_name = raw_instances_for_launch
-            .iter()
-            .find(|inst| inst.id == id)
-            .map(|inst| inst.name.to_string())
-            .unwrap_or_else(|| id.to_string());
+        let (version_id, instance_id, instance_name, xmx, xms) = {
+            let configs = master_for_launch.lock().unwrap();
+            if let Some(c) = configs.iter().find(|c| c.id == id.as_str()) {
+                (
+                    c.version.clone(),
+                    c.id.clone(),
+                    c.name.clone(),
+                    c.xmx.clone(),
+                    c.xms.clone(),
+                )
+            } else {
+                (
+                    id.to_string(),
+                    id.to_string(),
+                    id.to_string(),
+                    "2G".into(),
+                    "512M".into(),
+                )
+            }
+        };
         let running_procs = Arc::clone(&running_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
@@ -149,9 +208,22 @@ pub async fn open_view() -> anyhow::Result<()> {
             return;
         }
         tokio::spawn(async move {
-            match do_launch(version_id, instance_id.clone(), instance_name.clone(),ui_weak.clone(), logs).await {
+            match do_launch(
+                version_id,
+                instance_id.clone(),
+                instance_name.clone(),
+                xmx,
+                xms,
+                ui_weak.clone(),
+                logs,
+            )
+            .await
+            {
                 Ok(child) => {
-                    running_procs.lock().unwrap().insert(instance_id.clone(), child);
+                    running_procs
+                        .lock()
+                        .unwrap()
+                        .insert(instance_id.clone(), child);
                     set_instance_status(&ui_weak, &instance_id, "running");
                     let running_procs_watch = Arc::clone(&running_procs);
                     let ui_weak_watch = ui_weak.clone();
@@ -160,7 +232,9 @@ pub async fn open_view() -> anyhow::Result<()> {
                         loop {
                             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                             let mut map = running_procs_watch.lock().unwrap();
-                            let Some(child) = map.get_mut(&id_watch) else { break };
+                            let Some(child) = map.get_mut(&id_watch) else {
+                                break;
+                            };
                             match child.try_wait() {
                                 Ok(Some(_)) | Err(_) => {
                                     map.remove(&id_watch);
@@ -190,6 +264,10 @@ pub async fn open_view() -> anyhow::Result<()> {
             drop(map);
             set_instance_status(&ui_weak_for_kill, id.as_str(), "ready");
         }
+    });
+
+    logic.on_open_instance_settings(move |_id| {
+        // TODO: 開啟 instance 設定頁面（M4 里程碑實作）
     });
 
     let ui_weak_for_dismiss = ui.as_weak();
@@ -227,9 +305,81 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    logic.on_new_instance(|| {
-        println!("Rust: 開啟建立視窗");
-        //TODO: 需要建立實例資料夾
+    let ui_weak_for_new = ui.as_weak();
+    logic.on_new_instance(move || {
+        let Some(ui) = ui_weak_for_new.upgrade() else {
+            return;
+        };
+        let create = ui.global::<InstanceCreateLogic>();
+        create.set_name("".into());
+        create.set_mod_loader("None".into());
+        create.set_xmx("2G".into());
+        create.set_xms("512M".into());
+        create.set_logs_enabled(true);
+        create.set_world_path("".into());
+        create.set_resource_pack("".into());
+        create.set_shader_pack("".into());
+        create.set_error_msg("".into());
+        create.set_active_tab(0);
+        create.set_show_dialog(true);
+    });
+
+    let create_logic = ui.global::<InstanceCreateLogic>();
+
+    let ui_weak_for_cancel = ui.as_weak();
+    create_logic.on_cancel_create(move || {
+        if let Some(ui) = ui_weak_for_cancel.upgrade() {
+            ui.global::<InstanceCreateLogic>().set_show_dialog(false);
+        }
+    });
+
+    let store_for_create = Arc::clone(&store);
+    let master_for_create = Arc::clone(&master_configs);
+    let ui_weak_for_confirm = ui.as_weak();
+    create_logic.on_confirm_create(move || {
+        let Some(ui) = ui_weak_for_confirm.upgrade() else {
+            return;
+        };
+        let create = ui.global::<InstanceCreateLogic>();
+
+        let name = create.get_name().to_string();
+        let version = create.get_selected_version().to_string();
+
+        if name.trim().is_empty() {
+            create.set_error_msg("實例名稱不可為空".into());
+            return;
+        }
+        if version.is_empty() {
+            create.set_error_msg("請選擇 Minecraft 版本".into());
+            return;
+        }
+
+        let config = InstanceConfig {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.trim().to_string(),
+            version,
+            mod_loader: create.get_mod_loader().to_string(),
+            xmx: create.get_xmx().to_string(),
+            xms: create.get_xms().to_string(),
+            logs_enabled: create.get_logs_enabled(),
+            world_path: create.get_world_path().to_string(),
+            resource_pack: create.get_resource_pack().to_string(),
+            shader_pack: create.get_shader_pack().to_string(),
+            ..Default::default()
+        };
+
+        match store_for_create.lock().unwrap().append(config) {
+            Ok(updated) => {
+                *master_for_create.lock().unwrap() = updated.clone();
+                let logic = ui.global::<InstanceLogic>();
+                let new_items: Vec<InstanceData> = updated.iter().map(config_to_ui_data).collect();
+                logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(new_items))));
+                create.set_show_dialog(false);
+            }
+            Err(e) => {
+                create.set_error_msg(format!("建立失敗：{e}").into());
+            }
+        }
     });
 
     let mod_logic = ui.global::<ModLogic>();
@@ -240,7 +390,9 @@ pub async fn open_view() -> anyhow::Result<()> {
         let logic = ui.global::<ModLogic>();
         let filtered: Vec<ModData> = raw_mods
             .iter()
-            .filter(|m| text.is_empty() || m.name.to_lowercase().contains(text.to_lowercase().as_str()))
+            .filter(|m| {
+                text.is_empty() || m.name.to_lowercase().contains(text.to_lowercase().as_str())
+            })
             .cloned()
             .collect();
         logic.set_selected_index(0);
@@ -306,7 +458,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     });
     let ui_weak = ui.as_weak();
     let page_account_logic = ui.global::<PageAccountLogic>();
-    page_account_logic.on_login_with_microsoft(move ||{
+    page_account_logic.on_login_with_microsoft(move || {
         let ui_weak = ui_weak.clone();
         let cancel_flag = Arc::clone(&cancel_flag);
         cancel_flag.store(false, Ordering::SeqCst);
@@ -543,7 +695,13 @@ pub async fn open_view() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_install_state(ui_weak: &slint::Weak<MainApp>, installing: bool, progress: f32, status: &str, is_error: bool) {
+fn set_install_state(
+    ui_weak: &slint::Weak<MainApp>,
+    installing: bool,
+    progress: f32,
+    status: &str,
+    is_error: bool,
+) {
     let status = status.to_string();
     let ui_weak = ui_weak.clone();
     let _ = slint::invoke_from_event_loop(move || {
@@ -564,10 +722,15 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
         let Some(ui) = ui_weak.upgrade() else { return };
         let list = ui.global::<InstanceLogic>().get_instance_list();
         for i in 0..list.row_count() {
+            if i >= list.row_count() {
+                break;
+            }
             if let Some(mut item) = list.row_data(i) {
                 if item.id.as_str() == id {
                     item.status = status.into();
-                    list.set_row_data(i, item);
+                    if i < list.row_count() {
+                        list.set_row_data(i, item);
+                    }
                     break;
                 }
             }
@@ -579,6 +742,8 @@ async fn do_launch(
     version_id: String,
     instance_id: String,
     instance_name: String,
+    xmx: String,
+    xms: String,
     ui_weak: slint::Weak<MainApp>,
     instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
 ) -> anyhow::Result<Child> {
@@ -589,7 +754,9 @@ async fn do_launch(
     let java_manifest = api.get_java_runtime_manifest_for_version(&version).await?;
 
     let paths = McPaths::new()?;
-    let java_component = version.java_version.as_ref()
+    let java_component = version
+        .java_version
+        .as_ref()
         .map(|j| j.component.clone())
         .unwrap_or_else(|| "jre-legacy".into());
 
@@ -599,7 +766,8 @@ async fn do_launch(
             let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.1 + p * 0.3, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_client(&version, &paths.versions_dir(), {
         let ui_weak = ui_weak.clone();
@@ -607,7 +775,8 @@ async fn do_launch(
             let status = format!("下載 Minecraft 主程式... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.4 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_libraries(&version, &paths.libraries_dir(), {
         let ui_weak = ui_weak.clone();
@@ -615,7 +784,8 @@ async fn do_launch(
             let status = format!("下載函式庫... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.6 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     mc_install::install_assets(&version, &paths.assets_dir(), {
         let ui_weak = ui_weak.clone();
@@ -623,7 +793,8 @@ async fn do_launch(
             let status = format!("下載遊戲資源... {:.0}%", p * 100.0);
             set_install_state(&ui_weak, true, 0.8 + p * 0.2, &status, false);
         }
-    }).await?;
+    })
+    .await?;
 
     set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
 
@@ -633,18 +804,28 @@ async fn do_launch(
         .unwrap_or_default();
 
     let (player_name, player_uuid) = if !token.is_empty() {
-        match crate::mc_api::McAction::new().authenticate(&token).get_user_profile().await {
+        match crate::mc_api::McAction::new()
+            .authenticate(&token)
+            .get_user_profile()
+            .await
+        {
             Ok(profile) => (profile.name, profile.id),
-            Err(_) => ("Player".into(), "00000000-0000-0000-0000-000000000000".into()),
+            Err(_) => (
+                "Player".into(),
+                "00000000-0000-0000-0000-000000000000".into(),
+            ),
         }
     } else {
-        ("Player".into(), "00000000-0000-0000-0000-000000000000".into())
+        (
+            "Player".into(),
+            "00000000-0000-0000-0000-000000000000".into(),
+        )
     };
 
     let ctx = LaunchContext {
         version,
         java_path: paths.java_bin(&java_component),
-        game_dir: paths.instance_dir(&instance_name),
+        game_dir: paths.instance_dir(&instance_id),
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
         natives_dir: paths.natives_dir(&version_id),
@@ -654,22 +835,36 @@ async fn do_launch(
         auth_access_token: token,
         client_id: String::new(),
         xuid: String::new(),
-        xmx: "2G".into(),
-        xms: "512M".into(),
+        xmx,
+        xms,
     };
     let mut cmd = ctx.build_command();
     dbg!("啟動指令: {:?}", &cmd);
-    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn()?;
     set_install_state(&ui_weak, false, 0.0, "", false);
 
-    instance_logs.lock().unwrap().insert(instance_id.clone(), VecDeque::with_capacity(500));
+    instance_logs
+        .lock()
+        .unwrap()
+        .insert(instance_id.clone(), VecDeque::with_capacity(500));
 
     if let Some(stdout) = child.stdout.take() {
-        spawn_log_reader(stdout, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+        spawn_log_reader(
+            stdout,
+            instance_id.clone(),
+            Arc::clone(&instance_logs),
+            ui_weak.clone(),
+        );
     }
     if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(stderr, instance_id.clone(), Arc::clone(&instance_logs), ui_weak.clone());
+        spawn_log_reader(
+            stderr,
+            instance_id.clone(),
+            Arc::clone(&instance_logs),
+            ui_weak.clone(),
+        );
     }
 
     Ok(child)
@@ -699,12 +894,15 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
             let line_shared: slint::SharedString = line.into();
             let ui = ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
-                let Some(ui_handle) = ui.upgrade() else { return };
+                let Some(ui_handle) = ui.upgrade() else {
+                    return;
+                };
                 let logic = ui_handle.global::<InstanceLogic>();
                 if logic.get_show_log() && logic.get_log_instance_id().as_str() == id {
                     let current = logic.get_log_lines();
-                    let mut lines: Vec<slint::SharedString> =
-                        (0..current.row_count()).filter_map(|i| current.row_data(i)).collect();
+                    let mut lines: Vec<slint::SharedString> = (0..current.row_count())
+                        .filter_map(|i| current.row_data(i))
+                        .collect();
                     lines.push(line_shared);
                     logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
                 }
