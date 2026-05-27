@@ -77,14 +77,5 @@ export component Account inherits Rectangle {
                 }
             }
         }
-
-        HorizontalLayout {
-            spacing: 8px;
-            Rectangle { horizontal-stretch: 1; }
-            Button {
-                text: @tr("Save");
-                clicked => PageAccountLogic.account-save();
-            }
-        }
     }
 }

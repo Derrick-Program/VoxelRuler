@@ -322,7 +322,6 @@ export global PageAccountLogic {
     callback set-default-account();
     callback unset-default-account();
     callback manage-appearance();
-    callback account-save();
 
     login_with_microsoft => { debug("Login button clicked"); }
     cancel_login => { debug("Login canceled by user"); }
@@ -333,5 +332,4 @@ export global PageAccountLogic {
     set-default-account => { debug("Set default account"); }
     unset-default-account => { debug("Unset default account"); }
     manage-appearance => { debug("Manage appearance"); }
-    account-save => { debug("Account settings saved"); }
 }
