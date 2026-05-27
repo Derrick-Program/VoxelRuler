@@ -14,25 +14,26 @@ export component AccountTable inherits VerticalLayout {
             padding-left: 8px;
             padding-right: 8px;
             spacing: 8px;
+            alignment: start;
 
             Rectangle { width: 20px; }
 
             Text {
-                horizontal-stretch: 4;
+                width: 45%;
                 text: @tr("Username");
                 color: AppTheme.colors.muted-foreground;
                 font-size: AppTheme.font-size-base;
                 vertical-alignment: center;
             }
             Text {
-                horizontal-stretch: 1;
+                width: 30%;
                 text: @tr("Authenticator");
                 color: AppTheme.colors.muted-foreground;
                 font-size: AppTheme.font-size-base;
                 vertical-alignment: center;
             }
             Text {
-                horizontal-stretch: 1;
+                width: 25%;
                 text: @tr("Status");
                 color: AppTheme.colors.muted-foreground;
                 font-size: AppTheme.font-size-base;
@@ -59,6 +60,7 @@ export component AccountTable inherits VerticalLayout {
                 padding-left: 8px;
                 padding-right: 8px;
                 spacing: 8px;
+                alignment: start;
 
                 CheckBox {
                     width: 20px;
@@ -66,7 +68,7 @@ export component AccountTable inherits VerticalLayout {
                     checked: row.checked;
                 }
                 Text {
-                    horizontal-stretch: 4;
+                    width: 45%;
                     text: row.username;
                     color: AppTheme.colors.foreground;
                     font-size: AppTheme.font-size-base;
@@ -75,7 +77,7 @@ export component AccountTable inherits VerticalLayout {
                     overflow: elide;
                 }
                 Text {
-                    horizontal-stretch: 1;
+                    width: 30%;
                     text: row.authenticator;
                     color: AppTheme.colors.foreground;
                     font-size: AppTheme.font-size-base;
@@ -84,7 +86,7 @@ export component AccountTable inherits VerticalLayout {
                     overflow: elide;
                 }
                 Text {
-                    horizontal-stretch: 1;
+                    width: 25%;
                     text: row.status;
                     color: AppTheme.colors.foreground;
                     font-size: AppTheme.font-size-base;
