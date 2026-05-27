@@ -46,10 +46,10 @@
 ## M2：Instances 資料層建立（5/26 – 6/01）
 
 ### 目標
-- [ ] 定義 `InstanceData` 資料結構（名稱、版本、遊戲類型、圖示路徑等）
-- [ ] 實例儲存格式（JSON / TOML）與讀寫邏輯
-- [ ] `instances.slint` 從 Rust 端接收實例列表並顯示
-- [ ] 搜尋功能串接
+- [x] 定義 `InstanceData` 資料結構（名稱、版本、遊戲類型、圖示路徑等）
+- [x] 實例儲存格式（JSON / TOML）與讀寫邏輯
+- [x] `instances.slint` 從 Rust 端接收實例列表並顯示
+- [x] 搜尋功能串接
 
 ### 完成標準
 - 實例列表可從磁碟讀取並顯示在 UI
@@ -65,7 +65,7 @@
 - [x] 組合啟動指令並 `std::process::Command` 執行（`mc_parser.rs` + `do_launch()`）
 - [x] 啟動時顯示進度（`set_install_state()` 串接 progress bar）
 - [x] 啟動後 UI 反饋（錯誤訊息顯示）
-- [ ] xmx/xms 改為從實例設定讀取（目前 hardcoded "2G"/"512M"）
+- [x] xmx/xms 改為從實例設定讀取（目前 hardcoded "2G"/"512M"）
 
 ### 完成標準
 - 點選實例中的啟動按鈕，Minecraft 真正開啟且可正常遊玩
@@ -75,7 +75,7 @@
 ## M4：實例 CRUD 管理（6/09 – 6/15）
 
 ### 目標
-- [ ] 新增實例（選擇版本、命名）
+- [x] 新增實例（選擇版本、命名）
 - [ ] 刪除實例（含確認對話框）
 - [ ] 編輯實例設定（記憶體、Java 路徑等）
 - [ ] `AddInstance` UI 串接
