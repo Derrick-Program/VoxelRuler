@@ -1,6 +1,6 @@
 # VoxelRuler 專案進度追蹤
 
-> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-05-19  
+> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-05-27  
 > 詳細分工 → `.claude/docs/task-assignment.md`
 
 ---
@@ -18,9 +18,9 @@
 
 | 里程碑 | 期間 | 狀態 |
 |--------|------|------|
-| M1：Account 頁面串接完成 | 5/19 – 5/25 | 🔄 進行中 |
-| M2：Instances 資料層建立 | 5/26 – 6/01 | ⬜ 待開始 |
-| M3：啟動 Minecraft（核心功能） | 6/02 – 6/08 | ⬜ 待開始 |
+| M1：Account 頁面串接完成 | 5/19 – 5/25 | ⚠️ 部分完成（差 2 項） |
+| M2：Instances 資料層建立 | 5/26 – 6/01 | 🔄 進行中 |
+| M3：啟動 Minecraft（核心功能） | 6/02 – 6/08 | ✅ 核心超前完成 |
 | M4：實例 CRUD 管理完成 | 6/09 – 6/15 | ⬜ 待開始 |
 | M5：遊戲檔案下載與進度顯示 | 6/16 – 6/22 | ⬜ 待開始 |
 | M6：多平台打包、測試、v1.0.0 | 6/23 – 6/30 | ⬜ 待開始 |
@@ -30,11 +30,11 @@
 ## M1：Account 頁面串接（5/19 – 5/25）
 
 ### 目標
-- [ ] `account.slint` UI 顯示登入狀態（已登入 / 未登入）
-- [ ] 已登入時顯示使用者名稱與頭像
-- [ ] 未登入時顯示「登入」按鈕，觸發 Microsoft OAuth 流程
-- [ ] 登出功能（清除 session）
-- [ ] Rust 端 `view.rs` 與 `mc_token.rs` 串接 `GLOBAL_CACHE` 中的 token 狀態
+- [x] `account.slint` UI 顯示登入狀態（已登入 / 未登入）
+- [ ] 已登入時顯示使用者名稱與頭像（登入成功後需從 GLOBAL_CACHE 取 profile）
+- [x] 未登入時顯示「登入」按鈕，觸發 Microsoft OAuth 流程
+- [ ] 登出功能（清除 session、清除 GLOBAL_CACHE、重設帳號頁）
+- [x] Rust 端 `view.rs` 與 `mc_token.rs` 串接 `GLOBAL_CACHE` 中的 token 狀態
 
 ### 完成標準
 - 冷啟動時，若有有效 token，帳號頁自動顯示已登入狀態
@@ -57,14 +57,15 @@
 
 ---
 
-## M3：啟動 Minecraft（6/02 – 6/08）【核心功能】
+## M3：啟動 Minecraft（6/02 – 6/08）【核心功能 — 超前完成】
 
 ### 目標
-- [ ] 調用 Minecraft API 取得啟動參數
-- [ ] 下載並驗證 JVM 與遊戲版本（若未存在）
-- [ ] 組合啟動指令並 `std::process::Command` 執行
-- [ ] 啟動時顯示進度（`file-progress.slint`）
-- [ ] 啟動後 UI 反饋（成功 / 錯誤訊息）
+- [x] 調用 Minecraft API 取得啟動參數（`mc_api.rs`）
+- [x] 下載並驗證 JVM 與遊戲版本（`mc_install.rs`）
+- [x] 組合啟動指令並 `std::process::Command` 執行（`mc_parser.rs` + `do_launch()`）
+- [x] 啟動時顯示進度（`set_install_state()` 串接 progress bar）
+- [x] 啟動後 UI 反饋（錯誤訊息顯示）
+- [ ] xmx/xms 改為從實例設定讀取（目前 hardcoded "2G"/"512M"）
 
 ### 完成標準
 - 點選實例中的啟動按鈕，Minecraft 真正開啟且可正常遊玩
