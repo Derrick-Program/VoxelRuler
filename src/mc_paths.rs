@@ -99,6 +99,10 @@ impl McPaths {
             .join("java");
     }
 
+    pub fn instances_file(&self) -> PathBuf {
+        self.base.join("instances.toml")
+    }
+
     pub fn instance_dir(&self, instance_id: &str) -> PathBuf {
         let d = self.base.join("instances").join(instance_id);
         if !d.exists() {
