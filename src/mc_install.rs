@@ -9,6 +9,7 @@ use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
 const ASSET_CONCURRENCY: usize = 128;
+const LIBRARY_CONCURRENCY: usize = 64;
 const MAX_RETRIES: u32 = 5;
 const RETRY_BASE_DELAY_MS: u64 = 1000;
 
@@ -196,7 +197,7 @@ pub async fn install_libraries(
         .map(|(dest, url, size, sha1)| {
             async move { download_and_verify(&url, &dest, size, &sha1).await }
         })
-        .buffer_unordered(32);
+        .buffer_unordered(LIBRARY_CONCURRENCY);
 
     while let Some(result) = stream.next().await {
         result?;
@@ -206,6 +207,51 @@ pub async fn install_libraries(
 
     Ok(())
 }
+
+
+pub async fn install_assets(
+    version: &McSpecificVersionDetail,
+    assets_dir: &Path,
+    on_progress: impl Fn(f32) + Send,
+) -> anyhow::Result<()> {
+    let index = version
+        .asset_index
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
+
+    let objects = crate::mc_api::McAction::new()
+        .get_asset_index(&index.url)
+        .await?;
+
+    let index_path = assets_dir
+        .join("indexes")
+        .join(format!("{}.json", index.id));
+    if let Some(parent) = index_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
+
+    let objects_dir = assets_dir.join("objects");
+    let total = objects.objects.len().max(1);
+    let mut completed = 0usize;
+    let mut stream = stream::iter(objects.objects.into_values())
+        .map(|obj| {
+            let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
+            let url = obj.download_url();
+            let size = obj.size;
+            let hash = obj.hash.clone();
+            async move { download_and_verify(&url, &dest, size, &hash).await }
+        })
+        .buffer_unordered(ASSET_CONCURRENCY);
+
+    while let Some(result) = stream.next().await {
+        result?;
+        completed += 1;
+        on_progress(completed as f32 / total as f32);
+    }
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod test {
@@ -471,47 +517,4 @@ mod test {
             }
         })
     }
-}
-
-pub async fn install_assets(
-    version: &McSpecificVersionDetail,
-    assets_dir: &Path,
-    on_progress: impl Fn(f32) + Send,
-) -> anyhow::Result<()> {
-    let index = version
-        .asset_index
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
-
-    let objects = crate::mc_api::McAction::new()
-        .get_asset_index(&index.url)
-        .await?;
-
-    let index_path = assets_dir
-        .join("indexes")
-        .join(format!("{}.json", index.id));
-    if let Some(parent) = index_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
-
-    let objects_dir = assets_dir.join("objects");
-    let total = objects.objects.len().max(1);
-    let mut completed = 0usize;
-    let mut stream = stream::iter(objects.objects.into_values())
-        .map(|obj| {
-            let dest = objects_dir.join(&obj.hash[..2]).join(&obj.hash);
-            let url = obj.download_url();
-            let size = obj.size;
-            let hash = obj.hash.clone();
-            async move { download_and_verify(&url, &dest, size, &hash).await }
-        })
-        .buffer_unordered(ASSET_CONCURRENCY);
-
-    while let Some(result) = stream.next().await {
-        result?;
-        completed += 1;
-        on_progress(completed as f32 / total as f32);
-    }
-    Ok(())
 }
