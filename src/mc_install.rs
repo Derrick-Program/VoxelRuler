@@ -533,7 +533,7 @@ mod test {
             let path = entry.path();
             if path.is_dir() {
                 acc + count_jars(&path)
-            } else if path.extension().is_some_and( |ext| ext == "jar") {
+            } else if path.extension().is_some_and(|ext| ext == "jar") {
                 acc + 1
             } else {
                 acc
