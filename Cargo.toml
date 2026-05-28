@@ -29,6 +29,17 @@ regex = "1.12.3"
 futures-util = "0.3.32"
 console-subscriber = "0.5.0"
 notify-debouncer-mini = "0.7.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.0", features = [
+    "NSAppleEventDescriptor",
+    "NSAppleEventManager",
+    "NSString",
+] }
 
 [profile.release]
 codegen-units = 1
@@ -39,6 +50,7 @@ slint-build = "1.16.1"
 
 
 [package.metadata.packager]
+authors = ["derrick921213", "Mlask"]
 product-name = "VoxelRuler"
 identifier = "com.Duacodie.VoxelRuler"
 out-dir = "./dist"
@@ -53,10 +65,23 @@ VoxelRuler is a Minecraft launcher designed for players, offering a simple and i
 formats = [
   "default"
 ]
+icons = [
+  "ui/assets/icons/voxelruler.png"
+]
+
+[[package.metadata.packager.deep_link_protocols]]
+schemes = ["voxelruler"]
+role = "editor"
 
 [package.metadata.packager.windows]
-# 可以設定安裝檔的歡迎畫面圖片、授權條款 (EULA) 等
-# license-file = "LICENSE.rtf"
+allow-downgrades = false
+digest-algorithm = "sha256"
+
+[package.metadata.packager.nsis]
+appdata_paths = ["Duacodie/VoxelRuler"]
+
+
+
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 

@@ -1,16 +1,16 @@
 #![allow(unused)]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::marker::PhantomData;
+use tracing::warn;
 
 use crate::mc_types::{
-    McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail,
-    McVersion, McVersionInfo,
+    McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail, McVersion,
+    McVersionInfo,
 };
 use futures_util::{StreamExt, stream};
 
 const NEW_MC_SERVER: &str = "https://api.minecraftservices.com";
-const JAVA_RUNTIME_ALL_URL: &str =
-    "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
+const JAVA_RUNTIME_ALL_URL: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
 const API_MAX_RETRIES: u32 = 4;
 const API_RETRY_BASE_MS: u64 = 1000;
@@ -21,12 +21,20 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
     for attempt in 0..API_MAX_RETRIES {
         if attempt > 0 {
             let delay = API_RETRY_BASE_MS * (1u64 << (attempt - 1));
-            eprintln!("[api-retry] 第 {}/{} 次重試，等待 {}ms：{}", attempt, API_MAX_RETRIES - 1, delay, url);
+            warn!(
+                attempt,
+                max = API_MAX_RETRIES - 1,
+                delay_ms = delay,
+                url,
+                "API 重試中"
+            );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
         match client.get(url).send().await {
             Ok(resp) => return Ok(resp),
-            Err(e) => { last_err = e.into(); }
+            Err(e) => {
+                last_err = e.into();
+            }
         }
     }
     Err(last_err).with_context(|| format!("API 請求失敗（重試 {} 次）：{}", API_MAX_RETRIES, url))
@@ -160,13 +168,9 @@ impl McAction<Unauthenticated> {
             .json()
             .await?;
         let detail: crate::mc_types::McSpecificVersionDetail = serde_json::from_value(datail)?;
-        let json_data = serde_json::to_vec_pretty(&detail)?;
-        tokio::fs::create_dir_all("data").await?; //TODO: runtime 需要放到系統特定資料夾
-        tokio::fs::write(format!("data/{}.json", version_id), json_data).await?;
-
         Ok(detail)
     }
-    
+
     pub async fn get_java_runtimes(&self) -> anyhow::Result<McJavaAll> {
         Ok(self
             .client

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
+use tracing::warn;
 
 use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
@@ -26,10 +27,8 @@ async fn download_and_verify(
     expected_size: u64,
     expected_sha1: &str,
 ) -> anyhow::Result<()> {
-    if dest.exists() {
-        if tokio::fs::metadata(dest).await?.len() == expected_size {
-            return Ok(());
-        }
+    if dest.exists() && tokio::fs::metadata(dest).await?.len() == expected_size {
+        return Ok(());
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -39,9 +38,12 @@ async fn download_and_verify(
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
             let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
-            eprintln!(
-                "[retry] 第 {}/{} 次重試，等待 {}ms：{}",
-                attempt, MAX_RETRIES - 1, delay, url
+            warn!(
+                attempt,
+                max = MAX_RETRIES - 1,
+                delay_ms = delay,
+                url,
+                "下載重試中"
             );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
@@ -151,42 +153,63 @@ pub async fn install_libraries(
     libraries_dir: &Path,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    let mut applicable: Vec<(PathBuf, String, u64, String)> = version.libraries.iter()
-        .filter(|lib| lib.rules.as_ref().map_or(true, |r| evaluate_rules(r)))
+    let mut applicable: Vec<(PathBuf, String, u64, String)> = version
+        .libraries
+        .iter()
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
         .filter_map(|lib| {
             let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
-            let dest = artifact.path.as_deref()
+            let dest = artifact
+                .path
+                .as_deref()
                 .map(|p| libraries_dir.join(p))
                 .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)))?;
-            Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
+            Some((
+                dest,
+                artifact.url.clone(),
+                artifact.size,
+                artifact.sha1.clone(),
+            ))
         })
         .collect();
 
     #[cfg(target_os = "macos")]
     {
-        let jna_version_opt = version.libraries.iter()
+        let jna_version_opt = version
+            .libraries
+            .iter()
             .find(|lib| lib.name.starts_with("net.java.dev.jna:jna:"))
             .and_then(|lib| lib.name.split(':').nth(2));
 
         if let Some(jna_ver) = jna_version_opt {
-            let has_platform = version.libraries.iter()
+            let has_platform = version
+                .libraries
+                .iter()
                 .any(|lib| lib.name.starts_with("net.java.dev.jna:jna-platform:"));
             if !has_platform {
-                eprintln!("[compat] 舊版本缺少 jna-platform，自動對齊補入版本: {}", jna_ver);
+                warn!(jna_ver, "舊版本缺少 jna-platform，自動補入相容版本");
                 let (url, size, sha1) = match jna_ver {
                     "5.13.0" => (
                         "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar",
                         1345511,
-                        "88e9a306715e9379f3122415ef4ae759a352640d"
+                        "88e9a306715e9379f3122415ef4ae759a352640d",
                     ),
-                    "5.11.0" | _ => (
+                    _ => (
                         "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.11.0/jna-platform-5.11.0.jar",
                         1330369,
-                        "1d60447fa0dbd7fae266a87df2c2bbf893fcff66"
+                        "1d60447fa0dbd7fae266a87df2c2bbf893fcff66",
                     ),
                 };
-                let path_str = format!("net/java/dev/jna/jna-platform/{}/jna-platform-{}.jar", jna_ver, jna_ver);
-                applicable.push((libraries_dir.join(path_str), url.to_string(), size, sha1.to_string()));
+                let path_str = format!(
+                    "net/java/dev/jna/jna-platform/{}/jna-platform-{}.jar",
+                    jna_ver, jna_ver
+                );
+                applicable.push((
+                    libraries_dir.join(path_str),
+                    url.to_string(),
+                    size,
+                    sha1.to_string(),
+                ));
             }
         }
     }
@@ -194,8 +217,8 @@ pub async fn install_libraries(
     let total = applicable.len().max(1);
     let mut completed = 0usize;
     let mut stream = stream::iter(applicable)
-        .map(|(dest, url, size, sha1)| {
-            async move { download_and_verify(&url, &dest, size, &sha1).await }
+        .map(|(dest, url, size, sha1)| async move {
+            download_and_verify(&url, &dest, size, &sha1).await
         })
         .buffer_unordered(LIBRARY_CONCURRENCY);
 
@@ -207,7 +230,6 @@ pub async fn install_libraries(
 
     Ok(())
 }
-
 
 pub async fn install_assets(
     version: &McSpecificVersionDetail,
@@ -251,7 +273,6 @@ pub async fn install_assets(
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod test {
@@ -510,7 +531,7 @@ mod test {
             let path = entry.path();
             if path.is_dir() {
                 acc + count_jars(&path)
-            } else if path.extension().map_or(false, |ext| ext == "jar") {
+            } else if path.extension().is_some_and(|ext| ext == "jar") {
                 acc + 1
             } else {
                 acc

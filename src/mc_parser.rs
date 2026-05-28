@@ -6,6 +6,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use std::env::consts::{ARCH, OS};
+use tracing::warn;
 
 use crate::mc_types::{
     McArgumentItem, McArgumentValue, McFeatureRule, McOsRule, McRule, McRuleAction, McRuleArch,
@@ -102,10 +103,10 @@ impl LaunchContext {
         let mut parts: Vec<String> = Vec::new();
 
         for lib in &self.version.libraries {
-            if let Some(rules) = &lib.rules {
-                if !evaluate_rules(rules) {
-                    continue;
-                }
+            if let Some(rules) = &lib.rules
+                && !evaluate_rules(rules)
+            {
+                continue;
             }
 
             let path = lib
@@ -209,8 +210,8 @@ pub(crate) fn evaluate_rules(rules: &[McRule]) -> bool {
     }
     let mut allowed = false;
     for rule in rules {
-        let os_ok = rule.os.as_ref().map_or(true, os_rule_matches);
-        let feat_ok = rule.features.as_ref().map_or(true, feature_rule_matches);
+        let os_ok = rule.os.as_ref().is_none_or(os_rule_matches);
+        let feat_ok = rule.features.as_ref().is_none_or(feature_rule_matches);
         if os_ok && feat_ok {
             allowed = rule.action == McRuleAction::Allow;
         }
@@ -354,7 +355,7 @@ pub fn get_mojang_os_arch() -> &'static str {
         ("linux", "x86") => "linux-i386",
 
         _ => {
-            eprintln!("警告：未知的系統或架構组合 OS: {}, ARCH: {}", OS, ARCH);
+            warn!(os = OS, arch = ARCH, "未知的系統或架構組合");
             "unknown"
         }
     }

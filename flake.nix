@@ -34,6 +34,10 @@
         ];
       in {
         devShells.default = pkgs.mkShell {
+          packages = with pkgs; [
+            just
+          ];
+          
           nativeBuildInputs = with pkgs; [
             pkg-config
             cmake
