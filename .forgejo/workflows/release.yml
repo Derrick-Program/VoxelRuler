@@ -49,7 +49,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf .
+        run: find . -mindepth 1 -delete
 
   # ────────────────────────────────────────────────────────────
   # Job 2：Linux 打包
