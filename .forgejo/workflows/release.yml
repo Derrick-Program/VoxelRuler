@@ -171,13 +171,13 @@ jobs:
     runs-on: ubuntu-runner
     steps:
       - name: Download Linux packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-dist
           path: ./release/linux
 
       - name: Download Windows packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-dist
           path: ./release/windows
@@ -190,7 +190,7 @@ jobs:
       # softprops/action-gh-release 與 Forgejo API 相容
       # prerelease: tag 含 "-" 時（如 v1.0.0-beta.1）自動標記為預發布
       - name: Create Forgejo Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "VoxelRuler ${{ github.ref_name }}"
