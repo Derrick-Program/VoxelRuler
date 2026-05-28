@@ -8,6 +8,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      manual_tag:
+        description: '手動發布的 Tag 名稱 (例如 v1.0.0)。若在 UI 已選擇特定 Tag 執行，此處可留空。'
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -87,7 +93,7 @@ jobs:
         run: find dist/ -type f | sort
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-dist
           path: dist/
@@ -130,7 +136,7 @@ jobs:
         run: Get-ChildItem -Recurse dist/ | Select-Object FullName
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-dist
           path: dist/
