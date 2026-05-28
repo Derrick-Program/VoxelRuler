@@ -1,4 +1,6 @@
 slint::include_modules!();
+use tracing::{debug, error, info, warn};
+use anyhow::Context as _;
 use crate::{
     mc_install,
     mc_instance::{InstanceConfig, InstanceStore},
@@ -90,7 +92,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     let running_procs_for_watch = Arc::clone(&running_procs);
     tokio::spawn(async move {
         while rx.recv().is_ok() {
-            println!("🔄 偵測到 instance.toml 變動，正在同步至 UI 列表...");
+            info!("偵測到 instance.toml 變動，正在同步至 UI 列表...");
             let latest_configs = match store_for_watch.lock() {
                 Ok(s) => s.load().unwrap_or_default(),
                 Err(_) => continue,
@@ -132,7 +134,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     }
 
                     logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
-                    println!("✨ UI 列表已與硬碟安全同步！");
+                    info!("UI 列表已與硬碟安全同步");
                 }
             });
         }
@@ -265,7 +267,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     });
                 }
                 Err(e) => {
-                    eprintln!("啟動失敗：{e:#}");
+                    error!("啟動失敗: {e:#}");
                     set_install_state(&ui_weak, true, 0.0, &format!("啟動失敗：{e:#}"), true);
                 }
             }
@@ -418,7 +420,7 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     let applogic = ui.global::<AppLogic>();
     applogic.on_sidebar_change(|id| {
-        println!("Sidebar changed to: {:#?}", id);
+        debug!(tab = ?id, "sidebar 切換");
     });
 
     if let Ok(Some(session)) = SessionData::load_session()
@@ -797,6 +799,7 @@ async fn do_launch(
         .map(|j| j.component.clone())
         .unwrap_or_else(|| "jre-legacy".into());
 
+    info!(java_dir = ?paths.java_dir(&java_component), "開始安裝 Java");
     mc_install::install_java(&java_manifest, &paths.java_dir(&java_component), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -804,8 +807,10 @@ async fn do_launch(
             set_install_state(&ui_weak, true, 0.1 + p * 0.3, &status, false);
         }
     })
-    .await?;
+    .await
+    .context("安裝 Java 失敗")?;
 
+    info!(versions_dir = ?paths.versions_dir(), "開始安裝 Minecraft 主程式");
     mc_install::install_client(&version, &paths.versions_dir(), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -813,8 +818,10 @@ async fn do_launch(
             set_install_state(&ui_weak, true, 0.4 + p * 0.2, &status, false);
         }
     })
-    .await?;
+    .await
+    .context("安裝 Minecraft 主程式失敗")?;
 
+    info!(libraries_dir = ?paths.libraries_dir(), "開始安裝函式庫");
     mc_install::install_libraries(&version, &paths.libraries_dir(), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -822,8 +829,10 @@ async fn do_launch(
             set_install_state(&ui_weak, true, 0.6 + p * 0.2, &status, false);
         }
     })
-    .await?;
+    .await
+    .context("安裝函式庫失敗")?;
 
+    info!(assets_dir = ?paths.assets_dir(), "開始安裝遊戲資源");
     mc_install::install_assets(&version, &paths.assets_dir(), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -831,7 +840,8 @@ async fn do_launch(
             set_install_state(&ui_weak, true, 0.8 + p * 0.2, &status, false);
         }
     })
-    .await?;
+    .await
+    .context("安裝遊戲資源失敗")?;
 
     set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
 
@@ -876,10 +886,11 @@ async fn do_launch(
         xms,
     };
     let mut cmd = ctx.build_command();
-    dbg!("啟動指令: {:?}", &cmd);
+    debug!(cmd = ?cmd, java = ?ctx.java_path, game_dir = ?ctx.game_dir, "啟動指令");
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn()?;
+    let mut child = cmd.spawn()
+        .with_context(|| format!("spawn 失敗，java={:?} game_dir={:?}", ctx.java_path, ctx.game_dir))?;
     set_install_state(&ui_weak, false, 0.0, "", false);
 
     instance_logs
@@ -917,7 +928,7 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
         use std::io::BufRead;
         let buf = std::io::BufReader::new(reader);
         for line in buf.lines().map_while(Result::ok) {
-            println!("[Java Runtime Log] {}", line);
+            debug!(instance = %instance_id, "[Java] {}", line);
             {
                 let mut logs = instance_logs.lock().unwrap();
                 if let Some(deque) = logs.get_mut(&instance_id) {

@@ -2,6 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use tracing::warn;
 use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
 
@@ -37,13 +38,7 @@ async fn download_and_verify(
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
             let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
-            eprintln!(
-                "[retry] 第 {}/{} 次重試，等待 {}ms：{}",
-                attempt,
-                MAX_RETRIES - 1,
-                delay,
-                url
-            );
+            warn!(attempt, max = MAX_RETRIES - 1, delay_ms = delay, url, "下載重試中");
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
 
@@ -186,10 +181,7 @@ pub async fn install_libraries(
                 .iter()
                 .any(|lib| lib.name.starts_with("net.java.dev.jna:jna-platform:"));
             if !has_platform {
-                eprintln!(
-                    "[compat] 舊版本缺少 jna-platform，自動對齊補入版本: {}",
-                    jna_ver
-                );
+                warn!(jna_ver, "舊版本缺少 jna-platform，自動補入相容版本");
                 let (url, size, sha1) = match jna_ver {
                     "5.13.0" => (
                         "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar",

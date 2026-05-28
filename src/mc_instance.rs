@@ -1,3 +1,4 @@
+use tracing::error;
 use notify_debouncer_mini::{
     Debouncer, new_debouncer,
     notify::{RecommendedWatcher, RecursiveMode},
@@ -123,7 +124,7 @@ impl InstanceStore {
                     }
                 }
                 Err(errors) => {
-                    eprintln!("Notify 監聽錯誤: {:#?}", errors);
+                    error!(?errors, "notify watcher 錯誤");
                 }
             },
         )?;

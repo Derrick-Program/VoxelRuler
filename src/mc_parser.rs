@@ -6,6 +6,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use std::env::consts::{ARCH, OS};
+use tracing::warn;
 
 use crate::mc_types::{
     McArgumentItem, McArgumentValue, McFeatureRule, McOsRule, McRule, McRuleAction, McRuleArch,
@@ -354,7 +355,7 @@ pub fn get_mojang_os_arch() -> &'static str {
         ("linux", "x86") => "linux-i386",
 
         _ => {
-            eprintln!("警告：未知的系統或架構组合 OS: {}, ARCH: {}", OS, ARCH);
+            warn!(os = OS, arch = ARCH, "未知的系統或架構組合");
             "unknown"
         }
     }

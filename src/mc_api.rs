@@ -1,5 +1,6 @@
 #![allow(unused)]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use tracing::warn;
 use std::marker::PhantomData;
 
 use crate::mc_types::{
@@ -20,13 +21,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
     for attempt in 0..API_MAX_RETRIES {
         if attempt > 0 {
             let delay = API_RETRY_BASE_MS * (1u64 << (attempt - 1));
-            eprintln!(
-                "[api-retry] 第 {}/{} 次重試，等待 {}ms：{}",
-                attempt,
-                API_MAX_RETRIES - 1,
-                delay,
-                url
-            );
+            warn!(attempt, max = API_MAX_RETRIES - 1, delay_ms = delay, url, "API 重試中");
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
         match client.get(url).send().await {
@@ -167,10 +162,6 @@ impl McAction<Unauthenticated> {
             .json()
             .await?;
         let detail: crate::mc_types::McSpecificVersionDetail = serde_json::from_value(datail)?;
-        let json_data = serde_json::to_vec_pretty(&detail)?;
-        tokio::fs::create_dir_all("data").await?; //TODO: runtime 需要放到系統特定資料夾
-        tokio::fs::write(format!("data/{}.json", version_id), json_data).await?;
-
         Ok(detail)
     }
 

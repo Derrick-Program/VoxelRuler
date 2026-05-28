@@ -15,3 +15,6 @@ default: help
 
 @run:
   RUST_BACKTRACE=full RUSTFLAGS="--cfg tokio_unstable" cargo run
+
+@pack:
+  cargo packager --release
