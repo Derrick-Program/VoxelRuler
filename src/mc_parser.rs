@@ -102,10 +102,10 @@ impl LaunchContext {
         let mut parts: Vec<String> = Vec::new();
 
         for lib in &self.version.libraries {
-            if let Some(rules) = &lib.rules {
-                if !evaluate_rules(rules) {
-                    continue;
-                }
+            if let Some(rules) = &lib.rules
+                && !evaluate_rules(rules)
+            {
+                continue;
             }
 
             let path = lib
@@ -209,8 +209,8 @@ pub(crate) fn evaluate_rules(rules: &[McRule]) -> bool {
     }
     let mut allowed = false;
     for rule in rules {
-        let os_ok = rule.os.as_ref().map_or(true, os_rule_matches);
-        let feat_ok = rule.features.as_ref().map_or(true, feature_rule_matches);
+        let os_ok = rule.os.as_ref().is_none_or(os_rule_matches);
+        let feat_ok = rule.features.as_ref().is_none_or(feature_rule_matches);
         if os_ok && feat_ok {
             allowed = rule.action == McRuleAction::Allow;
         }

@@ -26,10 +26,8 @@ async fn download_and_verify(
     expected_size: u64,
     expected_sha1: &str,
 ) -> anyhow::Result<()> {
-    if dest.exists() {
-        if tokio::fs::metadata(dest).await?.len() == expected_size {
-            return Ok(());
-        }
+    if dest.exists() && tokio::fs::metadata(dest).await?.len() == expected_size {
+        return Ok(());
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -157,7 +155,7 @@ pub async fn install_libraries(
     let mut applicable: Vec<(PathBuf, String, u64, String)> = version
         .libraries
         .iter()
-        .filter(|lib| lib.rules.as_ref().map_or(true, |r| evaluate_rules(r)))
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
         .filter_map(|lib| {
             let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
             let dest = artifact
@@ -535,7 +533,7 @@ mod test {
             let path = entry.path();
             if path.is_dir() {
                 acc + count_jars(&path)
-            } else if path.extension().map_or(false, |ext| ext == "jar") {
+            } else if path.extension().is_some_and( |ext| ext == "jar") {
                 acc + 1
             } else {
                 acc

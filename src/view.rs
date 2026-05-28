@@ -29,12 +29,11 @@ async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     }
 
     let url = format!("https://minotar.net/helm/{}/100.png", username);
-    if let Ok(resp) = reqwest::get(url).await {
-        if let Ok(bytes) = resp.bytes().await {
-            if let Ok(_) = std::fs::write(&avatar_path, bytes) {
-                return Some(avatar_path);
-            }
-        }
+    if let Ok(resp) = reqwest::get(url).await
+        && let Ok(bytes) = resp.bytes().await
+        && std::fs::write(&avatar_path, bytes).is_ok()
+    {
+        return Some(avatar_path);
     }
     None
 }
@@ -90,7 +89,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     let master_for_watch = Arc::clone(&master_configs);
     let running_procs_for_watch = Arc::clone(&running_procs);
     tokio::spawn(async move {
-        while let Ok(_) = rx.recv() {
+        while rx.recv().is_ok() {
             println!("🔄 偵測到 instance.toml 變動，正在同步至 UI 列表...");
             let latest_configs = match store_for_watch.lock() {
                 Ok(s) => s.load().unwrap_or_default(),
@@ -422,45 +421,45 @@ pub async fn open_view() -> anyhow::Result<()> {
         println!("Sidebar changed to: {:#?}", id);
     });
 
-    if let Ok(Some(session)) = SessionData::load_session() {
-        if !session.mc_username().is_empty() {
-            let is_expired = *session.mc_token_expires_at() < chrono::Utc::now().timestamp();
-            let username = session.mc_username().clone();
-            let token = session.minecraft_access_token().clone();
-            let ui_weak_for_init = ui.as_weak();
+    if let Ok(Some(session)) = SessionData::load_session()
+        && !session.mc_username().is_empty()
+    {
+        let is_expired = *session.mc_token_expires_at() < chrono::Utc::now().timestamp();
+        let username = session.mc_username().clone();
+        let token = session.minecraft_access_token().clone();
+        let ui_weak_for_init = ui.as_weak();
 
-            tokio::spawn(async move {
-                let avatar_path = fetch_avatar_path(&username).await;
-                let (authenticator_text, status_text) = if is_expired {
-                    ("Microsoft".to_string(), "Offline".to_string())
-                } else {
-                    let api = crate::mc_api::McAction::new().authenticate(&token);
-                    match api.check_game_ownership().await {
-                        Ok(true) => ("Microsoft (Premium)".to_string(), "Online".to_string()),
-                        Ok(false) => ("Microsoft (Unpaid)".to_string(), "Online".to_string()),
-                        Err(_) => ("Microsoft".to_string(), "Offline".to_string()),
-                    }
-                };
+        tokio::spawn(async move {
+            let avatar_path = fetch_avatar_path(&username).await;
+            let (authenticator_text, status_text) = if is_expired {
+                ("Microsoft".to_string(), "Offline".to_string())
+            } else {
+                let api = crate::mc_api::McAction::new().authenticate(&token);
+                match api.check_game_ownership().await {
+                    Ok(true) => ("Microsoft (Premium)".to_string(), "Online".to_string()),
+                    Ok(false) => ("Microsoft (Unpaid)".to_string(), "Online".to_string()),
+                    Err(_) => ("Microsoft".to_string(), "Offline".to_string()),
+                }
+            };
 
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_weak_for_init.upgrade() {
-                        let avatar_img = avatar_path
-                            .and_then(|p| slint::Image::load_from_path(&p).ok())
-                            .unwrap_or_default();
-                        let pal = ui.global::<PageAccountLogic>();
-                        let row = AccountRow {
-                            checked: true,
-                            authenticator: authenticator_text.into(),
-                            username: username.into(),
-                            status: status_text.into(),
-                            avatar: avatar_img,
-                        };
-                        pal.set_active_account(row.clone());
-                        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(vec![row]))));
-                    }
-                });
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak_for_init.upgrade() {
+                    let avatar_img = avatar_path
+                        .and_then(|p| slint::Image::load_from_path(&p).ok())
+                        .unwrap_or_default();
+                    let pal = ui.global::<PageAccountLogic>();
+                    let row = AccountRow {
+                        checked: true,
+                        authenticator: authenticator_text.into(),
+                        username: username.into(),
+                        status: status_text.into(),
+                        avatar: avatar_img,
+                    };
+                    pal.set_active_account(row.clone());
+                    pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(vec![row]))));
+                }
             });
-        }
+        });
     }
 
     let page_account_logic_clone = ui.global::<PageAccountLogic>();
@@ -763,14 +762,14 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
             if i >= list.row_count() {
                 break;
             }
-            if let Some(mut item) = list.row_data(i) {
-                if item.id.as_str() == id {
-                    item.status = status.into();
-                    if i < list.row_count() {
-                        list.set_row_data(i, item);
-                    }
-                    break;
+            if let Some(mut item) = list.row_data(i)
+                && item.id.as_str() == id
+            {
+                item.status = status.into();
+                if i < list.row_count() {
+                    list.set_row_data(i, item);
                 }
+                break;
             }
         }
     });
@@ -917,7 +916,7 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     tokio::task::spawn_blocking(move || {
         use std::io::BufRead;
         let buf = std::io::BufReader::new(reader);
-        for line in buf.lines().flatten() {
+        for line in buf.lines().map_while(Result::ok) {
             println!("[Java Runtime Log] {}", line);
             {
                 let mut logs = instance_logs.lock().unwrap();
