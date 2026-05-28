@@ -179,7 +179,7 @@ pub async fn install_libraries(
                         1345511,
                         "88e9a306715e9379f3122415ef4ae759a352640d"
                     ),
-                    "5.11.0" | _ => (
+                    _ => (
                         "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.11.0/jna-platform-5.11.0.jar",
                         1330369,
                         "1d60447fa0dbd7fae266a87df2c2bbf893fcff66"
