@@ -121,19 +121,22 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Show Rust version
+        shell: powershell -ExecutionPolicy Bypass -Command "{0}"
         run: |
           rustup show
           cargo --version
 
       - name: Install cargo-packager
+        shell: powershell -ExecutionPolicy Bypass -Command "{0}"
         run: cargo install cargo-packager --locked
 
       # Windows 打包：cargo-packager 預設輸出 NSIS installer (.exe)
       - name: Package (Windows)
+        shell: powershell -ExecutionPolicy Bypass -Command "{0}"
         run: cargo packager --release
 
       - name: List dist output
-        shell: pwsh
+        shell: powershell -ExecutionPolicy Bypass -Command "{0}"
         run: Get-ChildItem -Recurse dist/ | Select-Object FullName
 
       - name: Upload Windows artifact
@@ -146,7 +149,7 @@ jobs:
       # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
       - name: 🧹 Cleanup runner
         if: always()
-        shell: pwsh
+        shell: powershell -ExecutionPolicy Bypass -Command "{0}"
         run: |
           Write-Host "Cleaning up Windows runner..."
           @('target', 'dist') | ForEach-Object {
