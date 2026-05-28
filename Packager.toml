@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://cargo-packager.dev/schema.json
+
+product_name = "VoxelRuler"
+version = "0.1.0" 
+authors = ["derrick921213", "Mlask"]
+identifier = "com.Duacodie.VoxelRuler"
+out_dir = "./dist"
+before_packaging_command = "cargo build --release -vvv"
+category = "Game"
+description = "A minecraft Launcher"
+long_description = """
+VoxelRuler 是一款專為 Minecraft 玩家打造的啟動器，提供簡潔直觀的界面和強大的功能，讓玩家能夠輕鬆管理和啟動 Minecraft 遊戲。無論是單人遊戲還是多人伺服器，VoxelRuler 都能提供穩定的性能和優化的體驗，讓玩家專注於享受 Minecraft 的樂趣。
+VoxelRuler is a Minecraft launcher designed for players, offering a simple and intuitive interface along with powerful features to easily manage and launch Minecraft games. Whether it's single-player or multiplayer servers, VoxelRuler provides stable performance and an optimized experience, allowing players to focus on enjoying the fun of Minecraft.
+"""
+
+formats = [
+  "nsis",
+  "appimage", "deb"
+]
+
+[[deep_link_protocols]]
+schemes = ["voxelruler"]
+role = "editor"
+
+[windows]
+allow_downgrades = false
+digest_algorithm = "sha256"
+
+[windows.nsis]
+appdata_paths = ["Duacodie/VoxelRuler"]
+
+[linux]
+generate_desktop_entry = true

@@ -39,6 +39,7 @@ slint-build = "1.16.1"
 
 
 [package.metadata.packager]
+authors = ["derrick921213", "Mlask"]
 product-name = "VoxelRuler"
 identifier = "com.Duacodie.VoxelRuler"
 out-dir = "./dist"
@@ -55,8 +56,13 @@ formats = [
 ]
 
 [package.metadata.packager.windows]
-# 可以設定安裝檔的歡迎畫面圖片、授權條款 (EULA) 等
-# license-file = "LICENSE.rtf"
+allow-downgrades = false
+digest-algorithm = "sha256"
+
+[package.metadata.packager.windows.nsis]
+appdata_paths = ["Duacodie/VoxelRuler"]
+
+
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 

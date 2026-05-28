@@ -17,6 +17,7 @@ static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    #[cfg(debug_assertions)]
     console_subscriber::init();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
