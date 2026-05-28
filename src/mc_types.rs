@@ -84,7 +84,7 @@ pub struct McSpecificVersionDetail {
     pub logging: Option<HashMap<String, McLoggingConfig>>,
     pub libraries: Vec<McLibrary>,
     pub arguments: Option<McArguments>,
-    pub minecraft_arguments: Option<String>, 
+    pub minecraft_arguments: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -140,7 +140,7 @@ pub struct McLibraryDownloads {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McArtifactInfo {
-    pub path: Option<String>, 
+    pub path: Option<String>,
     pub sha1: String,
     pub size: u64,
     pub url: String,
@@ -176,7 +176,7 @@ pub enum McRuleArch {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McOsRule {
-    pub name: Option<McRuleOS>, 
+    pub name: Option<McRuleOS>,
     pub arch: Option<McRuleArch>,
     pub version: Option<String>,
     #[serde(rename = "versionRange")]
@@ -228,7 +228,6 @@ pub enum McArgumentValue {
     Single(String),
     Many(Vec<String>),
 }
-
 
 pub type McJavaAll = HashMap<String, HashMap<String, Vec<McJavaRuntime>>>;
 

@@ -1,4 +1,12 @@
 slint::include_modules!();
+use crate::{
+    mc_install,
+    mc_instance::{InstanceConfig, InstanceStore},
+    mc_parser::LaunchContext,
+    mc_paths::McPaths,
+    mc_token::{self, SessionData},
+    mc_types::McSpecificVersionDetail,
+};
 use slint::{Model, ModelRc, VecModel};
 use std::{
     collections::{HashMap, VecDeque},
@@ -9,14 +17,6 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-};
-use crate::{
-    mc_install,
-    mc_instance::{InstanceConfig, InstanceStore},
-    mc_parser::LaunchContext,
-    mc_paths::McPaths,
-    mc_token::{self, SessionData},
-    mc_types::McSpecificVersionDetail,
 };
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
@@ -38,7 +38,6 @@ async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     }
     None
 }
-
 
 fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
     let play_time = if config.play_time_secs == 0 {
@@ -439,7 +438,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     match api.check_game_ownership().await {
                         Ok(true) => ("Microsoft (Premium)".to_string(), "Online".to_string()),
                         Ok(false) => ("Microsoft (Unpaid)".to_string(), "Online".to_string()),
-                        Err(_) => ("Microsoft".to_string(), "Offline".to_string()), 
+                        Err(_) => ("Microsoft".to_string(), "Offline".to_string()),
                     }
                 };
 
@@ -463,7 +462,6 @@ pub async fn open_view() -> anyhow::Result<()> {
             });
         }
     }
-
 
     let page_account_logic_clone = ui.global::<PageAccountLogic>();
     page_account_logic_clone.on_open_browser_url(|url| {
@@ -554,13 +552,17 @@ pub async fn open_view() -> anyhow::Result<()> {
                 }
             }
         });
-    }); 
+    });
     let ui_weak_remove = ui.as_weak();
     ui.global::<PageAccountLogic>().on_remove_account(move || {
-        let Some(ui) = ui_weak_remove.upgrade() else { return };
+        let Some(ui) = ui_weak_remove.upgrade() else {
+            return;
+        };
         let pal = ui.global::<PageAccountLogic>();
         let idx = pal.get_selected_index();
-        if idx < 0 { return; }
+        if idx < 0 {
+            return;
+        }
 
         let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
         let new_accounts: Vec<AccountRow> = accounts
@@ -588,81 +590,96 @@ pub async fn open_view() -> anyhow::Result<()> {
     });
 
     let ui_weak_set_default = ui.as_weak();
-    ui.global::<PageAccountLogic>().on_set_default_account(move || {
-        let Some(ui) = ui_weak_set_default.upgrade() else { return };
-        let pal = ui.global::<PageAccountLogic>();
-        let idx = pal.get_selected_index();
-        if idx < 0 { return; }
+    ui.global::<PageAccountLogic>()
+        .on_set_default_account(move || {
+            let Some(ui) = ui_weak_set_default.upgrade() else {
+                return;
+            };
+            let pal = ui.global::<PageAccountLogic>();
+            let idx = pal.get_selected_index();
+            if idx < 0 {
+                return;
+            }
 
-        let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
-        let new_accounts: Vec<AccountRow> = accounts
-            .into_iter()
-            .enumerate()
-            .map(|(i, mut r)| {
-                r.checked = i == idx as usize;
-                r
-            })
-            .collect();
-        
-        if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
-            pal.set_active_account(default_acc.clone());
-        }
+            let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+            let new_accounts: Vec<AccountRow> = accounts
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut r)| {
+                    r.checked = i == idx as usize;
+                    r
+                })
+                .collect();
 
-        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
-    });
+            if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
+                pal.set_active_account(default_acc.clone());
+            }
+
+            pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
+        });
 
     let ui_weak_unset_default = ui.as_weak();
-    ui.global::<PageAccountLogic>().on_unset_default_account(move || {
-        let Some(ui) = ui_weak_unset_default.upgrade() else { return };
-        let pal = ui.global::<PageAccountLogic>();
-        let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
-        let new_accounts: Vec<AccountRow> = accounts
-            .into_iter()
-            .map(|mut r| {
-                r.checked = false;
-                r
-            })
-            .collect();
-        
-        let mut guest = pal.get_active_account();
-        guest.username = "Guest".into();
-        guest.authenticator = "No Account".into();
-        guest.status = "Offline".into();
-        guest.checked = false;
-        pal.set_active_account(guest);
+    ui.global::<PageAccountLogic>()
+        .on_unset_default_account(move || {
+            let Some(ui) = ui_weak_unset_default.upgrade() else {
+                return;
+            };
+            let pal = ui.global::<PageAccountLogic>();
+            let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+            let new_accounts: Vec<AccountRow> = accounts
+                .into_iter()
+                .map(|mut r| {
+                    r.checked = false;
+                    r
+                })
+                .collect();
 
-        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
-    });
+            let mut guest = pal.get_active_account();
+            guest.username = "Guest".into();
+            guest.authenticator = "No Account".into();
+            guest.status = "Offline".into();
+            guest.checked = false;
+            pal.set_active_account(guest);
+
+            pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
+        });
 
     let ui_weak_add_offline = ui.as_weak();
-    ui.global::<PageAccountLogic>().on_confirm_add_offline_account(move |username| {
-        let Some(ui) = ui_weak_add_offline.upgrade() else { return };
-        let pal = ui.global::<PageAccountLogic>();
-        let username = username.to_string();
-        
-        let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
-        let new_row = AccountRow {
-            checked: accounts.is_empty(),
-            authenticator: "Offline".into(),
-            username: username.clone().into(),
-            status: "Ready".into(),
-            avatar: slint::Image::default(),
-        };
-        
-        if new_row.checked {
-            pal.set_active_account(new_row.clone());
-        }
-        
-        accounts.push(new_row);
-        pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
-    });
+    ui.global::<PageAccountLogic>()
+        .on_confirm_add_offline_account(move |username| {
+            let Some(ui) = ui_weak_add_offline.upgrade() else {
+                return;
+            };
+            let pal = ui.global::<PageAccountLogic>();
+            let username = username.to_string();
+
+            let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+            let new_row = AccountRow {
+                checked: accounts.is_empty(),
+                authenticator: "Offline".into(),
+                username: username.clone().into(),
+                status: "Ready".into(),
+                avatar: slint::Image::default(),
+            };
+
+            if new_row.checked {
+                pal.set_active_account(new_row.clone());
+            }
+
+            accounts.push(new_row);
+            pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
+        });
 
     let ui_weak_refresh = ui.as_weak();
     ui.global::<PageAccountLogic>().on_refresh_account(move || {
-        let Some(ui) = ui_weak_refresh.upgrade() else { return };
+        let Some(ui) = ui_weak_refresh.upgrade() else {
+            return;
+        };
         let pal = ui.global::<PageAccountLogic>();
         let idx = pal.get_selected_index();
-        if idx < 0 { return; }
+        if idx < 0 {
+            return;
+        }
 
         let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
         let mut row = accounts[idx as usize].clone();
@@ -684,7 +701,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     let api = crate::mc_api::McAction::new().authenticate(&token);
                     let ownership = api.check_game_ownership().await.unwrap_or(false);
                     let status_text = if ownership { "Online" } else { "Offline" };
-                    
+
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_async.upgrade() {
                             let pal = ui.global::<PageAccountLogic>();
@@ -692,7 +709,9 @@ pub async fn open_view() -> anyhow::Result<()> {
                             if (idx as usize) < accounts.len() {
                                 let mut row = accounts[idx as usize].clone();
                                 row.status = status_text.into();
-                                if let Some(p) = avatar_path.and_then(|p| slint::Image::load_from_path(&p).ok()) {
+                                if let Some(p) =
+                                    avatar_path.and_then(|p| slint::Image::load_from_path(&p).ok())
+                                {
                                     row.avatar = p;
                                 }
                                 accounts[idx as usize] = row.clone();

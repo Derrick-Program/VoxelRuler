@@ -1,4 +1,3 @@
-use std::time::Duration;
 use notify_debouncer_mini::{
     Debouncer, new_debouncer,
     notify::{RecommendedWatcher, RecursiveMode},
@@ -6,6 +5,7 @@ use notify_debouncer_mini::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
