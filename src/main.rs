@@ -72,12 +72,14 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
+        debug!("收到啟動參數：{:#?}", args);
         match DeepLinkAction::parse_string(&args[1]) {
             DeepLinkAction::MicrosoftAuth(auth_data) => {
                 debug!(code = %auth_data.code, state = ?auth_data.state, "收到 Microsoft OAuth deep link");
                 // return Ok(());
             }
             DeepLinkAction::Unknown => {
+                debug!("收到未知的 VoxelRuler 指令");
                 // 不是合法的 VoxelRuler 指令，不影響程序，繼續往下開 UI
             }
         }
