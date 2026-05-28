@@ -1,0 +1,81 @@
+import { AppTheme } from "@theme";
+import { Button } from "std-widgets.slint";
+import { PageAccountLogic } from "@global";
+import { AccountTable } from "account-table.slint";
+
+export component Account inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: AppTheme.colors.background;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        Text {
+            text: @tr("Account Management");
+            color: AppTheme.colors.foreground;
+            font-size: AppTheme.h2;
+            font-weight: AppTheme.font-weight-medium;
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 8px;
+
+            AccountTable {
+                horizontal-stretch: 1;
+                rows <=> PageAccountLogic.accounts;
+                selected-index <=> PageAccountLogic.selected-index;
+            }
+
+            VerticalLayout {
+                spacing: 10px;
+                alignment: start;
+
+                Button {
+                    text: @tr("Add Microsoft Account");
+                    clicked => PageAccountLogic.login_with_microsoft();
+                }
+                Button {
+                    text: @tr("Add Offline Account");
+                    clicked => {
+                        PageAccountLogic.offline_username = "";
+                        PageAccountLogic.show_offline_dialog = true;
+                    }
+                }
+                Button {
+                    enabled: PageAccountLogic.selected-index >= 0;
+                    text: @tr("Refresh");
+                    clicked => PageAccountLogic.refresh-account();
+                }
+                Button {
+                    enabled: PageAccountLogic.selected-index >= 0;
+                    text: @tr("Remove");
+                    clicked => PageAccountLogic.remove-account();
+                }
+                Button {
+                    enabled: PageAccountLogic.selected-index >= 0;
+                    text: @tr("Set as Default Account");
+                    clicked => PageAccountLogic.set-default-account();
+                }
+                Button {
+                    enabled: PageAccountLogic.accounts.length > 0;
+                    text: @tr("Unset Default Account");
+                    clicked => PageAccountLogic.unset-default-account();
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: AppTheme.colors.border;
+                }
+
+                Button {
+                    enabled: PageAccountLogic.accounts.length > 0;
+                    text: @tr("Manage Appearance");
+                    clicked => PageAccountLogic.manage-appearance();
+                }
+            }
+        }
+    }
+}

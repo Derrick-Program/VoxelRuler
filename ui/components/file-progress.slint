@@ -1,0 +1,43 @@
+import { ProgressIndicator, StandardButton } from "std-widgets.slint";
+
+export component DownloadDialog inherits Dialog {
+    width: 380px;
+    title: root.is-error ? @tr("Launch Failed") : @tr("Download Progress");
+
+    in-out property <float> download-progress: 0.0;
+    in-out property <string> download-status: @tr("Preparing to download...");
+    in-out property <bool> is-error: false;
+    callback dismissed();
+
+    StandardButton {
+        kind: ok;
+        visible: root.is-error;
+        clicked => { root.dismissed(); }
+    }
+
+    VerticalLayout {
+        padding: 25px;
+        spacing: 15px;
+        alignment: center;
+
+        Text {
+            text: root.download-status;
+            font-size: 14px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            color: root.is-error ? #e74c3c : #ffffff;
+        }
+
+        if !root.is-error: Text {
+            text: Math.round(root.download-progress * 100) + "%";
+            font-size: 36px;
+            font-weight: 700;
+            color: #50fa7b;
+            horizontal-alignment: center;
+        }
+
+        if !root.is-error: ProgressIndicator {
+            progress: root.download-progress;
+        }
+    }
+}

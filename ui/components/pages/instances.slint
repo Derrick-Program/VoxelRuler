@@ -12,6 +12,8 @@ export component InstanceCard inherits Rectangle {
 
     ta := TouchArea { }
 
+    property <bool> is-valid: root.data.id != "";
+
     content_root := Rectangle {
         width: 100%;
         height: 100%;
@@ -21,7 +23,7 @@ export component InstanceCard inherits Rectangle {
         border-color: ta.has-hover ? #76bc51.with-alpha(0.5) : #ffffff.with-alpha(0.1);
         clip: true;
 
-        y: ta.has-hover ? -4px : 0px;
+        y: (ta.has-hover && root.is-valid) ? -4px : 0px;
         animate y {
             duration: 150ms;
             easing: ease-out;
@@ -34,7 +36,7 @@ export component InstanceCard inherits Rectangle {
                 background: #1a1a1a;
                 height: 50%;
                 Image {
-                    source: root.data.image;
+                    source: root.is-valid ? root.data.image : @image-url("");
                     width: 100%;
                     height: 100%;
                     image-fit: cover;
@@ -47,7 +49,7 @@ export component InstanceCard inherits Rectangle {
                     alignment: space-between;
                     HorizontalLayout {
                         spacing: 4px;
-                        if (root.data.mod_loader != ""): Rectangle {
+                        if (root.is-valid && root.data.mod_loader != "" && root.data.mod_loader != "None"): Rectangle {
                             background: black.with-alpha(0.6);
                             border-radius: 4px;
                             height: 18px;
@@ -63,7 +65,7 @@ export component InstanceCard inherits Rectangle {
                             }
                         }
 
-                        Rectangle {
+                        if (root.is-valid): Rectangle {
                             background: black.with-alpha(0.6);
                             border-radius: 4px;
                             height: 18px;
@@ -80,20 +82,46 @@ export component InstanceCard inherits Rectangle {
                         }
                     }
 
-                    sett-rect := Rectangle {
-                        width: 24px;
-                        height: 24px;
-                        background: sett-ta.has-hover ? white.with-alpha(0.2) : transparent;
-                        border-radius: 4px;
-                        Image {
-                            source: Assets.setting;
-                            width: 14px;
-                            colorize: white;
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        if (root.is-valid && root.data.status == "running"): log-rect := Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            background: log-ta.has-hover ? white.with-alpha(0.2) : transparent;
+                            border-radius: 4px;
+                            Image {
+                                source: Assets.log;
+                                width: 14px;
+                                colorize: #8be9fd;
+                            }
+
+                            log-ta := TouchArea {
+                                clicked => {
+                                    if (root.is-valid) {
+                                        InstanceLogic.open-log(root.data.id)
+                                    }
+                                }
+                            }
                         }
 
-                        sett-ta := TouchArea {
-                            clicked => {
-                                InstanceLogic.open_instance_settings(root.data.id)
+                        if (root.is-valid): sett-rect := Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            background: sett-ta.has-hover ? white.with-alpha(0.2) : transparent;
+                            border-radius: 4px;
+                            Image {
+                                source: Assets.setting;
+                                width: 14px;
+                                colorize: white;
+                            }
+
+                            sett-ta := TouchArea {
+                                clicked => {
+                                    if (root.is-valid) {
+                                        InstanceLogic.open_instance_settings(root.data.id)
+                                    }
+                                }
                             }
                         }
                     }
@@ -117,12 +145,13 @@ export component InstanceCard inherits Rectangle {
                             width: 8px;
                             height: 8px;
                             border-radius: 4px;
-                            background: root.data.status == "running" ? #50fa7b : (root.data.status == "updating" ? #8be9fd : #6272a4);
+                            // background: root.data.status == "running" ? #50fa7b : (root.data.status == "updating" ? #8be9fd : #6272a4);
+                            background: !root.is-valid ? #6272a4 : (root.data.status == "running" ? #50fa7b : (root.data.status == "updating" ? #8be9fd : #6272a4));
                         }
                     }
 
                     Text {
-                        text: root.data.name;
+                        text: root.is-valid ? root.data.name : "";
                         color: white;
                         font-size: 16px;
                         font-weight: 700;
@@ -131,12 +160,12 @@ export component InstanceCard inherits Rectangle {
                 }
 
                 Text {
-                    text: @tr("Last played: {}", root.data.last_played);
+                    text: root.is-valid ? @tr("Last played: {}", root.data.last_played) : "";
                     color: #aaa;
                     font-size: 10px;
                 }
 
-                if (root.data.play_time != ""): Text {
+                if (root.is-valid && root.data.play_time != ""): Text {
                     text: @tr("Total play time: {}", root.data.play_time);
                     color: #aaa;
                     font-size: 10px;
@@ -146,25 +175,26 @@ export component InstanceCard inherits Rectangle {
                     vertical-stretch: 1;
                 }
 
-                btn := Rectangle {
+                if (root.is-valid): btn := Rectangle {
+                    property <bool> is-running: root.data.status == "running";
                     height: 32px;
-                    background: btn-ta.pressed ? #5a9e3f : (btn-ta.has-hover ? #76bc51 : #67ab44.with-alpha(0.2));
+                    background: is-running ? (btn-ta.pressed ? #b03030 : (btn-ta.has-hover ? #e05050 : #c04040.with-alpha(0.2))) : (btn-ta.pressed ? #5a9e3f : (btn-ta.has-hover ? #76bc51 : #67ab44.with-alpha(0.2)));
                     border-radius: 6px;
                     border-width: 1px;
-                    border-color: #67ab44.with-alpha(0.5);
+                    border-color: is-running ? #c04040.with-alpha(0.5) : #67ab44.with-alpha(0.5);
 
                     HorizontalLayout {
                         alignment: center;
                         spacing: 8px;
                         Image {
-                            source: Assets.play;
+                            source: is-running ? Assets.stop : Assets.play;
                             width: 24px;
-                            colorize: btn-ta.has-hover ? white : #67ab44;
+                            colorize: btn-ta.has-hover ? white : (is-running ? #c04040 : #67ab44);
                         }
 
                         Text {
-                            text: @tr("Start Game");
-                            color: btn-ta.has-hover ? white : #67ab44;
+                            text: is-running ? @tr("Stop") : @tr("Start Game");
+                            color: btn-ta.has-hover ? white : (is-running ? #c04040 : #67ab44);
                             vertical-alignment: center;
                             horizontal-alignment: center;
                             font-size: 16px;
@@ -174,7 +204,18 @@ export component InstanceCard inherits Rectangle {
 
                     btn-ta := TouchArea {
                         clicked => {
-                            InstanceLogic.launch_instance(root.data.id)
+                            // if (is-running) {
+                            //     InstanceLogic.kill_instance(root.data.id)
+                            // } else {
+                            //     InstanceLogic.launch_instance(root.data.id)
+                            // }
+                            if (root.is-valid) {
+                                if (is-running) {
+                                    InstanceLogic.kill_instance(root.data.id)
+                                } else {
+                                    InstanceLogic.launch_instance(root.data.id)
+                                }
+                            }
                         }
                     }
                 }
@@ -274,6 +315,9 @@ component Search inherits Rectangle {
                     InstanceLogic.search-changed(self.text);
                     root._clear-focus();
                 }
+                edited => {
+                    InstanceLogic.search-changed(self.text);
+                }
             }
         }
     }
@@ -352,9 +396,14 @@ export component Instances inherits Rectangle {
                 padding-bottom: 40px;
 
                 for data[i] in InstanceLogic.instance_list: InstanceCard {
-                    width: root.calculated-card-width;
-                    row: Math.floor(i / root.dynamic-column-count);
-                    col: Math.mod(i, root.dynamic-column-count);
+                    // width: root.calculated-card-width;
+                    visible: data.id != "";
+                    width: data.id != "" ? root.calculated-card-width : 0px;
+                    height: data.id != "" ? 260px : 0px;
+                    // row: Math.floor(i / root.dynamic-column-count);
+                    // col: Math.mod(i, root.dynamic-column-count);
+                    row: root.dynamic-column-count > 0 ? Math.floor(i / root.dynamic-column-count) : 0;
+                    col: root.dynamic-column-count > 0 ? Math.mod(i, root.dynamic-column-count) : 0;
                     data: data;
                 }
             }

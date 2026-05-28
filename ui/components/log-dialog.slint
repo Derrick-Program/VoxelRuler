@@ -1,0 +1,46 @@
+import { StandardButton, ScrollView } from "std-widgets.slint";
+
+export component LogDialog inherits Dialog {
+    title: @tr("Instance Log");
+    preferred-width: 720px;
+    preferred-height: 500px;
+    min-width: 480px;
+    min-height: 300px;
+
+    in property <[string]> lines;
+    callback closed();
+
+    StandardButton { kind: close; clicked => { root.closed(); } }
+
+    sv := ScrollView {
+        width: 100%;
+        height: 100%;
+        viewport-width: self.width;
+
+        Rectangle {
+            background: #1a1a1a;
+            width: sv.width;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 1px;
+                alignment: start;
+                width: sv.width - 24px;
+
+                if root.lines.length == 0: Text {
+                    text: @tr("No log output yet.");
+                    color: #666;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+
+                for line in root.lines: Text {
+                    text: line;
+                    font-size: 11px;
+                    color: #c5c8c6;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

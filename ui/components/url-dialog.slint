@@ -1,0 +1,35 @@
+import { StandardButton } from "std-widgets.slint";
+
+export component UrlDialog inherits Dialog {
+    title: "系統動態通知";
+    min-width: 350px;
+
+    in property <string> message-content;
+    in property <string> link-label;
+    in property <string> backend-url;
+
+    callback open-url(string);
+
+    StandardButton { kind: ok; }
+
+    VerticalLayout {
+        spacing: 12px;
+        padding: 15px;
+
+        Text {
+            text: root.message-content;
+            wrap: word-wrap;
+        }
+
+        if (root.backend-url != "") : TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.open-url(root.backend-url); }
+
+            Text {
+                text: root.link-label;
+                color: parent.has-hover ? #00c0ff : #0088cc;
+                font-weight: 700;
+            }
+        }
+    }
+}

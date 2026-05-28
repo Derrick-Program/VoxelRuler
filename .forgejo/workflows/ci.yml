@@ -1,0 +1,56 @@
+name: CI
+
+# ──────────────────────────────────────────────────────────────
+# 觸發條件：任何分支 push 到 remote 時執行
+# 排除 tag push（tag 走 release.yml）
+# ──────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - 'v*.*.*'
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libfontconfig1-dev \
+            libxkbcommon-dev   \
+            libssl-dev         \
+            pkg-config
+
+      - name: Show Rust version
+        run: rustup show
+
+      - name: 🎨 fmt
+        run: cargo fmt -- --check
+
+      - name: 📎 clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: 🧪 test
+        run: cargo test -- --nocapture
+
+      - name: 🧹 Cleanup runner
+        if: always()
+        run: |
+          echo "Cleaning up runner..."
+          rm -rf target/
+          echo "✅ Cleanup done"

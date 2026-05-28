@@ -1,0 +1,102 @@
+import { AppTheme } from "@theme";
+import { CheckBox, ListView } from "std-widgets.slint";
+import { AccountRow } from "@global";
+
+export component AccountTable inherits VerticalLayout {
+    in property <[AccountRow]> rows: [];
+    in-out property <int> selected-index: -1;
+
+    spacing: 0;
+
+    Rectangle {
+        height: 36px;
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+            alignment: start;
+
+            Rectangle { width: 20px; }
+
+            Text {
+                width: 45%;
+                text: @tr("Username");
+                color: AppTheme.colors.muted-foreground;
+                font-size: AppTheme.font-size-base;
+                vertical-alignment: center;
+            }
+            Text {
+                width: 30%;
+                text: @tr("Authenticator");
+                color: AppTheme.colors.muted-foreground;
+                font-size: AppTheme.font-size-base;
+                vertical-alignment: center;
+            }
+            Text {
+                width: 25%;
+                text: @tr("Status");
+                color: AppTheme.colors.muted-foreground;
+                font-size: AppTheme.font-size-base;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    Rectangle {
+        height: 1px;
+        background: AppTheme.colors.border;
+    }
+
+    ListView {
+        vertical-stretch: 1;
+
+        for row[i] in root.rows: Rectangle {
+            height: 40px;
+            background: i == root.selected-index
+                ? AppTheme.colors.muted
+                : transparent;
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 8px;
+                alignment: start;
+
+                CheckBox {
+                    width: 20px;
+                    enabled: false;
+                    checked: row.checked;
+                }
+                Text {
+                    width: 45%;
+                    text: row.username;
+                    color: AppTheme.colors.foreground;
+                    font-size: AppTheme.font-size-base;
+                    vertical-alignment: center;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                Text {
+                    width: 30%;
+                    text: row.authenticator;
+                    color: AppTheme.colors.foreground;
+                    font-size: AppTheme.font-size-base;
+                    vertical-alignment: center;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                Text {
+                    width: 25%;
+                    text: row.status;
+                    color: AppTheme.colors.foreground;
+                    font-size: AppTheme.font-size-base;
+                    vertical-alignment: center;
+                }
+            }
+
+            TouchArea {
+                clicked => { root.selected-index = i; }
+            }
+        }
+    }
+}

@@ -1,5 +1,23 @@
 import { AppTheme } from "@theme";
 import { Assets } from "@assets";
+
+export enum SideTabId {
+    home,
+    instances,
+    mods,
+    downloads,
+    account,
+    settings
+}
+
+export struct AccountRow {
+    checked: bool,
+    authenticator: string,
+    username: string,
+    status: string,
+    avatar: image,
+}
+
 export struct InstanceData {
     id: string,
     name: string,
@@ -8,11 +26,28 @@ export struct InstanceData {
     last_played: string,
     play_time: string,
     image: image,
-    status: string, // "ready", "running", "updating"
+    status: string,
 }
 
 export global AppData {
-    in property <string> version: "version not found";
+    in property <string> version: @tr("version not found");
+}
+
+export global AppLogic {
+    callback check_for_updates();
+    callback start_download();
+    callback sidebar_change(SideTabId);
+
+    check_for_updates => {
+        debug("Checking for updates...");
+    }
+    start_download => {
+        debug("Starting download...");
+    }
+
+    sidebar_change(id) => {
+        debug(id);
+    }
 }
 
 export global InstanceLogic {
@@ -100,6 +135,7 @@ export global InstanceLogic {
     ];
     callback new_instance();
     callback launch_instance(string);
+    callback kill_instance(string);
     callback open_instance_settings(string);
     new_instance => {
         debug("Create new instance");
@@ -107,9 +143,221 @@ export global InstanceLogic {
     launch_instance(id) => {
         debug("Launch instance with id: " + id);
     }
+    kill_instance(id) => {
+        debug("Kill instance with id: " + id);
+    }
     open_instance_settings(id) => {
         debug("Open settings for instance with id: " + id);
     }
     in-out property <string> search-text;
     callback search-changed(string);
+
+    in-out property <bool> is-installing: false;
+    in-out property <float> install-progress: 0.0;
+    in-out property <string> install-status: "";
+    in-out property <bool> install-is-error: false;
+    callback dismiss-install-dialog();
+
+    in-out property <bool> show-log: false;
+    in-out property <string> log-instance-id: "";
+    in-out property <[string]> log-lines: [];
+    callback open-log(string);
+    callback close-log();
+}
+
+export struct ModData {
+    id: string,
+    name: string,
+    mod_loader: string,
+    author: string,
+    description: string,
+    image: image,
+}
+
+export global ModLogic {
+    in property <[ModData]> mod_list: [
+        {
+            id: "1",
+            name: "Sodium",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Sodium 是一款針對 Minecraft 客戶端的現代渲染引擎，可大幅提升幀率並修復圖形問題。透過重寫大量渲染代碼，在大多數硬體上都能顯著改善遊戲表現。",
+            image: Assets.cube,
+        },
+        {
+            id: "2",
+            name: "Lithium",
+            mod_loader: "Fabric",
+            author: "CaffeineMC",
+            description: "Lithium 是一款免費開源的 Minecraft 模組，可最佳化伺服器端的多個系統，包括物理引擎、AI 邏輯和資料結構，從而減少伺服器負擔並提高 TPS。",
+            image: Assets.cube,
+        },
+        {
+            id: "3",
+            name: "Iris Shaders",
+            mod_loader: "Fabric",
+            author: "coderbot",
+            description: "Iris 是一款與 Sodium 相容的著色器模組，讓玩家可以使用 OptiFine 著色器包，同時保有 Sodium 帶來的效能優勢。支援絕大多數主流著色器包。",
+            image: Assets.cube,
+        },
+        {
+            id: "4",
+            name: "JEI",
+            mod_loader: "Forge",
+            author: "mezz",
+            description: "Just Enough Items（JEI）是一款物品與合成表查詢工具。在遊戲物品欄介面中，你可以快速瀏覽所有可用物品及其合成方式，是模組包中的必備工具。",
+            image: Assets.cube,
+        },
+        {
+            id: "5",
+            name: "Waystones",
+            mod_loader: "Forge",
+            author: "BlayTheNinth",
+            description: "Waystones 新增可放置於世界中的路徑石，讓玩家和同服玩家能夠快速在已啟動的路徑石之間傳送，也可在村莊中自然生成。",
+            image: Assets.cube,
+        },
+        {
+            id: "6",
+            name: "AppleSkin",
+            mod_loader: "Fabric",
+            author: "squeek502",
+            description: "AppleSkin 為飢餓值介面增加了各種視覺改進，包括在物品欄中顯示食物的飢餓度和飽食度恢復量，以及當前飽食度的視覺提示。",
+            image: Assets.cube,
+        },
+        {
+            id: "7",
+            name: "JourneyMap",
+            mod_loader: "Forge",
+            author: "techbrew",
+            description: "JourneyMap 是一款即時地圖模組，可以在遊戲內或瀏覽器中查看。它會隨著你的探索自動繪製地圖，支援標記點、生物顯示和自動繪圖功能。",
+            image: Assets.cube,
+        },
+        {
+            id: "8",
+            name: "Create",
+            mod_loader: "Forge",
+            author: "simibubi",
+            description: "Create 模組提供了一套完整的工具和方塊，用於自動化、裝飾和機械化。圍繞著旋轉動力（Rotational Force）系統，讓玩家能建造精巧的機械裝置。",
+            image: Assets.cube,
+        },
+        {
+            id: "9",
+            name: "Mouse Tweaks",
+            mod_loader: "Fabric",
+            author: "YaLTeR",
+            description: "Mouse Tweaks 替換了標準的按住右鍵拖拽機制，增加了按住左鍵拖拽快速拿起物品的功能，極大地方便了物品欄的管理。",
+            image: Assets.cube,
+        },
+        {
+            id: "10",
+            name: "Sophisticated Backpacks",
+            mod_loader: "Forge",
+            author: "P3pp3rF1sh",
+            description: "這款背包模組不僅增加了可穿戴的背包，還提供了豐富的升級系統，如自動餵食、自動壓縮、過濾拾取等功能，還可以更換背包的外觀。",
+            image: Assets.cube,
+        },
+        {
+            id: "11",
+            name: "Storage Drawers",
+            mod_loader: "Forge",
+            author: "Texelsaur",
+            description: "儲物抽屜提供了一種高度視覺化的物品儲存方案。你可以直接從抽屜正面看到存放的物品及其數量，非常適合整理大量單一種類的資源。",
+            image: Assets.cube,
+        },
+        {
+            id: "12",
+            name: "Biomes O' Plenty",
+            mod_loader: "Forge",
+            author: "Forstride",
+            description: "一個龐大的生物群系模組，為 Minecraft 世界增加了許多獨特且美麗的生物群系，並附帶相應的新植物、花卉、樹木和其他方塊。",
+            image: Assets.cube,
+        },
+        {
+            id: "13",
+            name: "Quark",
+            mod_loader: "Forge",
+            author: "Vazkii",
+            description: "Quark 是一個旨在改進原版遊戲體驗的模組。它由許多小功能組成，涵蓋了建築、裝飾、工具和遊戲機制等多個方面，所有功能都可自由開啟或關閉。",
+            image: Assets.cube,
+        },
+        {
+            id: "14",
+            name: "Botania",
+            mod_loader: "Forge",
+            author: "Vazkii",
+            description: "這是一款以自然魔法為主題的技術模組。核心機制是利用各種花卉產生的「法力」（Mana）來驅動各種魔法設備，具有獨特的自動化邏輯和精美的視覺效果。",
+            image: Assets.cube,
+        }
+    ];
+    in-out property <int> selected_index: 0;
+    in-out property <string> search_text;
+    callback search-changed(string);
+    callback scan_local_mods(string);
+}
+
+export global PageAccountLogic {
+    in-out property <bool> is_logging_in: false;
+    in-out property <string> login_url: "";
+    in-out property <string> login_status_text: "正在初始化驗證程序...";
+    in-out property <bool> is_error: false;
+    in-out property <bool> show_offline_dialog: false;
+    in-out property <string> offline_username: "";
+    in-out property <int> selected-index: -1;
+    in-out property <[AccountRow]> accounts: [];
+    in-out property <AccountRow> active-account: {
+        username: "Guest",
+        authenticator: "No Account",
+        status: "Offline",
+        checked: false,
+        avatar: Assets.user
+    };
+
+    callback login_with_microsoft();
+    callback cancel_login();
+    callback open_browser_url(string);
+    callback add-offline-account();
+    callback confirm-add-offline-account(string);
+    callback refresh-account();
+    callback remove-account();
+    callback set-default-account();
+    callback unset-default-account();
+    callback manage-appearance();
+
+    login_with_microsoft => { debug("Login button clicked"); }
+    cancel_login => { debug("Login canceled by user"); }
+    open_browser_url(url) => { debug("Opening URL in browser: " + url); }
+    add-offline-account => { debug("Add offline account"); }
+    refresh-account => { debug("Refresh account"); }
+    remove-account => { debug("Remove account"); }
+    set-default-account => { debug("Set default account"); }
+    unset-default-account => { debug("Unset default account"); }
+    manage-appearance => { debug("Manage appearance"); }
+}
+
+export global InstanceCreateLogic {
+    // Dialog control
+    in-out property <bool>     show-dialog: false;
+    in-out property <int>      active-tab: 0;
+    // Basic Tab
+    in-out property <string>   name: "";
+    in-out property <[string]> version-list: [];
+    in-out property <string>   selected-version: "";
+    in-out property <string>   mod-loader: "None";
+
+    // Advanced Tab
+    in-out property <string>   xmx: "2G";
+    in-out property <string>   xms: "512M";
+    in-out property <bool>     logs-enabled: true;
+
+    // Resources Tab
+    in-out property <string>   world-path: "";
+    in-out property <string>   resource-pack: "";
+    in-out property <string>   shader-pack: "";
+
+    // State
+    in-out property <string>   error-msg: "";
+    in-out property <bool>     is-loading: false;
+
+    callback confirm-create();
+    callback cancel-create();
 }

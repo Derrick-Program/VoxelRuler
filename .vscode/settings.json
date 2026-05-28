@@ -10,5 +10,11 @@
     },
     "slint.includePaths": [
         "./ui"
-    ]
+    ],
+    "rust-analyzer.cargo.targetDir": true,
+    "rust-analyzer.check.extraArgs": [
+        "--lib",
+        "--bins"
+    ],
+    "rust-analyzer.cachePriming.enable": false
 }

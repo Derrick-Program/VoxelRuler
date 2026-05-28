@@ -1,9 +1,10 @@
-import { SideBar, Footer, SideTabId, Pages } from "components/index.slint";
+import { SideBar, Footer, Pages, DownloadDialog, LogDialog, CreateInstanceDialog, OfflineAccountDialog } from "components/index.slint";
 import { Assets } from "@assets";
 import { AppTheme } from "@theme";
-import { AppData,InstanceLogic } from "@global";
+import { AppData, InstanceLogic, AppLogic, PageAccountLogic, ModLogic, ModData, InstanceCreateLogic } from "@global";
+import { StandardButton } from "std-widgets.slint";
 
-export { AppData, InstanceLogic }
+export { AppData, InstanceLogic, AppLogic, PageAccountLogic, ModLogic, ModData, InstanceCreateLogic }
 export component MainApp inherits Window {
     min-width: 800px;
     min-height: 600px;
@@ -12,29 +13,116 @@ export component MainApp inherits Window {
     title: "VoxelRuler";
     icon: Assets.logo;
 
-    // property <SideTabId> active-tab <=> sidebar.active-tab;
-    callback sidebar_change(SideTabId);
+    FocusScope {
+        enabled: !PageAccountLogic.is_logging_in;
+        VerticalLayout {
+            spacing: 0;
+            app := HorizontalLayout {
+                vertical-stretch: 1;
+                sidebar := SideBar {
+                    tab-changed(id) => {
+                    AppLogic.sidebar_change(id);
+                    }
+                }
 
-    sidebar_change(id) => {
-        debug(id)
-    }
-
-    VerticalLayout {
-        spacing: 0;
-        app := HorizontalLayout {
-            vertical-stretch: 1;
-            sidebar := SideBar {
-                tab-changed(id) => root.sidebar_change(id);
+                pages := Pages {
+                    active-tab: sidebar.active-tab;
+                }
             }
 
-            pages := Pages {
-                active-tab: sidebar.active-tab;
+            footer := Footer {
+                vertical-stretch: 0;
+                version: AppData.version;
+            }
+        }
+    }
+
+    if InstanceLogic.show-log: LogDialog {
+        lines: InstanceLogic.log-lines;
+        closed => { InstanceLogic.close-log(); }
+    }
+
+    if InstanceLogic.is-installing: DownloadDialog {
+        download-progress: InstanceLogic.install-progress;
+        download-status: InstanceLogic.install-status;
+        is-error: InstanceLogic.install-is-error;
+        dismissed => { InstanceLogic.dismiss-install-dialog(); }
+    }
+
+    if InstanceCreateLogic.show-dialog: CreateInstanceDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if PageAccountLogic.is_logging_in: Dialog {
+        title: @tr("Microsoft Account Login Verification");
+        min-width: 420px;
+
+        StandardButton {
+            kind: ok; 
+            visible: PageAccountLogic.is_error;
+            clicked => {
+                PageAccountLogic.is_logging_in = false;
+                PageAccountLogic.cancel_login();
             }
         }
 
-        footer := Footer {
-            vertical-stretch: 0;
-            version: AppData.version;
+        StandardButton {
+            kind: cancel; 
+            visible: !PageAccountLogic.is_error; 
+            clicked => {
+                PageAccountLogic.is_logging_in = false;
+                PageAccountLogic.cancel_login();
+            }
+        }
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 15px;
+            alignment: center;
+
+            Text {
+                text: PageAccountLogic.login_status_text;
+                horizontal-alignment: center;
+                font-size: 14px;
+            }
+            if PageAccountLogic.login_url != "" && !PageAccountLogic.is_error: VerticalLayout {
+                spacing: 8px;
+                alignment: center;
+
+                Text {
+                    text: @tr("If the system did not automatically open the browser, please click the link below:");
+                    horizontal-alignment: center;
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 12px;
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        PageAccountLogic.open_browser_url(PageAccountLogic.login_url);
+                    }
+                    Text {
+                        text: @tr("& Click here to go to the Microsoft security login page &");
+                        horizontal-alignment: center;
+                        color: parent.has-hover ? AppTheme.colors.accent.darker(10%) : AppTheme.colors.accent;
+                        font-weight: 700;
+                        font-size: 14px;
+                    }
+                }
+            }
+        }
+    }
+
+    if PageAccountLogic.show_offline_dialog: OfflineAccountDialog {
+        closed => {
+            PageAccountLogic.show_offline_dialog = false;
+        }
+        confirmed(name) => {
+            PageAccountLogic.show_offline_dialog = false;
+            PageAccountLogic.confirm-add-offline-account(name);
         }
     }
 }
