@@ -108,7 +108,17 @@ impl InstanceStore {
             Duration::from_millis(200),
             move |res: notify_debouncer_mini::DebounceEventResult| match res {
                 Ok(events) => {
-                    if !events.is_empty() {
+                    // 只有 instance.toml 變動才通知 UI 重建列表。
+                    // 遊戲執行期間寫入的 logs / saves / options.txt 等檔案
+                    // 不屬於 instance.toml，不會觸發不必要的列表刷新。
+                    let relevant = events.iter().any(|e| {
+                        e.path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n == "instance.toml")
+                            .unwrap_or(false)
+                    });
+                    if relevant {
                         let _ = tx.send(());
                     }
                 }
