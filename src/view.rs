@@ -80,13 +80,19 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
     }
 
+    // running_procs 在 watcher callback 中也需要讀取，因此提前定義。
+    // 這樣在重建 instance list 時，可以保留正在執行中的實例狀態，
+    // 避免 watcher 刷新列表時把 "running" 狀態覆蓋成 "ready"。
+    let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
+
     let (_debouncer, rx) = store.lock().unwrap().watch_changes()?;
     let ui_weak_for_watch = ui.as_weak();
     let store_for_watch = Arc::clone(&store);
     let master_for_watch = Arc::clone(&master_configs);
+    let running_procs_for_watch = Arc::clone(&running_procs);
     tokio::spawn(async move {
         while let Ok(_) = rx.recv() {
-            println!("🔄 偵測到遊戲實例資料夾變動，正在同步至 UI 列表...");
+            println!("🔄 偵測到 instance.toml 變動，正在同步至 UI 列表...");
             let latest_configs = match store_for_watch.lock() {
                 Ok(s) => s.load().unwrap_or_default(),
                 Err(_) => continue,
@@ -94,12 +100,26 @@ pub async fn open_view() -> anyhow::Result<()> {
             if let Ok(mut master) = master_for_watch.lock() {
                 *master = latest_configs.clone();
             }
+            // 在進入 event loop 前取得目前正在執行的實例 ID 集合，
+            // 保留這些實例的 "running" 狀態，不被重建列表覆蓋。
+            let running_ids: std::collections::HashSet<String> = running_procs_for_watch
+                .lock()
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default();
             let ui_weak = ui_weak_for_watch.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui_handle) = ui_weak.upgrade() {
                     let logic = ui_handle.global::<InstanceLogic>();
-                    let mut ui_items: Vec<InstanceData> =
-                        latest_configs.iter().map(config_to_ui_data).collect();
+                    let mut ui_items: Vec<InstanceData> = latest_configs
+                        .iter()
+                        .map(|c| {
+                            let mut item = config_to_ui_data(c);
+                            if running_ids.contains(&c.id) {
+                                item.status = "running".into();
+                            }
+                            item
+                        })
+                        .collect();
                     if ui_items.is_empty() {
                         ui_items.push(InstanceData {
                             id: "".into(),
@@ -172,7 +192,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
 
-    let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
     let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
