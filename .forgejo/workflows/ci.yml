@@ -10,6 +10,11 @@ on:
       - '**'
     tags-ignore:
       - 'v*.*.*'
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
 
 env:
   CARGO_TERM_COLOR: always
