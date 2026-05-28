@@ -33,6 +33,14 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.0", features = [
+    "NSAppleEventDescriptor",
+    "NSAppleEventManager",
+    "NSString",
+] }
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

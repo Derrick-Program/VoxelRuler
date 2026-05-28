@@ -12,6 +12,8 @@ mod mc_parser;
 mod mc_paths;
 mod mc_token;
 mod mc_types;
+#[cfg(target_os = "macos")]
+mod url_handler;
 mod view;
 
 #[derive(Debug)]
@@ -69,18 +71,55 @@ static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    // ── Deep Link 處理 ────────────────────────────────────────────────────
+    //
+    // macOS：URL scheme 透過 Apple Events 傳遞，不走 argv。
+    //        在 Slint event loop 啟動前向 NSAppleEventManager 註冊 handler，
+    //        收到 URL 後透過 channel 傳至此 async task。
+    //
+    // Windows / Linux：cargo-packager 會將 URL 以 argv[1] 傳入，
+    //                  直接從 args 解析即可。
+    #[cfg(target_os = "macos")]
+    let mut deep_link_rx = url_handler::register();
 
-    if args.len() > 1 {
-        debug!("收到啟動參數：{:#?}", args);
-        match DeepLinkAction::parse_string(&args[1]) {
-            DeepLinkAction::MicrosoftAuth(auth_data) => {
-                debug!(code = %auth_data.code, state = ?auth_data.state, "收到 Microsoft OAuth deep link");
-                // return Ok(());
+    #[cfg(target_os = "macos")]
+    tokio::spawn(async move {
+        while let Some(url) = deep_link_rx.recv().await {
+            debug!(url = %url, "deep link channel 收到 URL");
+            match DeepLinkAction::parse_string(&url) {
+                DeepLinkAction::MicrosoftAuth(auth_data) => {
+                    debug!(
+                        code = %auth_data.code,
+                        state = ?auth_data.state,
+                        "收到 Microsoft OAuth deep link（Apple Events）"
+                    );
+                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
+                }
+                DeepLinkAction::Unknown => {
+                    debug!("收到未知的 VoxelRuler deep link，略過");
+                }
             }
-            DeepLinkAction::Unknown => {
-                debug!("收到未知的 VoxelRuler 指令");
-                // 不是合法的 VoxelRuler 指令，不影響程序，繼續往下開 UI
+        }
+    });
+
+    // Windows / Linux：URL scheme 以 argv[1] 傳入
+    #[cfg(not(target_os = "macos"))]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.len() > 1 {
+            debug!("收到啟動參數：{:#?}", args);
+            match DeepLinkAction::parse_string(&args[1]) {
+                DeepLinkAction::MicrosoftAuth(auth_data) => {
+                    debug!(
+                        code = %auth_data.code,
+                        state = ?auth_data.state,
+                        "收到 Microsoft OAuth deep link（argv）"
+                    );
+                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
+                }
+                DeepLinkAction::Unknown => {
+                    debug!("收到未知的 VoxelRuler 指令");
+                }
             }
         }
     }
