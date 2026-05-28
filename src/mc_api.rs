@@ -1,7 +1,7 @@
 #![allow(unused)]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
-use tracing::warn;
 use std::marker::PhantomData;
+use tracing::warn;
 
 use crate::mc_types::{
     McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail, McVersion,
@@ -21,7 +21,13 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
     for attempt in 0..API_MAX_RETRIES {
         if attempt > 0 {
             let delay = API_RETRY_BASE_MS * (1u64 << (attempt - 1));
-            warn!(attempt, max = API_MAX_RETRIES - 1, delay_ms = delay, url, "API 重試中");
+            warn!(
+                attempt,
+                max = API_MAX_RETRIES - 1,
+                delay_ms = delay,
+                url,
+                "API 重試中"
+            );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
         match client.get(url).send().await {

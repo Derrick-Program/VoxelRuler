@@ -2,9 +2,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use tracing::warn;
 use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
+use tracing::warn;
 
 use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
@@ -38,7 +38,13 @@ async fn download_and_verify(
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
             let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
-            warn!(attempt, max = MAX_RETRIES - 1, delay_ms = delay, url, "下載重試中");
+            warn!(
+                attempt,
+                max = MAX_RETRIES - 1,
+                delay_ms = delay,
+                url,
+                "下載重試中"
+            );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
 

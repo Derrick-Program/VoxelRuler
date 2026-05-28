@@ -1,8 +1,8 @@
 #![allow(unused)]
 use crate::view::open_view;
 use dashmap::DashMap;
-use tracing::{debug, info};
 use std::sync::LazyLock;
+use tracing::{debug, info};
 use url::Url;
 
 mod mc_api;
@@ -112,8 +112,8 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&log_dir).ok();
         let file_appender = tracing_appender::rolling::never(&log_dir, "voxelruler.log");
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("voxelruler=info"));
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("voxelruler=info"));
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))

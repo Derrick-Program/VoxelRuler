@@ -1,6 +1,4 @@
 slint::include_modules!();
-use tracing::{debug, error, info, warn};
-use anyhow::Context as _;
 use crate::{
     mc_install,
     mc_instance::{InstanceConfig, InstanceStore},
@@ -9,6 +7,7 @@ use crate::{
     mc_token::{self, SessionData},
     mc_types::McSpecificVersionDetail,
 };
+use anyhow::Context as _;
 use slint::{Model, ModelRc, VecModel};
 use std::{
     collections::{HashMap, VecDeque},
@@ -20,6 +19,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+use tracing::{debug, error, info, warn};
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
@@ -889,8 +889,12 @@ async fn do_launch(
     debug!(cmd = ?cmd, java = ?ctx.java_path, game_dir = ?ctx.game_dir, "啟動指令");
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn()
-        .with_context(|| format!("spawn 失敗，java={:?} game_dir={:?}", ctx.java_path, ctx.game_dir))?;
+    let mut child = cmd.spawn().with_context(|| {
+        format!(
+            "spawn 失敗，java={:?} game_dir={:?}",
+            ctx.java_path, ctx.game_dir
+        )
+    })?;
     set_install_state(&ui_weak, false, 0.0, "", false);
 
     instance_logs
