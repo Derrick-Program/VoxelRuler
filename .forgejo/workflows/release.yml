@@ -492,6 +492,7 @@ jobs:
           title: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
           draft: false
           prerelease: ${{ contains(github.event.inputs.manual_tag || github.ref_name, '-') }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🧹 Cleanup runner
         if: always()
