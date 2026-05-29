@@ -78,9 +78,8 @@ mod windows_session {
     }
 
     fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>> {
-        use windows::Win32::Foundation::HLOCAL;
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
         use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
-        use windows::Win32::System::Memory::LocalFree;
 
         unsafe {
             let input = CRYPT_INTEGER_BLOB {
@@ -97,15 +96,14 @@ mod windows_session {
 
             let encrypted =
                 std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            LocalFree(HLOCAL(output.pbData as isize));
+            LocalFree(HLOCAL(output.pbData.cast()));
             Ok(encrypted)
         }
     }
 
     fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>> {
-        use windows::Win32::Foundation::HLOCAL;
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
         use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
-        use windows::Win32::System::Memory::LocalFree;
 
         unsafe {
             let input = CRYPT_INTEGER_BLOB {
@@ -122,7 +120,7 @@ mod windows_session {
 
             let decrypted =
                 std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            LocalFree(HLOCAL(output.pbData as isize));
+            LocalFree(HLOCAL(output.pbData.cast()));
             Ok(decrypted)
         }
     }
