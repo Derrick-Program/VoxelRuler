@@ -77,7 +77,10 @@ jobs:
             binutils            \
             file                \
             squashfs-tools      \
-            desktop-file-utils
+            desktop-file-utils  \
+            wget                \
+            curl                \
+            libfuse2
 
       # rust-toolchain.toml 會自動指定版本，rustup 會下載缺少的 component
       - name: Show Rust version
