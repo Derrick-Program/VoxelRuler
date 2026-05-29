@@ -84,9 +84,6 @@ impl McPaths {
         #[cfg(target_os = "windows")]
         return self
             .java_dir(component)
-            .join("jre.bundle")
-            .join("Contents")
-            .join("Home")
             .join("bin")
             .join("javaw.exe");
         #[cfg(not(target_os = "windows"))]
