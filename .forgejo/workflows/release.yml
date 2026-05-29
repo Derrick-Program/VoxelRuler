@@ -377,15 +377,11 @@ permissions:
   contents: write
 
 jobs:
-  # ────────────────────────────────────────────────────────────
-  # Job 1：驗證 Tag 必須在 main 分支上
-  # ────────────────────────────────────────────────────────────
   verify-main:
     name: 🔍 Verify tag is on main
     runs-on: ubuntu-runner
     steps:
-      # 🎯 修正：完全對齊使用 Forgejo 鏡像的 checkout@v6 完整 URL
-      - uses: https://code.forgejo.org/actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Check tag commit is reachable from main
@@ -397,17 +393,12 @@ jobs:
             echo "❌ Tag commit is NOT on main branch"
             exit 1
           fi
-
-  # ────────────────────────────────────────────────────────────
-  # Job 2：Linux 打包
-  # ────────────────────────────────────────────────────────────
   build-linux:
     name: 📦 Package — Linux
     needs: verify-main
     runs-on: ubuntu-rust
     steps:
-      # 🎯 修正：完全對齊使用 Forgejo 鏡像的 checkout@v6 完整 URL
-      - uses: https://code.forgejo.org/actions/checkout@v6
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -423,7 +414,6 @@ jobs:
           NO_STRIP: "1"
         run: cargo packager --release
 
-      # 🎯 完整 URL：使用 Forgejo 專用修補版 Artifact 上傳組件
       - name: Upload Linux artifact
         uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
@@ -435,9 +425,6 @@ jobs:
         if: always()
         run: rm -rf target/ dist/
 
-  # ────────────────────────────────────────────────────────────
-  # Job 3：Windows 打包
-  # ────────────────────────────────────────────────────────────
   build-windows:
     name: 📦 Package — Windows
     needs: verify-main
@@ -446,8 +433,7 @@ jobs:
       run:
         shell: nu {0}
     steps:
-      # 🎯 修正：完全對齊使用 Forgejo 鏡像的 checkout@v6 完整 URL
-      - uses: https://code.forgejo.org/actions/checkout@v6
+      - uses: actions/checkout@v6
 
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
@@ -455,7 +441,6 @@ jobs:
       - name: Package (Windows)
         run: cargo packager --release
 
-      # 🎯 完整 URL：使用 Forgejo 專用修補版 Artifact 上傳組件
       - name: Upload Windows artifact
         uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
@@ -472,9 +457,6 @@ jobs:
           let cargoGit = ($env.USERPROFILE | path join ".cargo" "git" "checkouts")
           if ($cargoGit | path exists) { rm -rf $cargoGit }
 
-  # ────────────────────────────────────────────────────────────
-  # Job 4：收集雙平台產物並統一發布
-  # ────────────────────────────────────────────────────────────
   release:
     name: 🚀 Create Forgejo Release
     needs: [build-linux, build-windows]
