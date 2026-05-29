@@ -96,7 +96,7 @@ mod windows_session {
 
             let encrypted =
                 std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            LocalFree(HLOCAL(output.pbData.cast()));
+            LocalFree(Some(HLOCAL(output.pbData.cast())));
             Ok(encrypted)
         }
     }
@@ -120,7 +120,7 @@ mod windows_session {
 
             let decrypted =
                 std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            LocalFree(HLOCAL(output.pbData.cast()));
+            LocalFree(Some(HLOCAL(output.pbData.cast())));
             Ok(decrypted)
         }
     }
