@@ -75,7 +75,9 @@ jobs:
             fakeroot            \
             patchelf            \
             binutils            \
-            file
+            file                \
+            squashfs-tools      \
+            desktop-file-utils
 
       # rust-toolchain.toml 會自動指定版本，rustup 會下載缺少的 component
       - name: Show Rust version
@@ -148,7 +150,6 @@ jobs:
       # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
       - name: 🧹 Cleanup runner
         if: always()
-        shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: |
           print "Cleaning up Windows runner..."
           
