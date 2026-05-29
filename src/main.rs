@@ -1,3 +1,7 @@
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
 #![allow(unused)]
 use crate::view::open_view;
 use dashmap::DashMap;
@@ -69,6 +73,7 @@ impl DeepLinkAction {
 static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(DashMap::new);
 static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ── Deep Link 處理 ────────────────────────────────────────────────────

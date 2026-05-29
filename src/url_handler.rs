@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use objc2::define_class;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{AllocAnyThread, DefinedClass, msg_send, sel};
+use objc2::{AllocAnyThread, msg_send, sel};
 use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager, NSObject};
 use tokio::sync::mpsc;
 use tracing::debug;

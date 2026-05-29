@@ -1,6 +1,8 @@
 #![allow(unused)]
 use getset::{CopyGetters, Getters};
+#[cfg(not(target_os = "windows"))]
 use keyring::use_native_store;
+#[cfg(not(target_os = "windows"))]
 use keyring_core::Entry;
 use minecraft_msa_auth::MinecraftAuthorizationFlow;
 use oauth2::{
@@ -37,34 +39,151 @@ pub struct SessionData {
     mc_uuid: String,
 }
 
+/// Windows: DPAPI + 本地加密檔案（規避 Credential Manager 2560 字元上限）
+#[cfg(target_os = "windows")]
+mod windows_session {
+    use anyhow::Result;
+    use std::path::PathBuf;
+
+    fn session_path() -> Result<PathBuf> {
+        let dirs = directories::BaseDirs::new()
+            .ok_or_else(|| anyhow::anyhow!("Cannot find user data directory"))?;
+        let dir = dirs.data_local_dir().join("VoxelRuler");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir.join("session.enc"))
+    }
+
+    pub fn save(json: &str) -> Result<()> {
+        let encrypted = dpapi_protect(json.as_bytes())?;
+        std::fs::write(session_path()?, encrypted)?;
+        Ok(())
+    }
+
+    pub fn load() -> Result<Option<String>> {
+        let path = session_path()?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let data = std::fs::read(&path)?;
+        let plain = dpapi_unprotect(&data)?;
+        Ok(Some(String::from_utf8(plain)?))
+    }
+
+    pub fn delete() -> Result<()> {
+        let path = session_path()?;
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>> {
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
+        use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptProtectData};
+
+        unsafe {
+            let input = CRYPT_INTEGER_BLOB {
+                cbData: data.len() as u32,
+                pbData: data.as_ptr().cast_mut(),
+            };
+            let mut output = CRYPT_INTEGER_BLOB {
+                cbData: 0,
+                pbData: std::ptr::null_mut(),
+            };
+
+            CryptProtectData(&input, None, None, None, None, 0, &mut output)
+                .map_err(|e| anyhow::anyhow!("CryptProtectData failed: {e}"))?;
+
+            let encrypted =
+                std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+            LocalFree(Some(HLOCAL(output.pbData.cast())));
+            Ok(encrypted)
+        }
+    }
+
+    fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>> {
+        use windows::Win32::Foundation::{HLOCAL, LocalFree};
+        use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
+
+        unsafe {
+            let input = CRYPT_INTEGER_BLOB {
+                cbData: data.len() as u32,
+                pbData: data.as_ptr().cast_mut(),
+            };
+            let mut output = CRYPT_INTEGER_BLOB {
+                cbData: 0,
+                pbData: std::ptr::null_mut(),
+            };
+
+            CryptUnprotectData(&input, None, None, None, None, 0, &mut output)
+                .map_err(|e| anyhow::anyhow!("CryptUnprotectData failed: {e}"))?;
+
+            let decrypted =
+                std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+            LocalFree(Some(HLOCAL(output.pbData.cast())));
+            Ok(decrypted)
+        }
+    }
+}
+
 impl SessionData {
     fn save_session(&self) -> anyhow::Result<()> {
-        use_native_store(false)?;
-        let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
         let session_json = serde_json::to_string(self)?;
-        keyring.set_password(&session_json)?;
+
+        #[cfg(target_os = "windows")]
+        {
+            windows_session::save(&session_json)?;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            use_native_store(false)?;
+            let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
+            keyring.set_password(&session_json)?;
+        }
         Ok(())
     }
 
     pub fn delete_session() -> anyhow::Result<()> {
-        use_native_store(false)?;
-        let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
-        match keyring.delete_credential() {
-            Ok(()) | Err(keyring_core::error::Error::NoEntry) => Ok(()),
-            Err(e) => Err(anyhow::anyhow!("Failed to delete session: {:?}", e)),
+        #[cfg(target_os = "windows")]
+        {
+            windows_session::delete()?;
         }
+        #[cfg(not(target_os = "windows"))]
+        {
+            use_native_store(false)?;
+            let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
+            match keyring.delete_credential() {
+                Ok(()) | Err(keyring_core::error::Error::NoEntry) => {}
+                Err(e) => return Err(anyhow::anyhow!("Failed to delete session: {:?}", e)),
+            }
+        }
+        Ok(())
     }
 
     pub fn load_session() -> anyhow::Result<Option<SessionData>> {
-        use_native_store(false)?;
-        let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
-        match keyring.get_password() {
-            Ok(session_json) => {
-                let session: SessionData = serde_json::from_str(&session_json)?;
-                Ok(Some(session))
+        #[cfg(target_os = "windows")]
+        {
+            return match windows_session::load()? {
+                Some(json) => {
+                    let session: SessionData = serde_json::from_str(&json)?;
+                    Ok(Some(session))
+                }
+                None => Ok(None),
+            };
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            use_native_store(false)?;
+            let keyring = Entry::new(SERVICE_NAME, ACCOUNT_KEY)?;
+            match keyring.get_password() {
+                Ok(session_json) => {
+                    let session: SessionData = serde_json::from_str(&session_json)?;
+                    Ok(Some(session))
+                }
+                Err(keyring_core::error::Error::NoEntry) => Ok(None),
+                Err(e) => Err(anyhow::anyhow!("Failed to load session: {:?}", e)),
             }
-            Err(keyring_core::error::Error::NoEntry) => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("Failed to load session: {:?}", e)),
         }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "voxelruler"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -32,6 +32,12 @@ notify-debouncer-mini = "0.7.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
