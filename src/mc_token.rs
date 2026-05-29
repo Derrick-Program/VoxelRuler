@@ -79,7 +79,7 @@ mod windows_session {
 
     fn dpapi_protect(data: &[u8]) -> Result<Vec<u8>> {
         use windows::Win32::Foundation::{HLOCAL, LocalFree};
-        use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
+        use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptProtectData};
 
         unsafe {
             let input = CRYPT_INTEGER_BLOB {
@@ -103,7 +103,7 @@ mod windows_session {
 
     fn dpapi_unprotect(data: &[u8]) -> Result<Vec<u8>> {
         use windows::Win32::Foundation::{HLOCAL, LocalFree};
-        use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
+        use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
 
         unsafe {
             let input = CRYPT_INTEGER_BLOB {
