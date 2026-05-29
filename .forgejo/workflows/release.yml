@@ -1,9 +1,244 @@
+# name: Release
+
+# # ──────────────────────────────────────────────────────────────
+# # 觸發條件：push tag v*.*.* 才執行
+# # 但會額外驗證該 commit 必須在 main 分支上
+# # ──────────────────────────────────────────────────────────────
+# on:
+#   push:
+#     tags:
+#       - 'v*.*.*'
+#   workflow_dispatch:
+#     inputs:
+#       manual_tag:
+#         description: '手動發布的 Tag 名稱 (例如 v1.0.0)。若在 UI 已選擇特定 Tag 執行，此處可留空。'
+#         required: false
+#         type: string
+
+# env:
+#   CARGO_TERM_COLOR: always
+#   RUST_BACKTRACE: 1
+
+# jobs:
+
+#   # ────────────────────────────────────────────────────────────
+#   # Job 1：確認 tag 是打在 main 分支上，否則直接 abort
+#   # ────────────────────────────────────────────────────────────
+#   verify-main:
+#     name: 🔍 Verify tag is on main
+#     runs-on: ubuntu-runner
+#     outputs:
+#       ok: ${{ steps.check.outputs.ok }}
+#     steps:
+#       - uses: actions/checkout@v6
+#         with:
+#           fetch-depth: 0
+
+#       - name: Check tag commit is reachable from main
+#         id: check
+#         run: |
+#           git fetch origin main
+#           if git merge-base --is-ancestor "$GITHUB_SHA" origin/main 2>/dev/null; then
+#             echo "ok=true" >> "$GITHUB_OUTPUT"
+#             echo "✅ Tag commit is on main branch — proceeding"
+#           else
+#             echo "ok=false" >> "$GITHUB_OUTPUT"
+#             echo "❌ Tag commit is NOT on main branch — aborting release"
+#             exit 1
+#           fi
+
+#       - name: Cleanup
+#         if: always()
+#         run: find . -mindepth 1 -delete
+
+#   # ────────────────────────────────────────────────────────────
+#   # Job 2：Linux 打包
+#   #   Runner label: ubuntu-rust (Proxmox 上已有 Rust 工具鏈)
+#   # ────────────────────────────────────────────────────────────
+#   build-linux:
+#     name: 📦 Package — Linux
+#     needs: verify-main
+#     runs-on: ubuntu-rust
+#     steps:
+#       - uses: actions/checkout@v6
+
+#       # Slint / cargo-packager 所需的系統套件
+#       - name: Install system dependencies
+#         run: |
+#           sudo apt-get update -qq
+#           sudo apt-get install -y \
+#             build-essential \
+#             pkg-config \
+#             libssl-dev \
+#             file \
+#             binutils \
+#             patchelf \
+#             squashfs-tools \
+#             fakeroot \
+#             desktop-file-utils \
+#             libfuse2 \
+#             wget \
+#             curl \
+#             git \
+#             shared-mime-info \
+#             xdg-user-dirs \
+#             libfontconfig1-dev \
+#             libfreetype6-dev \
+#             libxkbcommon-dev \
+#             libxkbcommon-x11-dev \
+#             libwayland-dev \
+#             libx11-dev \
+#             libxcb1-dev \
+#             libxcb-render0-dev \
+#             libxcb-shape0-dev \
+#             libxcb-xfixes0-dev \
+#             libasound2-dev
+
+#       # rust-toolchain.toml 會自動指定版本，rustup 會下載缺少的 component
+#       - name: Show Rust version
+#         run: |
+#           rustup show
+#           cargo --version
+
+#       - name: Install cargo-packager
+#         run: cargo install cargo-packager --locked
+
+#       # before-packaging-command 已在 Cargo.toml 設定為 cargo build --release
+#       - name: Package (Linux)
+#         env:
+#           APPIMAGE_EXTRACT_AND_RUN: "1"
+#           NO_STRIP: "1"
+#         run: cargo packager --release
+
+#       - name: List dist output
+#         run: find dist/ -type f | sort
+
+#       - name: Upload Linux artifact
+#         uses: actions/upload-artifact@v3
+#         with:
+#           name: linux-dist
+#           path: dist/
+#           retention-days: 1
+
+#       # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
+#       - name: 🧹 Cleanup runner
+#         if: always()
+#         run: |
+#           echo "Cleaning up Linux runner..."
+#           rm -rf target/ dist/
+#           cargo cache --autoclean 2>/dev/null || true
+#           echo "✅ Linux runner cleanup done"
+
+#   # ────────────────────────────────────────────────────────────
+#   # Job 3：Windows 打包
+#   #   Runner label: windows-latest (windows-runner-proxmox)
+#   # ────────────────────────────────────────────────────────────
+#   build-windows:
+#     name: 📦 Package — Windows
+#     needs: verify-main
+#     runs-on: windows-latest
+#     defaults:
+#       run:
+#         shell: nu {0}
+#     steps:
+#       - uses: actions/checkout@v6
+
+#       - name: Show Rust version
+#         run: |
+#           rustup show
+#           cargo --version
+
+#       - name: Install cargo-packager
+#         run: cargo install cargo-packager --locked
+
+#       # Windows 打包：cargo-packager 預設輸出 NSIS installer (.exe)
+#       - name: Package (Windows)
+#         run: cargo packager --release
+
+#       - name: List dist output
+#         run: Get-ChildItem -Recurse dist/ | Select-Object FullName
+
+#       - name: Upload Windows artifact
+#         uses: actions/upload-artifact@v3
+#         with:
+#           name: windows-dist
+#           path: dist/
+#           retention-days: 1
+
+#       # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
+#       - name: 🧹 Cleanup runner
+#         if: always()
+#         run: |
+#           print "Cleaning up Windows runner..."
+          
+#           # 迴圈清理本地產物目錄
+#           for dir in [target, dist] {
+#             if ($dir | path exists) {
+#               rm -rf $dir
+#               print $"  Removed: ($dir)"
+#             }
+#           }
+          
+#           # 清除 cargo 的 git checkout cache (跨平台路徑處理)
+#           let cargoGit = ($env.USERPROFILE | path join ".cargo" "git" "checkouts")
+#           if ($cargoGit | path exists) {
+#             rm -rf $cargoGit
+#             print "  Removed: cargo git checkouts cache"
+#           }
+          
+#           print "✅ Windows runner cleanup done"
+
+#   # ────────────────────────────────────────────────────────────
+#   # Job 4：整合兩平台產物，建立 Forgejo Release
+#   # ────────────────────────────────────────────────────────────
+#   release:
+#     name: 🚀 Create Release
+#     needs: [build-linux, build-windows]
+#     runs-on: ubuntu-runner
+#     steps:
+#       - name: Download Linux packages
+#         uses: actions/download-artifact@v3
+#         with:
+#           name: linux-dist
+#           path: ./release/linux
+
+#       - name: Download Windows packages
+#         uses: actions/download-artifact@v3
+#         with:
+#           name: windows-dist
+#           path: ./release/windows
+
+#       - name: List all release files
+#         run: |
+#           echo "=== Release files ==="
+#           find ./release -type f | sort
+
+#       # softprops/action-gh-release 與 Forgejo API 相容
+#       # prerelease: tag 含 "-" 時（如 v1.0.0-beta.1）自動標記為預發布
+#       - name: Create Forgejo Release
+#         uses: softprops/action-gh-release@v3
+#         with:
+#           tag_name: ${{ github.event.inputs.manual_tag || github.ref_name }}
+#           name: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
+#           draft: false
+#           prerelease: ${{ contains(github.event.inputs.manual_tag || github.ref_name, '-') }}
+#           generate_release_notes: true
+#           files: |
+#             ./release/linux/**
+#             ./release/windows/**
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+#       # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
+#       - name: 🧹 Cleanup runner
+#         if: always()
+#         run: |
+#           echo "Cleaning up release runner..."
+#           rm -rf ./release/
+#           echo "✅ Release runner cleanup done"
+
 name: Release
 
-# ──────────────────────────────────────────────────────────────
-# 觸發條件：push tag v*.*.* 才執行
-# 但會額外驗證該 commit 必須在 main 分支上
-# ──────────────────────────────────────────────────────────────
 on:
   push:
     tags:
@@ -11,7 +246,7 @@ on:
   workflow_dispatch:
     inputs:
       manual_tag:
-        description: '手動發布的 Tag 名稱 (例如 v1.0.0)。若在 UI 已選擇特定 Tag 執行，此處可留空。'
+        description: '手動發布的 Tag 名稱'
         required: false
         type: string
 
@@ -20,40 +255,25 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-
-  # ────────────────────────────────────────────────────────────
-  # Job 1：確認 tag 是打在 main 分支上，否則直接 abort
-  # ────────────────────────────────────────────────────────────
   verify-main:
     name: 🔍 Verify tag is on main
     runs-on: ubuntu-runner
-    outputs:
-      ok: ${{ steps.check.outputs.ok }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
       - name: Check tag commit is reachable from main
-        id: check
         run: |
           git fetch origin main
           if git merge-base --is-ancestor "$GITHUB_SHA" origin/main 2>/dev/null; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Tag commit is on main branch — proceeding"
+            echo "✅ Tag commit is on main branch"
           else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "❌ Tag commit is NOT on main branch — aborting release"
+            echo "❌ Tag commit is NOT on main branch"
             exit 1
           fi
 
-      - name: Cleanup
-        if: always()
-        run: find . -mindepth 1 -delete
-
   # ────────────────────────────────────────────────────────────
-  # Job 2：Linux 打包
-  #   Runner label: ubuntu-rust (Proxmox 上已有 Rust 工具鏈)
+  # Linux 打包並直接發布
   # ────────────────────────────────────────────────────────────
   build-linux:
     name: 📦 Package — Linux
@@ -62,76 +282,39 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Slint / cargo-packager 所需的系統套件
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y \
-            build-essential \
-            pkg-config \
-            libssl-dev \
-            file \
-            binutils \
-            patchelf \
-            squashfs-tools \
-            fakeroot \
-            desktop-file-utils \
-            libfuse2 \
-            wget \
-            curl \
-            git \
-            shared-mime-info \
-            xdg-user-dirs \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libx11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libasound2-dev
-
-      # rust-toolchain.toml 會自動指定版本，rustup 會下載缺少的 component
-      - name: Show Rust version
-        run: |
-          rustup show
-          cargo --version
+          sudo apt-get install -y build-essential pkg-config libssl-dev file binutils patchelf squashfs-tools fakeroot desktop-file-utils libfuse2 wget curl git shared-mime-info xdg-user-dirs libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libasound2-dev
 
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
-      # before-packaging-command 已在 Cargo.toml 設定為 cargo build --release
       - name: Package (Linux)
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           NO_STRIP: "1"
         run: cargo packager --release
 
-      - name: List dist output
-        run: find dist/ -type f | sort
-
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v7
+      # 🎯 直接上傳到 Forgejo Release (若 Release 不存在會自動建立)
+      - name: Upload to Forgejo Release (Linux)
+        uses: softprops/action-gh-release@v3
         with:
-          name: linux-dist
-          path: dist/
-          retention-days: 1
+          tag_name: ${{ github.event.inputs.manual_tag || github.ref_name }}
+          name: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.manual_tag || github.ref_name, '-') }}
+          generate_release_notes: true
+          files: dist/** # 自動抓取 dist 目錄下的所有打包產物
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
       - name: 🧹 Cleanup runner
         if: always()
-        run: |
-          echo "Cleaning up Linux runner..."
-          rm -rf target/ dist/
-          cargo cache --autoclean 2>/dev/null || true
-          echo "✅ Linux runner cleanup done"
+        run: rm -rf target/ dist/
 
   # ────────────────────────────────────────────────────────────
-  # Job 3：Windows 打包
-  #   Runner label: windows-latest (windows-runner-proxmox)
+  # Windows 打包並直接發布
   # ────────────────────────────────────────────────────────────
   build-windows:
     name: 📦 Package — Windows
@@ -143,96 +326,29 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Show Rust version
-        run: |
-          rustup show
-          cargo --version
-
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
-      # Windows 打包：cargo-packager 預設輸出 NSIS installer (.exe)
       - name: Package (Windows)
         run: cargo packager --release
 
-      - name: List dist output
-        run: Get-ChildItem -Recurse dist/ | Select-Object FullName
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-dist
-          path: dist/
-          retention-days: 1
-
-      # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
-      - name: 🧹 Cleanup runner
-        if: always()
-        run: |
-          print "Cleaning up Windows runner..."
-          
-          # 迴圈清理本地產物目錄
-          for dir in [target, dist] {
-            if ($dir | path exists) {
-              rm -rf $dir
-              print $"  Removed: ($dir)"
-            }
-          }
-          
-          # 清除 cargo 的 git checkout cache (跨平台路徑處理)
-          let cargoGit = ($env.USERPROFILE | path join ".cargo" "git" "checkouts")
-          if ($cargoGit | path exists) {
-            rm -rf $cargoGit
-            print "  Removed: cargo git checkouts cache"
-          }
-          
-          print "✅ Windows runner cleanup done"
-
-  # ────────────────────────────────────────────────────────────
-  # Job 4：整合兩平台產物，建立 Forgejo Release
-  # ────────────────────────────────────────────────────────────
-  release:
-    name: 🚀 Create Release
-    needs: [build-linux, build-windows]
-    runs-on: ubuntu-runner
-    steps:
-      - name: Download Linux packages
-        uses: actions/download-artifact@v8
-        with:
-          name: linux-dist
-          path: ./release/linux
-
-      - name: Download Windows packages
-        uses: actions/download-artifact@v8
-        with:
-          name: windows-dist
-          path: ./release/windows
-
-      - name: List all release files
-        run: |
-          echo "=== Release files ==="
-          find ./release -type f | sort
-
-      # softprops/action-gh-release 與 Forgejo API 相容
-      # prerelease: tag 含 "-" 時（如 v1.0.0-beta.1）自動標記為預發布
-      - name: Create Forgejo Release
+      # 🎯 直接上傳到 Forgejo Release (會自動附加到同一個 Release 中)
+      - name: Upload to Forgejo Release (Windows)
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.manual_tag || github.ref_name }}
           name: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
           draft: false
           prerelease: ${{ contains(github.event.inputs.manual_tag || github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            ./release/linux/**
-            ./release/windows/**
+          files: dist/** # 自動抓取 Windows 的 .exe 或 .msi 產物
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 最後一步：無論成功或失敗都清理 runner 上的資料 ──
       - name: 🧹 Cleanup runner
         if: always()
         run: |
-          echo "Cleaning up release runner..."
-          rm -rf ./release/
-          echo "✅ Release runner cleanup done"
+          for dir in [target, dist] {
+            if ($dir | path exists) { rm -rf $dir }
+          }
+          let cargoGit = ($env.USERPROFILE | path join ".cargo" "git" "checkouts")
+          if ($cargoGit | path exists) { rm -rf $cargoGit }
