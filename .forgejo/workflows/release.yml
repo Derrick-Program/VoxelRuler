@@ -298,7 +298,7 @@ jobs:
 
       # 🎯 直接上傳到 Forgejo Release (若 Release 不存在會自動建立)
       - name: Upload to Forgejo Release (Linux)
-        uses: https://github.com/softprops/action-gh-release@v3
+        uses: https://github.com/softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.manual_tag || github.ref_name }}
           name: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
@@ -334,7 +334,7 @@ jobs:
 
       # 🎯 直接上傳到 Forgejo Release (會自動附加到同一個 Release 中)
       - name: Upload to Forgejo Release (Windows)
-        uses: https://github.com/softprops/action-gh-release@v3
+        uses: https://github.com/softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.manual_tag || github.ref_name }}
           name: "VoxelRuler ${{ github.event.inputs.manual_tag || github.ref_name }}"
