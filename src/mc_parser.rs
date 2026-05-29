@@ -45,17 +45,24 @@ impl LaunchContext {
         let classpath = self.build_classpath();
         let vars = self.build_vars(&classpath);
         let mut cmd = Command::new(&self.java_path);
-
         cmd.current_dir(&self.game_dir);
-        cmd.arg(format!("-Xmx{}", self.xmx));
-        cmd.arg(format!("-Xms{}", self.xms));
 
         if let Some(arguments) = &self.version.arguments {
+            // 優先序（後加 = 高優先，dedup 保留最後一筆）：
+            //   版本 JSON jvm < default_user_jvm < 明確指定的 Xmx/Xms
+            let mut all_jvm: Vec<String> = collect_args(&arguments.jvm, &vars);
+
             if let Some(defaults) = &arguments.default_user_jvm {
-                cmd.args(collect_args(defaults, &vars));
+                all_jvm.extend(collect_args(defaults, &vars));
             }
 
-            let mut jvm_args = collect_args(&arguments.jvm, &vars);
+            all_jvm.push(format!("-Xmx{}", self.xmx));
+            all_jvm.push(format!("-Xms{}", self.xms));
+
+            // 去除互斥 flag 的衝突，保留最後（最高優先）那一筆
+            let mut all_jvm = dedup_jvm_args(all_jvm);
+
+            // compat args 插到 -cp 之前
             let mut compat = self.java_compat_args();
             if cfg!(target_os = "macos") {
                 let natives_str = self.natives_dir.to_string_lossy().into_owned();
@@ -67,18 +74,22 @@ impl LaunchContext {
                 compat.push(format!("-Dio.netty.native.workdir={}", natives_str));
             }
             if !compat.is_empty() {
-                let pos = jvm_args
+                let pos = all_jvm
                     .iter()
                     .position(|a| a == "-cp")
-                    .unwrap_or(jvm_args.len());
+                    .unwrap_or(all_jvm.len());
                 for (i, arg) in compat.into_iter().enumerate() {
-                    jvm_args.insert(pos + i, arg);
+                    all_jvm.insert(pos + i, arg);
                 }
             }
-            cmd.args(jvm_args);
+
+            cmd.args(all_jvm);
             cmd.arg(&self.version.main_class);
             cmd.args(collect_args(&arguments.game, &vars));
         } else {
+            // 舊版格式（無 arguments 欄位）：直接加，不會有重複問題
+            cmd.arg(format!("-Xmx{}", self.xmx));
+            cmd.arg(format!("-Xms{}", self.xms));
             cmd.arg(format!(
                 "-Djava.library.path={}",
                 self.natives_dir.display()
@@ -202,6 +213,64 @@ impl LaunchContext {
         m.insert("classpath_separator", sep.into());
         m
     }
+}
+
+/// 去除 JVM 參數中的互斥衝突，對每種「只能有一個」的 flag 保留最後（優先序最高）那筆。
+///
+/// 規則：
+/// - GC 選擇器（`-XX:+UseZGC` 等）彼此互斥，整組只保留最後一個
+/// - 前綴唯一型（`-Xmx`、`-Xms`、`-Xss`、`-Xmn`）每種前綴只保留最後一個
+/// - 其餘 flag 全部保留
+fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
+    const GC_FLAGS: &[&str] = &[
+        "-XX:+UseG1GC",
+        "-XX:+UseZGC",
+        "-XX:+UseShenandoahGC",
+        "-XX:+UseParallelGC",
+        "-XX:+UseSerialGC",
+        "-XX:+UseConcMarkSweepGC",
+        "-XX:+UseEpsilonGC",
+    ];
+    const UNIQUE_PREFIXES: &[&str] = &["-Xmx", "-Xms", "-Xss", "-Xmn"];
+
+    // Pass 1：找出每種互斥類型的「最後出現位置」
+    let mut last_gc: Option<usize> = None;
+    let mut last_prefix: Vec<Option<usize>> = vec![None; UNIQUE_PREFIXES.len()];
+
+    for (i, arg) in args.iter().enumerate() {
+        if GC_FLAGS.contains(&arg.as_str()) {
+            last_gc = Some(i);
+        }
+        for (pi, prefix) in UNIQUE_PREFIXES.iter().enumerate() {
+            if arg.starts_with(prefix) {
+                last_prefix[pi] = Some(i);
+            }
+        }
+    }
+
+    // Pass 2：過濾，重複的非最後那筆記錄 warning 並移除
+    args.into_iter()
+        .enumerate()
+        .filter_map(|(i, arg)| {
+            if GC_FLAGS.contains(&arg.as_str()) {
+                if Some(i) != last_gc {
+                    warn!("移除衝突 GC 參數: {arg}");
+                    return None;
+                }
+                return Some(arg);
+            }
+            for (pi, prefix) in UNIQUE_PREFIXES.iter().enumerate() {
+                if arg.starts_with(prefix) {
+                    if Some(i) != last_prefix[pi] {
+                        warn!("移除重複 JVM 參數: {arg}");
+                        return None;
+                    }
+                    return Some(arg);
+                }
+            }
+            Some(arg)
+        })
+        .collect()
 }
 
 pub(crate) fn evaluate_rules(rules: &[McRule]) -> bool {
