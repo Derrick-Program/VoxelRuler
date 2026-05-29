@@ -117,26 +117,25 @@ jobs:
     name: 📦 Package — Windows
     needs: verify-main
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: nu {0}
     steps:
       - uses: actions/checkout@v6
 
       - name: Show Rust version
-        shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: |
           rustup show
           cargo --version
 
       - name: Install cargo-packager
-        shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: cargo install cargo-packager --locked
 
       # Windows 打包：cargo-packager 預設輸出 NSIS installer (.exe)
       - name: Package (Windows)
-        shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: cargo packager --release
 
       - name: List dist output
-        shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: Get-ChildItem -Recurse dist/ | Select-Object FullName
 
       - name: Upload Windows artifact
@@ -151,20 +150,24 @@ jobs:
         if: always()
         shell: powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {0}"
         run: |
-          Write-Host "Cleaning up Windows runner..."
-          @('target', 'dist') | ForEach-Object {
-            if (Test-Path $_) {
-              Remove-Item -Recurse -Force $_ -ErrorAction SilentlyContinue
-              Write-Host "  Removed: $_"
+          print "Cleaning up Windows runner..."
+          
+          # 迴圈清理本地產物目錄
+          for dir in [target, dist] {
+            if ($dir | path exists) {
+              rm -rf $dir
+              print $"  Removed: ($dir)"
             }
           }
-          # 清除 cargo 的 git checkout cache（佔空間最大的部分）
-          $cargoGit = "$env:USERPROFILE\.cargo\git\checkouts"
-          if (Test-Path $cargoGit) {
-            Remove-Item -Recurse -Force $cargoGit -ErrorAction SilentlyContinue
-            Write-Host "  Removed: cargo git checkouts cache"
+          
+          # 清除 cargo 的 git checkout cache (跨平台路徑處理)
+          let cargoGit = ($env.USERPROFILE | path join ".cargo" "git" "checkouts")
+          if ($cargoGit | path exists) {
+            rm -rf $cargoGit
+            print "  Removed: cargo git checkouts cache"
           }
-          Write-Host "✅ Windows runner cleanup done"
+          
+          print "✅ Windows runner cleanup done"
 
   # ────────────────────────────────────────────────────────────
   # Job 4：整合兩平台產物，建立 Forgejo Release
