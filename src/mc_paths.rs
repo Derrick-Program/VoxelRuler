@@ -83,7 +83,9 @@ impl McPaths {
     pub fn java_bin(&self, component: &str) -> PathBuf {
         #[cfg(target_os = "windows")]
         return self.java_dir(component).join("bin").join("javaw.exe");
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        return self.java_dir(component).join("bin").join("java"); 
+        #[cfg(target_os = "macos")]
         return self
             .java_dir(component)
             .join("jre.bundle")
