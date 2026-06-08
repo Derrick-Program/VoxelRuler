@@ -111,6 +111,18 @@ impl McPaths {
         d
     }
 
+    pub fn skins_dir(&self) -> PathBuf {
+        let d = self.base.join("skins");
+        if !d.exists() {
+            std::fs::create_dir_all(&d).ok();
+        }
+        d
+    }
+
+    pub fn skins_history_file(&self) -> PathBuf {
+        self.base.join("skins_history.json")
+    }
+
     pub fn natives_dir(&self, version_id: &str) -> PathBuf {
         let d = self.version_dir(version_id).join("natives");
         if !d.exists() {

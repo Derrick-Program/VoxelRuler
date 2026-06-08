@@ -280,6 +280,68 @@ impl McAction<Authenticated> {
             .inspect_err(|e| println!("{:#?}", e))?)
     }
 
+    pub async fn upload_skin_from_url(&self, url: &str, variant: &str) -> anyhow::Result<()> {
+        // Mojang rejects arbitrary external URLs; download the image first then upload as file
+        let img_bytes = reqwest::get(url)
+            .await
+            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .error_for_status()
+            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .bytes()
+            .await
+            .map_err(|e| anyhow::anyhow!("讀取皮膚資料失敗：{e}"))?;
+
+        let endpoint = format!("{}/minecraft/profile/skins", NEW_MC_SERVER);
+        let part = reqwest::multipart::Part::bytes(img_bytes.to_vec())
+            .file_name("skin.png")
+            .mime_str("image/png")?;
+        let form = reqwest::multipart::Form::new()
+            .text("variant", variant.to_string())
+            .part("file", part);
+        let resp = self.client
+            .post(&endpoint)
+            .multipart(form)
+            .send()
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("HTTP {} — {}", status, body_text);
+        }
+        Ok(())
+    }
+
+    pub async fn upload_skin_from_file(
+        &self,
+        path: &std::path::Path,
+        variant: &str,
+    ) -> anyhow::Result<()> {
+        let endpoint = format!("{}/minecraft/profile/skins", NEW_MC_SERVER);
+        let file_bytes = tokio::fs::read(path).await?;
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("skin.png")
+            .to_string();
+        let part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(file_name)
+            .mime_str("image/png")?;
+        let form = reqwest::multipart::Form::new()
+            .text("variant", variant.to_string())
+            .part("file", part);
+        let resp = self.client
+            .post(&endpoint)
+            .multipart(form)
+            .send()
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("HTTP {} — {}", status, body_text);
+        }
+        Ok(())
+    }
+
     pub async fn check_game_ownership(&self) -> anyhow::Result<bool> {
         let url = format!("{}/entitlements/mcstore", NEW_MC_SERVER);
         let entitlements: serde_json::Value = self

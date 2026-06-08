@@ -1,0 +1,289 @@
+import { AppTheme } from "@theme";
+import { AppearanceLogic } from "@global";
+
+export component AppearanceWindow inherits Window {
+    title: @tr("Skin Management");
+    width: 820px;
+    height: 480px;
+    background: #1e2028;
+    icon: @image-url("../../assets/icons/voxelruler.png");
+
+    HorizontalLayout {
+        spacing: 0;
+
+        // Left Panel (Management)
+        VerticalLayout {
+            width: 460px;
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 12px;
+                    alignment: space-between;
+                    Text {
+                        text: @tr("Skin Management");
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: #e0e0e0;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+            VerticalLayout {
+                vertical-stretch: 1;
+                padding: 20px;
+                spacing: 16px;
+
+                VerticalLayout {
+                    spacing: 8px;
+                    Text { text: @tr("Skin Variant"); font-size: 12px; color: #9e9e9e; }
+                    HorizontalLayout {
+                        spacing: 24px;
+                        alignment: start;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                width: 16px; height: 16px; border-radius: 8px;
+                                border-width: 2px;
+                                border-color: AppearanceLogic.skin-variant == "classic" ? #76bc51 : #666;
+                                background: transparent;
+                                if AppearanceLogic.skin-variant == "classic": Rectangle {
+                                    width: 8px; height: 8px; x: 2px; y: 2px;
+                                    border-radius: 4px; background: #76bc51;
+                                }
+                                r0-ta := TouchArea {
+                                    clicked => { AppearanceLogic.skin-variant = "classic"; }
+                                }
+                            }
+                            Text {
+                                text: @tr("Classic (Steve)");
+                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                width: 16px; height: 16px; border-radius: 8px;
+                                border-width: 2px;
+                                border-color: AppearanceLogic.skin-variant == "slim" ? #76bc51 : #666;
+                                background: transparent;
+                                if AppearanceLogic.skin-variant == "slim": Rectangle {
+                                    width: 8px; height: 8px; x: 2px; y: 2px;
+                                    border-radius: 4px; background: #76bc51;
+                                }
+                                r1-ta := TouchArea {
+                                    clicked => { AppearanceLogic.skin-variant = "slim"; }
+                                }
+                            }
+                            Text {
+                                text: @tr("Slim (Alex)");
+                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+                VerticalLayout {
+                    spacing: 8px;
+                    Text { text: @tr("Upload from Local File"); font-size: 12px; color: #9e9e9e; }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 34px;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.15);
+                            background: #242424;
+                            Text {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: parent.height;
+                                text: AppearanceLogic.selected-skin-path == ""
+                                    ? @tr("No file selected")
+                                    : AppearanceLogic.selected-skin-path;
+                                color: AppearanceLogic.selected-skin-path == "" ? #555 : #e0e0e0;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle {
+                            width: 72px; height: 34px; border-radius: 6px;
+                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                            background: browse-ta.has-hover ? #ffffff.with-alpha(0.12) : #ffffff.with-alpha(0.06);
+                            browse-ta := TouchArea {
+                                enabled: !AppearanceLogic.is-uploading;
+                                clicked => { AppearanceLogic.browse-skin-file(); }
+                            }
+                            Text {
+                                text: @tr("Browse");
+                                color: #e0e0e0; font-size: 12px;
+                                horizontal-alignment: center; vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 120px; height: 34px; border-radius: 6px;
+                            background: upload-file-ta.has-hover
+                                ? #67ab44
+                                : (upload-file-ta.enabled ? #5a9a3a : #3a5a2a);
+                            upload-file-ta := TouchArea {
+                                enabled: !AppearanceLogic.is-uploading
+                                    && AppearanceLogic.selected-skin-path != "";
+                                clicked => { AppearanceLogic.upload-from-file(); }
+                            }
+                            Text {
+                                text: @tr("Upload File");
+                                color: upload-file-ta.enabled ? white : #aaa;
+                                font-size: 12px; font-weight: 600;
+                                horizontal-alignment: center; vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+                VerticalLayout {
+                    spacing: 8px;
+                    Text { text: @tr("Apply from URL"); font-size: 12px; color: #9e9e9e; }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 34px;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: url-focus.has-focus
+                                ? #76bc51.with-alpha(0.6)
+                                : #ffffff.with-alpha(0.15);
+                            background: #242424;
+                            url-focus := FocusScope {}
+                            url-input := TextInput {
+                                x: 10px; width: parent.width - 20px; height: parent.height;
+                                text <=> AppearanceLogic.skin-url;
+                                color: #e0e0e0; font-size: 12px;
+                                vertical-alignment: center;
+                                enabled: !AppearanceLogic.is-uploading;
+                            }
+                            if url-input.text == "": Text {
+                                x: 10px; height: parent.height;
+                                text: "https://...";
+                                color: #555; font-size: 12px; vertical-alignment: center;
+                            }
+                        }
+                    }
+                    
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 72px; height: 34px; border-radius: 6px;
+                            background: apply-ta.has-hover
+                                ? #67ab44
+                                : (apply-ta.enabled ? #5a9a3a : #3a5a2a);
+                            apply-ta := TouchArea {
+                                enabled: !AppearanceLogic.is-uploading
+                                    && AppearanceLogic.skin-url != "";
+                                clicked => {
+                                    AppearanceLogic.upload-from-url(AppearanceLogic.skin-url);
+                                }
+                            }
+                            Text {
+                                text: @tr("Apply");
+                                color: apply-ta.enabled ? white : #aaa;
+                                font-size: 12px; font-weight: 600;
+                                horizontal-alignment: center; vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+            Rectangle {
+                height: 44px;
+                background: transparent;
+
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+
+                    if AppearanceLogic.is-uploading: Text {
+                        text: @tr("Uploading...");
+                        color: #9e9e9e; font-size: 12px;
+                        vertical-alignment: center;
+                    }
+
+                    if !AppearanceLogic.is-uploading && AppearanceLogic.upload-status != "": Text {
+                        text: AppearanceLogic.upload-status;
+                        color: AppearanceLogic.upload-is-error ? #e74c3c : #76bc51;
+                        font-size: 12px; vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Divider
+        Rectangle { width: 1px; background: #ffffff.with-alpha(0.08); }
+
+        // Right Panel (Preview)
+        VerticalLayout {
+            horizontal-stretch: 1;
+            
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    Text {
+                        text: @tr("Skin Preview");
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: #e0e0e0;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+            Rectangle {
+                vertical-stretch: 1;
+                background: #0b0b0d;
+                clip: true;
+                
+                if AppearanceLogic.has-preview: Image {
+                    source: AppearanceLogic.preview-image;
+                    width: 90%;
+                    height: 90%;
+                    image-fit: contain;
+                    image-rendering: pixelated;
+                }
+                
+                if !AppearanceLogic.has-preview: Text {
+                    text: @tr("No skin selected");
+                    color: #555;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

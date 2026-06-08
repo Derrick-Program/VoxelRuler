@@ -10,11 +10,13 @@ gluesql = { version = "0.19.0", default-features = false, features = ["gluesql-r
 minecraft-msa-auth = "0.4.0"
 oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", features = ["stream", "multipart"] }
+rfd = "0.14"
 serde_json = "1.0.149"
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha1 = "0.11.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 slint = "1.16.1"
 tempfile = "3.27.0"
 tokio = { version = "1.52.3", features = ["fs", "macros", "rt-multi-thread", "tracing", "windows-sys"] }

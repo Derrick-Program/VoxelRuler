@@ -21,6 +21,27 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 
+async fn fetch_avatar_from_mojang(token: &str, username: &str) -> Option<std::path::PathBuf> {
+    let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let avatar_path = cache_dir.join(format!("{}.png", username));
+
+    let api = crate::mc_api::McAction::new().authenticate(token);
+    let profile = api.get_user_profile().await.ok()?;
+    let active_skin = profile.skins.iter().find(|s| s.state == crate::mc_types::McState::Active)?;
+
+    let skin_bytes = reqwest::get(&active_skin.url).await.ok()?.bytes().await.ok()?;
+    let skin_img = image::load_from_memory(&skin_bytes).ok()?.to_rgba8();
+
+    let mut face = image::imageops::crop_imm(&skin_img, 8, 8, 8, 8).to_image();
+    let hat = image::imageops::crop_imm(&skin_img, 40, 8, 8, 8).to_image();
+    image::imageops::overlay(&mut face, &hat, 0, 0);
+
+    let avatar = image::imageops::resize(&face, 64, 64, image::imageops::FilterType::Nearest);
+    avatar.save(&avatar_path).ok()?;
+    Some(avatar_path)
+}
+
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -696,37 +717,251 @@ pub async fn open_view() -> anyhow::Result<()> {
             let ui_weak_async = ui_weak_refresh.clone();
             let username = row.username.to_string();
             tokio::spawn(async move {
-                let avatar_path = fetch_avatar_path(&username).await;
-                if let Ok(Some(session)) = SessionData::load_session() {
-                    let token = session.minecraft_access_token().clone();
-                    let api = crate::mc_api::McAction::new().authenticate(&token);
-                    let ownership = api.check_game_ownership().await.unwrap_or(false);
-                    let status_text = if ownership { "Online" } else { "Offline" };
+                let Ok(Some(session)) = SessionData::load_session() else { return };
+                let token = session.minecraft_access_token().clone();
+                let api = crate::mc_api::McAction::new().authenticate(&token);
+                let ownership = api.check_game_ownership().await.unwrap_or(false);
+                let status_text = if ownership { "Online" } else { "Offline" };
+                let avatar_path = fetch_avatar_from_mojang(&token, &username).await;
 
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak_async.upgrade() {
-                            let pal = ui.global::<PageAccountLogic>();
-                            let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
-                            if (idx as usize) < accounts.len() {
-                                let mut row = accounts[idx as usize].clone();
-                                row.status = status_text.into();
-                                if let Some(p) =
-                                    avatar_path.and_then(|p| slint::Image::load_from_path(&p).ok())
-                                {
-                                    row.avatar = p;
-                                }
-                                accounts[idx as usize] = row.clone();
-                                pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
-                                if row.checked {
-                                    pal.set_active_account(row);
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_async.upgrade() {
+                        let pal = ui.global::<PageAccountLogic>();
+                        let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
+                        if (idx as usize) < accounts.len() {
+                            let mut row = accounts[idx as usize].clone();
+                            row.status = status_text.into();
+                            if let Some(p) =
+                                avatar_path.and_then(|p| slint::Image::load_from_path(&p).ok())
+                            {
+                                row.avatar = p;
+                            }
+                            accounts[idx as usize] = row.clone();
+                            pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
+                            if row.checked {
+                                pal.set_active_account(row);
+                            }
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    // ── Appearance / Skin Management ─────────────────────────────────────────
+    let appearance_win_rc: std::rc::Rc<std::cell::RefCell<Option<AppearanceWindow>>> = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let ap_rc_manage = appearance_win_rc.clone();
+
+    let main_ui_weak_for_appearance = ui.as_weak();
+    ui.global::<PageAccountLogic>()
+        .on_manage_appearance(move || {
+            let mut ap_ref = ap_rc_manage.borrow_mut();
+            if ap_ref.is_none() {
+                if let Ok(ap) = AppearanceWindow::new() {
+                    let ap_weak = ap.as_weak();
+                    ap.window().on_close_requested(move || {
+                        if let Some(ap) = ap_weak.upgrade() {
+                            let _ = ap.hide();
+                        }
+                        slint::CloseRequestResponse::KeepWindowShown
+                    });
+
+                    let ap_weak_close = ap.as_weak();
+                    ap.global::<AppearanceLogic>().on_close_appearance(move || {
+                        if let Some(ap) = ap_weak_close.upgrade() {
+                            let _ = ap.hide();
+                        }
+                    });
+
+                    let ap_weak_browse = ap.as_weak();
+                    ap.global::<AppearanceLogic>().on_browse_skin_file(move || {
+                        let result = rfd::FileDialog::new()
+                            .add_filter("PNG Image", &["png"])
+                            .set_title("Select Skin File")
+                            .pick_file();
+                        if let Some(path) = result {
+                            let path_str = path.to_string_lossy().to_string();
+                            if let Some(ap) = ap_weak_browse.upgrade() {
+                                let apl = ap.global::<AppearanceLogic>();
+                                apl.set_selected_skin_path(path_str.into());
+                                if let Ok(img) = slint::Image::load_from_path(&path) {
+                                    apl.set_has_preview(true);
+                                    apl.set_preview_image(img);
+                                } else {
+                                    apl.set_has_preview(false);
                                 }
                             }
                         }
                     });
+
+                    let main_ui_weak_inner = main_ui_weak_for_appearance.clone();
+                    let ap_weak_upload = ap.as_weak();
+                    let main_ui_weak_upload = main_ui_weak_inner.clone();
+                    ap.global::<AppearanceLogic>().on_upload_from_file(move || {
+                        let Some(ap) = ap_weak_upload.upgrade() else { return };
+                        let apl = ap.global::<AppearanceLogic>();
+                        let path_str = apl.get_selected_skin_path().to_string();
+                        let variant = apl.get_skin_variant().to_string();
+                        let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
+
+                        if path_str.is_empty() {
+                            apl.set_upload_status("請先選擇皮膚檔案".into());
+                            apl.set_upload_is_error(true);
+                            return;
+                        }
+                        if token.is_empty() {
+                            apl.set_upload_status("請先登入 Microsoft 帳號".into());
+                            apl.set_upload_is_error(true);
+                            return;
+                        }
+
+                        apl.set_upload_status("正在上傳...".into());
+                        apl.set_upload_is_error(false);
+                        apl.set_is_uploading(true);
+
+                        let ap_weak_async = ap.as_weak();
+                        let main_ui_weak = main_ui_weak_upload.clone();
+                        let username = crate::mc_token::SessionData::load_session()
+                            .ok()
+                            .flatten()
+                            .map(|s| s.mc_username().clone())
+                            .unwrap_or_default();
+                            
+                        tokio::spawn(async move {
+                            let api = crate::mc_api::McAction::new().authenticate(&token);
+                            let result = api.upload_skin_from_file(std::path::Path::new(&path_str), &variant).await;
+                            let (status, is_error) = match result {
+                                Ok(()) => ("上傳成功！".to_string(), false),
+                                Err(e) => (format!("上傳失敗：{e}"), true),
+                            };
+                            
+                            // Re-fetch avatar directly from Mojang (no CDN delay)
+                            let avatar_path_opt = if !is_error && !username.is_empty() {
+                                fetch_avatar_from_mojang(&token, &username).await
+                            } else {
+                                None
+                            };
+
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ap) = ap_weak_async.upgrade() {
+                                    let apl = ap.global::<AppearanceLogic>();
+                                    apl.set_upload_status(status.into());
+                                    apl.set_upload_is_error(is_error);
+                                    apl.set_is_uploading(false);
+                                }
+                                
+                                if let Some(avatar_path) = avatar_path_opt {
+                                    if let Some(main_ui) = main_ui_weak.upgrade() {
+                                        if let Ok(img) = slint::Image::load_from_path(&avatar_path) {
+                                            let pal = main_ui.global::<PageAccountLogic>();
+                                            let mut active = pal.get_active_account();
+                                            active.avatar = img.clone();
+                                            pal.set_active_account(active.clone());
+                                            
+                                            let mut accounts: Vec<_> = pal.get_accounts().iter().collect();
+                                            if let Some(row) = accounts.iter_mut().find(|r| r.username == username) {
+                                                row.avatar = img;
+                                            }
+                                            pal.set_accounts(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(accounts))));
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    });
+
+                    let ap_weak_url = ap.as_weak();
+                    let main_ui_weak_url = main_ui_weak_inner.clone();
+                    ap.global::<AppearanceLogic>().on_upload_from_url(move |url| {
+                        let Some(ap) = ap_weak_url.upgrade() else { return };
+                        let apl = ap.global::<AppearanceLogic>();
+                        let url_str = url.to_string();
+                        let variant = apl.get_skin_variant().to_string();
+                        let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
+
+                        if url_str.is_empty() {
+                            apl.set_upload_status("請輸入皮膚 URL".into());
+                            apl.set_upload_is_error(true);
+                            return;
+                        }
+                        if token.is_empty() {
+                            apl.set_upload_status("請先登入 Microsoft 帳號".into());
+                            apl.set_upload_is_error(true);
+                            return;
+                        }
+
+                        apl.set_upload_status("正在套用...".into());
+                        apl.set_upload_is_error(false);
+                        apl.set_is_uploading(true);
+
+                        let ap_weak_async = ap.as_weak();
+                        let main_ui_weak = main_ui_weak_url.clone();
+                        let username = crate::mc_token::SessionData::load_session()
+                            .ok()
+                            .flatten()
+                            .map(|s| s.mc_username().clone())
+                            .unwrap_or_default();
+                            
+                        tokio::spawn(async move {
+                            let api = crate::mc_api::McAction::new().authenticate(&token);
+                            let result = api.upload_skin_from_url(&url_str, &variant).await;
+                            let (status, is_error) = match result {
+                                Ok(()) => ("套用成功！".to_string(), false),
+                                Err(e) => (format!("套用失敗：{e}"), true),
+                            };
+                            
+                            // Re-fetch avatar directly from Mojang (no CDN delay)
+                            let avatar_path_opt = if !is_error && !username.is_empty() {
+                                fetch_avatar_from_mojang(&token, &username).await
+                            } else {
+                                None
+                            };
+
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ap) = ap_weak_async.upgrade() {
+                                    let apl = ap.global::<AppearanceLogic>();
+                                    apl.set_upload_status(status.into());
+                                    apl.set_upload_is_error(is_error);
+                                    apl.set_is_uploading(false);
+                                }
+                                
+                                if let Some(avatar_path) = avatar_path_opt {
+                                    if let Some(main_ui) = main_ui_weak.upgrade() {
+                                        if let Ok(img) = slint::Image::load_from_path(&avatar_path) {
+                                            let pal = main_ui.global::<PageAccountLogic>();
+                                            let mut active = pal.get_active_account();
+                                            active.avatar = img.clone();
+                                            pal.set_active_account(active.clone());
+                                            
+                                            let mut accounts: Vec<_> = pal.get_accounts().iter().collect();
+                                            if let Some(row) = accounts.iter_mut().find(|r| r.username == username) {
+                                                row.avatar = img;
+                                            }
+                                            pal.set_accounts(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(accounts))));
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    });
+
+                    *ap_ref = Some(ap);
                 }
-            });
-        }
-    });
+            }
+
+            if let Some(ap) = ap_ref.as_ref() {
+                let apl = ap.global::<AppearanceLogic>();
+                apl.set_upload_status("".into());
+                apl.set_upload_is_error(false);
+                apl.set_skin_url("".into());
+                apl.set_selected_skin_path("".into());
+                apl.set_skin_variant("classic".into());
+                apl.set_is_uploading(false);
+                apl.set_has_preview(false);
+
+                let _ = ap.show();
+            }
+        });
 
     // slint::select_bundled_translation("zh_TW").unwrap();
     slint::select_bundled_translation("en_US").unwrap();

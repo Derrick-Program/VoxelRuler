@@ -334,6 +334,28 @@ export global PageAccountLogic {
     manage-appearance => { debug("Manage appearance"); }
 }
 
+export global AppearanceLogic {
+    in-out property <bool>   show-appearance: false;
+    in-out property <bool>   is-uploading: false;
+    in-out property <string> upload-status: "";
+    in-out property <bool>   upload-is-error: false;
+    in-out property <string> skin-url: "";
+    in-out property <string> selected-skin-path: "";
+    in-out property <string> skin-variant: "classic";
+    in-out property <image>  preview-image;
+    in-out property <bool>   has-preview: false;
+
+    callback close-appearance();
+    callback browse-skin-file();
+    callback upload-from-file();
+    callback upload-from-url(string);
+
+    close-appearance    => { debug("Close appearance"); }
+    browse-skin-file    => { debug("Browse skin file"); }
+    upload-from-file    => { debug("Upload from file"); }
+    upload-from-url(u)  => { debug("Upload from url: " + u); }
+}
+
 export global InstanceCreateLogic {
     // Dialog control
     in-out property <bool>     show-dialog: false;
