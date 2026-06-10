@@ -120,7 +120,7 @@ impl McPaths {
     }
 
     pub fn skins_history_file(&self) -> PathBuf {
-        self.base.join("skins_history.json")
+        self.skins_dir().join("index.json")
     }
 
     pub fn natives_dir(&self, version_id: &str) -> PathBuf {

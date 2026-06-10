@@ -366,6 +366,29 @@ impl McAction<Authenticated> {
             .unwrap_or(false);
         Ok(owns_games)
     }
+
+    pub async fn set_active_cape(&self, cape_id: &str) -> anyhow::Result<()> {
+        let endpoint = format!("{}/minecraft/profile/capes/active", NEW_MC_SERVER);
+        let body = serde_json::json!({ "capeId": cape_id });
+        let resp = self.client.put(&endpoint).json(&body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("HTTP {} — {}", status, body_text);
+        }
+        Ok(())
+    }
+
+    pub async fn hide_cape(&self) -> anyhow::Result<()> {
+        let endpoint = format!("{}/minecraft/profile/capes/active", NEW_MC_SERVER);
+        let resp = self.client.delete(&endpoint).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("HTTP {} — {}", status, body_text);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
