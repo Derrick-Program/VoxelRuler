@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 directories = "6.0.0"
-gluesql = { version = "0.19.0", default-features = false, features = ["gluesql-redb-storage"] }
+gluesql = { version = "0.19.0", default-features = false, features = [
+  "gluesql-redb-storage",
+] }
 minecraft-msa-auth = "0.4.0"
 oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -17,11 +19,20 @@ uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha1 = "0.11.0"
 slint = "1.16.1"
 tempfile = "3.27.0"
-tokio = { version = "1.52.3", features = ["fs", "macros", "rt-multi-thread", "tracing", "windows-sys"] }
+tokio = { version = "1.52.3", default-features = false, features = [
+  "fs",
+  "macros",
+  "rt-multi-thread",
+  "tracing",
+  "windows-sys",
+] }
 url = "2"
 keyring = "4.0.1"
 keyring-core = "1.0.0"
-chrono = { version = "0.4.44", features = ["clock", "oldtime"], default-features = false }
+chrono = { version = "0.4.44", features = [
+  "clock",
+  "oldtime",
+], default-features = false }
 getset = "0.1.6"
 dashmap = { version = "6.2.1", features = ["serde"] }
 open = "5.3.5"
@@ -34,20 +45,23 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # xdg-portal 後端：Linux 不連結 GTK（AppImage 友善），macOS/Windows 走原生對話框
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rfd = { version = "0.15", default-features = false, features = [
+  "xdg-portal",
+  "tokio",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [
-    "Win32_Security_Cryptography",
-    "Win32_Foundation",
+  "Win32_Security_Cryptography",
+  "Win32_Foundation",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.0", features = [
-    "NSAppleEventDescriptor",
-    "NSAppleEventManager",
-    "NSString",
+  "NSAppleEventDescriptor",
+  "NSAppleEventManager",
+  "NSString",
 ] }
 
 [profile.release]
@@ -71,12 +85,8 @@ VoxelRuler 是一款專為 Minecraft 玩家打造的啟動器，提供簡潔直�
 VoxelRuler is a Minecraft launcher designed for players, offering a simple and intuitive interface along with powerful features to easily manage and launch Minecraft games. Whether it's single-player or multiplayer servers, VoxelRuler provides stable performance and an optimized experience, allowing players to focus on enjoying the fun of Minecraft.
 """
 
-formats = [
-  "default"
-]
-icons = [
-  "ui/assets/icons/voxelruler.png"
-]
+formats = ["default"]
+icons = ["ui/assets/icons/voxelruler.png"]
 
 [[package.metadata.packager.deep_link_protocols]]
 schemes = ["voxelruler"]
@@ -88,7 +98,6 @@ digest-algorithm = "sha256"
 
 [package.metadata.packager.nsis]
 appdata_paths = ["Duacodie/VoxelRuler"]
-
 
 
 [package.metadata.packager.linux]

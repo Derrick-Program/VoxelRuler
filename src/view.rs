@@ -996,19 +996,44 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
     });
 }
 
-/// 下載並安裝指定的 Mojang Java runtime component，回傳 java 執行檔路徑
+/// 下載並安裝指定的 Mojang Java runtime component，
+/// 回傳 (java 執行檔路徑, 實際使用的平台字串)。
+/// `os_arch` 可覆寫平台（如 Apple Silicon 上強制 `mac-os` 抓 x64 Java 經 Rosetta 執行），
+/// 覆寫時安裝目錄加上平台後綴避免與原生版本混放。
+/// 注意：官方 arm64 目錄缺 component 時會自動 fallback 至 x64，
+/// 呼叫端須檢查回傳的平台字串以維持 natives 架構一致。
 async fn install_java_runtime(
     api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
     paths: &McPaths,
     component: &str,
+    os_arch: &str,
     ui_weak: &slint::Weak<MainApp>,
-) -> anyhow::Result<PathBuf> {
-    let manifest = api
-        .get_java_runtime_manifest(component)
-        .await
-        .with_context(|| format!("取得 Java runtime '{component}' 資訊失敗"))?;
-    info!(java_dir = ?paths.java_dir(component), component, "開始安裝 Java");
-    mc_install::install_java(&manifest, &paths.java_dir(component), {
+) -> anyhow::Result<(PathBuf, String)> {
+    let native_arch = crate::mc_parser::get_mojang_os_arch();
+    let mut os_arch = os_arch.to_string();
+    let mut manifest = api
+        .get_java_runtime_manifest_for_platform(component, &os_arch)
+        .await;
+
+    // 官方目錄缺漏保險：Apple Silicon 目錄沒有該 component（如 java-runtime-beta
+    // 只有 x64 版）→ 自動改抓 x64 經 Rosetta 執行
+    if manifest.is_err() && os_arch == "mac-os-arm64" {
+        warn!(component, "官方無 arm64 版本，自動 fallback 至 x86_64（Rosetta）");
+        os_arch = "mac-os".to_string();
+        manifest = api
+            .get_java_runtime_manifest_for_platform(component, &os_arch)
+            .await;
+    }
+    let manifest = manifest
+        .with_context(|| format!("取得 Java runtime '{component}'（{os_arch}）資訊失敗"))?;
+
+    let dir_name = if os_arch == native_arch {
+        component.to_string()
+    } else {
+        format!("{component}-{os_arch}")
+    };
+    info!(java_dir = ?paths.java_dir(&dir_name), component, %os_arch, "開始安裝 Java");
+    mc_install::install_java(&manifest, &paths.java_dir(&dir_name), {
         let ui_weak = ui_weak.clone();
         move |p| {
             let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
@@ -1017,7 +1042,7 @@ async fn install_java_runtime(
     })
     .await
     .context("安裝 Java 失敗")?;
-    Ok(paths.java_bin(component))
+    Ok((paths.java_bin(&dir_name), os_arch))
 }
 
 async fn do_launch(
@@ -1039,12 +1064,68 @@ async fn do_launch(
     let java_source = resolve_java_source(&config, &app_settings);
     info!(?java_source, instance = %config.name, "Java 來源解析結果");
 
+    let required_java_major = version.java_version.as_ref().map(|j| j.major_version);
+    let mut actual_java_major: Option<i32> = None;
+
+    // Apple Silicon：1.19 之前的版本只有 x86_64 natives。
+    // 若實際使用 arm64 Java，改用 Prism 式函式庫替換（compat）原生執行；
+    // 若使用 x86_64 Java（Rosetta），維持原版函式庫。
+    let is_arm_mac = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
+    let supports_arm64 = crate::mc_parser::version_supports_macos_arm64(&version);
+    let mut compat: Option<&'static crate::mc_compat::MacosArm64Override> = None;
+
     let java_path: PathBuf = match java_source {
         JavaSource::CustomPath(p) => {
             if !p.is_file() {
                 anyhow::bail!("自訂 Java 路徑不存在或不是檔案：{}", p.display());
             }
             set_install_state(&ui_weak, true, 0.4, "使用自訂 Java...", false);
+
+            #[cfg(target_os = "macos")]
+            if is_arm_mac && !supports_arm64 {
+                let probe = p.clone();
+                let archs = tokio::task::spawn_blocking(move || {
+                    crate::mc_parser::detect_java_archs(&probe)
+                })
+                .await
+                .unwrap_or_default();
+                info!(?archs, "自訂 Java 架構偵測");
+                let java_is_arm64 = archs.is_empty() || archs.iter().any(|a| a == "arm64");
+                if java_is_arm64 {
+                    compat = crate::mc_compat::arm64_override_for(&version);
+                    match compat {
+                        Some(ov) => {
+                            info!(name = ov.name, "啟用 Apple Silicon 原生模式（函式庫替換）")
+                        }
+                        None if !archs.iter().any(|a| a == "x86_64") => {
+                            anyhow::bail!(
+                                "此 Minecraft 版本沒有 Apple Silicon 原生函式庫且無可用替換，\n需要 x86_64 Java 經 Rosetta 執行，但所選 Java 架構為 {}。",
+                                archs.join("/")
+                            );
+                        }
+                        None => {}
+                    }
+                }
+            }
+
+            // 偵測實際 Java 版本：compat flags 依此決定，過舊則提前給明確錯誤
+            let probe = p.clone();
+            actual_java_major = tokio::task::spawn_blocking(move || {
+                crate::mc_parser::detect_java_major_version(&probe)
+            })
+            .await
+            .ok()
+            .flatten();
+            info!(?actual_java_major, ?required_java_major, "自訂 Java 版本偵測");
+
+            if let (Some(actual), Some(required)) = (actual_java_major, required_java_major)
+                && actual < required
+            {
+                anyhow::bail!(
+                    "此 Minecraft 版本需要 Java {required} 以上，但所選 Java 為 {actual}（{}）。\n請到實例設定或全域設定更換 Java。",
+                    p.display()
+                );
+            }
             p
         }
         JavaSource::VersionDefault => {
@@ -1053,7 +1134,44 @@ async fn do_launch(
                 .as_ref()
                 .map(|j| j.component.clone())
                 .unwrap_or_else(|| "jre-legacy".into());
-            install_java_runtime(&api, &paths, &component, &ui_weak).await?
+
+            if is_arm_mac && !supports_arm64 {
+                compat = crate::mc_compat::arm64_override_for(&version);
+            }
+
+            // Mojang 只有 Java 17+（gamma/delta）的 arm64 版；
+            // 版本需求 >= 16（1.17–1.18）才能走原生模式，否則退回 Rosetta
+            if compat.is_some() && required_java_major.is_some_and(|m| m >= 16) {
+                info!(
+                    name = compat.map(|o| o.name),
+                    "Apple Silicon 原生模式：使用 arm64 java-runtime-gamma"
+                );
+                actual_java_major = Some(17);
+                let requested_arch = crate::mc_parser::get_mojang_os_arch();
+                let (path, used_arch) =
+                    install_java_runtime(&api, &paths, "java-runtime-gamma", requested_arch, &ui_weak)
+                        .await?;
+                // 官方 arm64 目錄缺貨而 fallback 至 x64 時，
+                // 必須同步取消替換（x64 Java 配 arm64 natives 會炸）→ 改走 Rosetta + 原版函式庫
+                if used_arch != requested_arch {
+                    warn!("arm64 Java 不可用，已 fallback 至 x86_64，取消函式庫替換（Rosetta 模式）");
+                    compat = None;
+                }
+                path
+            } else {
+                let os_arch = if is_arm_mac && !supports_arm64 {
+                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta + 原版函式庫
+                    compat = None;
+                    info!("此版本無 arm64 natives 且無 arm64 Java，改抓 x86_64 Java（Rosetta）");
+                    "mac-os"
+                } else {
+                    crate::mc_parser::get_mojang_os_arch()
+                };
+                actual_java_major = required_java_major;
+                let (path, _) =
+                    install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
+                path
+            }
         }
     };
 
@@ -1069,7 +1187,7 @@ async fn do_launch(
     .context("安裝 Minecraft 主程式失敗")?;
 
     info!(libraries_dir = ?paths.libraries_dir(), "開始安裝函式庫");
-    mc_install::install_libraries(&version, &paths.libraries_dir(), {
+    mc_install::install_libraries(&version, &paths.libraries_dir(), compat, {
         let ui_weak = ui_weak.clone();
         move |p| {
             let status = format!("下載函式庫... {:.0}%", p * 100.0);
@@ -1085,6 +1203,7 @@ async fn do_launch(
         &version,
         &paths.libraries_dir(),
         &paths.natives_dir(&version_id),
+        compat,
     )
     .await
     .context("解壓原生函式庫失敗")?;
@@ -1141,6 +1260,8 @@ async fn do_launch(
         xuid: String::new(),
         xmx: config.xmx.clone(),
         xms: config.xms.clone(),
+        java_major_version: actual_java_major,
+        compat_override: compat,
     };
     // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
     let missing = ctx.missing_classpath_files();

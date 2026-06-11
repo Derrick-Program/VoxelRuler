@@ -11,6 +11,7 @@ use url::Url;
 
 mod java_scan;
 mod mc_api;
+mod mc_compat;
 mod mc_install;
 mod mc_instance;
 mod mc_parser;
