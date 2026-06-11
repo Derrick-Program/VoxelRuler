@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use tracing::{debug, info};
 use url::Url;
 
+mod instance_assets;
 mod java_scan;
 mod mc_api;
 mod mc_compat;

@@ -44,6 +44,11 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# 解壓 .log.gz 與 level.dat（gzip NBT）；zip 已間接依賴 flate2，無新增成本
+flate2 = "1"
+# 非直接使用：slint(parley) 間接依賴。開 logging feature 讓 ICU4X 錯誤改走 log crate
+# （否則 debug build 會直接 eprintln! 到 stderr，繞過 EnvFilter 的 icu_provider=off）
+icu_provider = { version = "2.2", default-features = false, features = ["logging"] }
 # xdg-portal 後端：Linux 不連結 GTK（AppImage 友善），macOS/Windows 走原生對話框
 rfd = { version = "0.15", default-features = false, features = [
   "xdg-portal",

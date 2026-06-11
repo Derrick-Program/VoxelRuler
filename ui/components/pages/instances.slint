@@ -1,7 +1,7 @@
 import { AppTheme } from "@theme";
 import { Assets } from "@assets";
 import { ScrollView } from "std-widgets.slint";
-import { InstanceLogic, InstanceData } from "@global";
+import { InstanceLogic, InstanceData, InstanceDetailLogic } from "@global";
 
 export component InstanceCard inherits Rectangle {
     in property <InstanceData> data;
@@ -13,6 +13,69 @@ export component InstanceCard inherits Rectangle {
     ta := TouchArea { }
 
     property <bool> is-valid: root.data.id != "";
+    property <bool> is-running: root.data.status == "running";
+
+    // ── 右鍵選單 ─────────────────────────────────────────────
+    ContextMenuArea {
+        enabled: root.is-valid;
+        Menu {
+            MenuItem {
+                title: root.is-running ? @tr("Stop") : @tr("Launch");
+                activated => {
+                    if (root.is-running) {
+                        InstanceLogic.kill_instance(root.data.id);
+                    } else {
+                        InstanceLogic.launch_instance(root.data.id);
+                    }
+                }
+            }
+
+            MenuItem {
+                title: @tr("Minecraft Log");
+                activated => { InstanceDetailLogic.open-detail(root.data.id, 0); }
+            }
+
+            MenuSeparator { }
+
+            MenuItem {
+                title: @tr("Edit Instance...");
+                activated => { InstanceLogic.open_instance_settings(root.data.id); }
+            }
+
+            MenuItem {
+                title: @tr("Open Folder");
+                activated => { InstanceLogic.open-instance-folder(root.data.id); }
+            }
+
+            MenuSeparator { }
+
+            MenuItem {
+                title: @tr("Duplicate Instance");
+                activated => { InstanceLogic.duplicate-instance(root.data.id); }
+            }
+
+            MenuItem {
+                title: @tr("Rename...");
+                activated => {
+                    InstanceLogic.rename-id = root.data.id;
+                    InstanceLogic.rename-text = root.data.name;
+                    InstanceLogic.rename-error = "";
+                    InstanceLogic.show-rename = true;
+                }
+            }
+
+            MenuSeparator { }
+
+            MenuItem {
+                title: @tr("Delete Instance...");
+                activated => {
+                    InstanceLogic.delete-id = root.data.id;
+                    InstanceLogic.delete-name = root.data.name;
+                    InstanceLogic.show-delete-confirm = true;
+                }
+            }
+        }
+    }
 
     content_root := Rectangle {
         width: 100%;
@@ -88,11 +151,13 @@ export component InstanceCard inherits Rectangle {
                         if (root.is-valid && root.data.status == "running"): log-rect := Rectangle {
                             width: 24px;
                             height: 24px;
-                            background: log-ta.has-hover ? white.with-alpha(0.2) : transparent;
+                            background: log-ta.has-hover ? #8be9fd.with-alpha(0.35) : black.with-alpha(0.6);
                             border-radius: 4px;
+                            border-width: 1px;
+                            border-color: #8be9fd.with-alpha(0.7);
                             Image {
                                 source: Assets.log;
-                                width: 14px;
+                                width: 16px;
                                 colorize: #8be9fd;
                             }
 
