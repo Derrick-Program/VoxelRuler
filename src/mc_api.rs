@@ -59,6 +59,7 @@ impl McAction<Unauthenticated> {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
+                .user_agent(format!("VoxelRulerLauncher/{} (https://github.com/Derrick-Program/VoxelRuler)", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("Failed to build client"),
             _state: PhantomData,
