@@ -6,7 +6,10 @@ use futures_util::{StreamExt, stream};
 use sha1::{Digest, Sha1};
 use tracing::warn;
 
-use crate::mc_parser::{evaluate_rules, maven_coord_to_path};
+use crate::mc_parser::{
+    evaluate_rules, jna_compat_rel_path, jna_needs_bump, maven_coord_to_path,
+    native_classifier_key,
+};
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
 const ASSET_CONCURRENCY: usize = 128;
@@ -173,42 +176,77 @@ pub async fn install_libraries(
         })
         .collect();
 
+    // 舊版格式（約 ≤1.18）的原生函式庫以 classifiers 提供，
+    // 之前完全沒下載，導致 natives_dir 永遠是空的 → 啟動時 lib 缺失。
+    for lib in version
+        .libraries
+        .iter()
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+    {
+        let Some(key) = native_classifier_key(lib) else {
+            continue;
+        };
+        let Some(artifact) = lib
+            .downloads
+            .as_ref()
+            .and_then(|d| d.classifiers.as_ref())
+            .and_then(|c| c.get(&key))
+        else {
+            continue;
+        };
+        let dest = artifact
+            .path
+            .as_deref()
+            .map(|p| libraries_dir.join(p))
+            .or_else(|| {
+                maven_coord_to_path(&format!("{}:{}", lib.name, key))
+                    .map(|p| libraries_dir.join(p))
+            });
+        if let Some(dest) = dest {
+            applicable.push((
+                dest,
+                artifact.url.clone(),
+                artifact.size,
+                artifact.sha1.clone(),
+            ));
+        }
+    }
+
+    // macOS：classpath 端會把過舊的 jna 5.x 改指向 JNA_COMPAT_VERSION，
+    // 這裡必須下載對應檔案，否則 classpath 會指向不存在的 jar。
     #[cfg(target_os = "macos")]
     {
-        let jna_version_opt = version
+        const JNA_FIXUPS: &[(&str, &str, u64, &str)] = &[
+            (
+                "jna",
+                "https://libraries.minecraft.net/net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar",
+                1879325,
+                "1200e7ebeedbe0d10062093f32925a912020e747",
+            ),
+            (
+                "jna-platform",
+                "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar",
+                1363209,
+                "88e9a306715e9379f3122415ef4ae759a352640d",
+            ),
+        ];
+        let mut bumped: Vec<&str> = version
             .libraries
             .iter()
-            .find(|lib| lib.name.starts_with("net.java.dev.jna:jna:"))
-            .and_then(|lib| lib.name.split(':').nth(2));
-
-        if let Some(jna_ver) = jna_version_opt {
-            let has_platform = version
-                .libraries
-                .iter()
-                .any(|lib| lib.name.starts_with("net.java.dev.jna:jna-platform:"));
-            if !has_platform {
-                warn!(jna_ver, "舊版本缺少 jna-platform，自動補入相容版本");
-                let (url, size, sha1) = match jna_ver {
-                    "5.13.0" => (
-                        "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.13.0/jna-platform-5.13.0.jar",
-                        1345511,
-                        "88e9a306715e9379f3122415ef4ae759a352640d",
-                    ),
-                    _ => (
-                        "https://libraries.minecraft.net/net/java/dev/jna/jna-platform/5.11.0/jna-platform-5.11.0.jar",
-                        1330369,
-                        "1d60447fa0dbd7fae266a87df2c2bbf893fcff66",
-                    ),
-                };
-                let path_str = format!(
-                    "net/java/dev/jna/jna-platform/{}/jna-platform-{}.jar",
-                    jna_ver, jna_ver
-                );
+            .filter_map(|lib| jna_needs_bump(&lib.name))
+            .collect();
+        bumped.sort_unstable();
+        bumped.dedup();
+        for artifact in bumped {
+            if let Some((_, url, size, sha1)) =
+                JNA_FIXUPS.iter().find(|(name, ..)| *name == artifact)
+            {
+                warn!(artifact, "macOS：jna 版本過舊，補下載相容版本");
                 applicable.push((
-                    libraries_dir.join(path_str),
-                    url.to_string(),
-                    size,
-                    sha1.to_string(),
+                    libraries_dir.join(jna_compat_rel_path(artifact)),
+                    (*url).to_string(),
+                    *size,
+                    (*sha1).to_string(),
                 ));
             }
         }
@@ -228,6 +266,97 @@ pub async fn install_libraries(
         on_progress(completed as f32 / total as f32);
     }
 
+    Ok(())
+}
+
+fn should_skip_native_entry(name: &str, excludes: &[String]) -> bool {
+    name.starts_with("META-INF/") || excludes.iter().any(|e| name.starts_with(e.as_str()))
+}
+
+/// 將舊版格式的 natives classifier jar 解壓到 natives_dir。
+/// 必須在 [`install_libraries`] 之後呼叫（jar 需已存在於 libraries_dir）。
+pub async fn extract_natives(
+    version: &McSpecificVersionDetail,
+    libraries_dir: &Path,
+    natives_dir: &Path,
+) -> anyhow::Result<()> {
+    let mut jobs: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    for lib in version
+        .libraries
+        .iter()
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+    {
+        let Some(key) = native_classifier_key(lib) else {
+            continue;
+        };
+        let jar = lib
+            .downloads
+            .as_ref()
+            .and_then(|d| d.classifiers.as_ref())
+            .and_then(|c| c.get(&key))
+            .and_then(|a| a.path.as_deref())
+            .map(|p| libraries_dir.join(p))
+            .or_else(|| {
+                maven_coord_to_path(&format!("{}:{}", lib.name, key))
+                    .map(|p| libraries_dir.join(p))
+            });
+        let Some(jar) = jar else { continue };
+        let excludes = lib
+            .extract
+            .as_ref()
+            .map(|e| e.exclude.clone())
+            .unwrap_or_default();
+        jobs.push((jar, excludes));
+    }
+
+    if jobs.is_empty() {
+        return Ok(());
+    }
+
+    tokio::fs::create_dir_all(natives_dir).await?;
+    let natives_dir = natives_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        for (jar, excludes) in jobs {
+            if !jar.exists() {
+                // install_libraries 是下載的權威；這裡只警告，
+                // 避免單一異常資料（natives 指到不存在的 classifier）直接擋下啟動
+                warn!(jar = %jar.display(), "natives jar 不存在，跳過解壓");
+                continue;
+            }
+            let file = std::fs::File::open(&jar)
+                .with_context(|| format!("開啟 natives jar 失敗：{}", jar.display()))?;
+            let mut archive = zip::ZipArchive::new(file)
+                .with_context(|| format!("讀取 natives jar 失敗：{}", jar.display()))?;
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i)?;
+                if entry.is_dir() || should_skip_native_entry(entry.name(), &excludes) {
+                    continue;
+                }
+                // enclosed_name 可防 zip-slip（路徑跳脫）
+                let Some(rel) = entry.enclosed_name() else {
+                    warn!(entry = entry.name(), "跳過不安全的 zip 路徑");
+                    continue;
+                };
+                let dest = natives_dir.join(rel);
+                // 已解壓且大小一致 → 跳過（同版本實例執行中時，Windows 會鎖住 DLL）
+                if dest
+                    .metadata()
+                    .is_ok_and(|m| m.len() == entry.size())
+                {
+                    continue;
+                }
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let mut out = std::fs::File::create(&dest)
+                    .with_context(|| format!("寫入 natives 失敗：{}", dest.display()))?;
+                std::io::copy(&mut entry, &mut out)?;
+            }
+        }
+        Ok(())
+    })
+    .await
+    .context("natives 解壓 task 失敗")??;
     Ok(())
 }
 
@@ -461,6 +590,8 @@ mod test {
                 os: None,
                 features: None,
             }]),
+            natives: None,
+            extract: None,
         }];
 
         install_libraries(&version, dir.path(), |_| {})
@@ -478,11 +609,90 @@ mod test {
             name: "test:lib:1.0".into(),
             downloads: None,
             rules: None,
+            natives: None,
+            extract: None,
         }];
 
         install_libraries(&version, dir.path(), |_| {})
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn test_should_skip_native_entry() {
+        assert!(should_skip_native_entry("META-INF/MANIFEST.MF", &[]));
+        assert!(should_skip_native_entry("foo/bar.txt", &["foo/".into()]));
+        assert!(!should_skip_native_entry(
+            "liblwjgl.dylib",
+            &["META-INF/".into()]
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_extract_natives_roundtrip() {
+        use std::io::Write;
+
+        let dir = TempDir::new().unwrap();
+        let libs = dir.path().join("libraries");
+        let natives = dir.path().join("natives");
+
+        // 準備一個假的 natives jar
+        let jar_rel = "test/native/1.0/native-1.0-natives-key.jar";
+        let jar_path = libs.join(jar_rel);
+        std::fs::create_dir_all(jar_path.parent().unwrap()).unwrap();
+        let f = std::fs::File::create(&jar_path).unwrap();
+        let mut zw = zip::ZipWriter::new(f);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zw.start_file("libtest.so", opts).unwrap();
+        zw.write_all(b"native-bytes").unwrap();
+        zw.start_file("META-INF/MANIFEST.MF", opts).unwrap();
+        zw.write_all(b"mf").unwrap();
+        zw.start_file("excluded/skip.txt", opts).unwrap();
+        zw.write_all(b"skip").unwrap();
+        zw.finish().unwrap();
+
+        let os_key = match std::env::consts::OS {
+            "windows" => "windows",
+            "macos" => "osx",
+            _ => "linux",
+        };
+        let mut version = empty_version();
+        version.libraries = vec![McLibrary {
+            name: "test:native:1.0".into(),
+            downloads: Some(McLibraryDownloads {
+                artifact: None,
+                classifiers: Some(HashMap::from([(
+                    "natives-key".to_string(),
+                    McArtifactInfo {
+                        path: Some(jar_rel.into()),
+                        sha1: String::new(),
+                        size: 0,
+                        url: String::new(),
+                    },
+                )])),
+            }),
+            rules: None,
+            natives: Some(HashMap::from([(
+                os_key.to_string(),
+                "natives-key".to_string(),
+            )])),
+            extract: Some(McExtract {
+                exclude: vec!["excluded/".into()],
+            }),
+        }];
+
+        extract_natives(&version, &libs, &natives).await.unwrap();
+
+        assert!(natives.join("libtest.so").exists(), "應解壓 natives 檔案");
+        assert!(
+            !natives.join("META-INF/MANIFEST.MF").exists(),
+            "META-INF 應被排除"
+        );
+        assert!(
+            !natives.join("excluded/skip.txt").exists(),
+            "exclude 規則應生效"
+        );
     }
 
     #[tokio::test]

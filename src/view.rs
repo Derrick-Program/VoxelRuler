@@ -832,6 +832,16 @@ async fn do_launch(
     .await
     .context("安裝函式庫失敗")?;
 
+    info!(natives_dir = ?paths.natives_dir(&version_id), "解壓原生函式庫");
+    set_install_state(&ui_weak, true, 0.8, "解壓原生函式庫...", false);
+    mc_install::extract_natives(
+        &version,
+        &paths.libraries_dir(),
+        &paths.natives_dir(&version_id),
+    )
+    .await
+    .context("解壓原生函式庫失敗")?;
+
     info!(assets_dir = ?paths.assets_dir(), "開始安裝遊戲資源");
     mc_install::install_assets(&version, &paths.assets_dir(), {
         let ui_weak = ui_weak.clone();
@@ -885,6 +895,21 @@ async fn do_launch(
         xmx,
         xms,
     };
+    // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
+    let missing = ctx.missing_classpath_files();
+    if !missing.is_empty() {
+        let list = missing
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        error!(count = missing.len(), "classpath 缺少函式庫檔案:\n{list}");
+        anyhow::bail!(
+            "啟動前檢查失敗，缺少 {} 個函式庫檔案（詳見 log）。請重試以重新下載。",
+            missing.len()
+        );
+    }
+
     let mut cmd = ctx.build_command();
     debug!(cmd = ?cmd, java = ?ctx.java_path, game_dir = ?ctx.game_dir, "啟動指令");
     cmd.stdout(std::process::Stdio::piped())

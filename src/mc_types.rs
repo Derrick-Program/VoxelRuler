@@ -130,6 +130,17 @@ pub struct McLibrary {
     pub name: String,
     pub downloads: Option<McLibraryDownloads>,
     pub rules: Option<Vec<McRule>>,
+    /// 舊版格式（約 ≤1.18）：OS 名稱 → classifier key（可能含 `${arch}`），
+    /// 例如 `{"osx": "natives-osx", "windows": "natives-windows-${arch}"}`
+    pub natives: Option<HashMap<String, String>>,
+    /// 舊版格式：natives jar 解壓規則
+    pub extract: Option<McExtract>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McExtract {
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

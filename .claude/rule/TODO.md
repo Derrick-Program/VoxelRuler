@@ -1,6 +1,6 @@
 # VoxelRuler 專案進度追蹤
 
-> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-05-27  
+> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-06-11  
 > 詳細分工 → `.claude/docs/task-assignment.md`
 
 ---
@@ -119,6 +119,7 @@
 - [x] Minecraft API 端點研究完成（`mc_action.rs`）
 - [x] `GLOBAL_CACHE` token 快取機制
 - [x] 多語系支援（zh_TW / en_US）
+- [x] 修復版本相關 lib 缺失（2026-06-11）：舊版 natives classifier 下載＋解壓、macOS jna 升級一致化、啟動前 classpath 缺檔檢查
 
 ---
 

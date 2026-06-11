@@ -9,9 +9,69 @@ use std::env::consts::{ARCH, OS};
 use tracing::warn;
 
 use crate::mc_types::{
-    McArgumentItem, McArgumentValue, McFeatureRule, McOsRule, McRule, McRuleAction, McRuleArch,
-    McRuleOS, McSpecificVersionDetail,
+    McArgumentItem, McArgumentValue, McFeatureRule, McLibrary, McOsRule, McRule, McRuleAction,
+    McRuleArch, McRuleOS, McSpecificVersionDetail,
 };
+
+/// macOS（特別是 Apple Silicon）上，過舊的 jna 5.x 會導致原生函式庫載入問題，
+/// 統一升級到此版本。install 與 classpath 兩端都以此為準，確保檔案一定存在。
+pub const JNA_COMPAT_VERSION: &str = "5.13.0";
+
+/// 若該 library 在 macOS 上需要把 jna 升到 [`JNA_COMPAT_VERSION`]，
+/// 回傳 artifact 名稱（`"jna"` 或 `"jna-platform"`）。
+pub fn jna_needs_bump(name: &str) -> Option<&'static str> {
+    let mut parts = name.split(':');
+    if parts.next()? != "net.java.dev.jna" {
+        return None;
+    }
+    let artifact = match parts.next()? {
+        "jna" => "jna",
+        "jna-platform" => "jna-platform",
+        _ => return None,
+    };
+    let mut nums = parts.next()?.split('.');
+    let major: u32 = nums.next()?.parse().ok()?;
+    let minor: u32 = nums.next()?.parse().ok()?;
+    (major == 5 && minor < 13).then_some(artifact)
+}
+
+/// jna 升級後在 libraries 目錄下的相對路徑
+pub fn jna_compat_rel_path(artifact: &str) -> PathBuf {
+    PathBuf::from(format!(
+        "net/java/dev/jna/{artifact}/{v}/{artifact}-{v}.jar",
+        v = JNA_COMPAT_VERSION
+    ))
+}
+
+/// 取得目前 OS 對應的 natives classifier key。
+///
+/// 新版格式（約 1.19+）natives 是獨立的 artifact library，不會走到這裡；
+/// 舊版格式則透過 `natives` 欄位（OS → key，可能含 `${arch}`）指定。
+/// 若 JSON 缺 `natives` 欄位（例如經過正規化的測試資料），
+/// 退而求其次直接在 classifiers 中猜標準命名。
+pub fn native_classifier_key(lib: &McLibrary) -> Option<String> {
+    let os_key = match OS {
+        "windows" => "windows",
+        "macos" => "osx",
+        "linux" => "linux",
+        _ => return None,
+    };
+    let arch = if cfg!(target_pointer_width = "64") {
+        "64"
+    } else {
+        "32"
+    };
+    if let Some(natives) = &lib.natives {
+        return Some(natives.get(os_key)?.replace("${arch}", arch));
+    }
+    let classifiers = lib.downloads.as_ref()?.classifiers.as_ref()?;
+    [
+        format!("natives-{os_key}"),
+        format!("natives-{os_key}-{arch}"),
+    ]
+    .into_iter()
+    .find(|k| classifiers.contains_key(k))
+}
 
 #[derive(Debug)]
 pub struct LaunchContext {
@@ -109,9 +169,9 @@ impl LaunchContext {
         cmd
     }
 
-    fn build_classpath(&self) -> String {
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let mut parts: Vec<String> = Vec::new();
+    /// classpath 上所有 JAR 的絕對路徑（最後一項為版本 JAR）
+    pub fn classpath_paths(&self) -> Vec<PathBuf> {
+        let mut parts: Vec<PathBuf> = Vec::new();
 
         for lib in &self.version.libraries {
             if let Some(rules) = &lib.rules
@@ -120,34 +180,56 @@ impl LaunchContext {
                 continue;
             }
 
-            let path = lib
-                .downloads
-                .as_ref()
-                .and_then(|d| d.artifact.as_ref())
-                .and_then(|a| a.path.as_ref())
-                .map(|p| self.libraries_dir.join(p).to_string_lossy().into_owned())
-                .or_else(|| {
-                    maven_coord_to_path(&lib.name)
-                        .map(|p| self.libraries_dir.join(p).to_string_lossy().into_owned())
-                });
+            // macOS：過舊 jna 一律改指向相容版本（install 端會下載對應檔案）
+            if cfg!(target_os = "macos")
+                && let Some(artifact) = jna_needs_bump(&lib.name)
+            {
+                parts.push(self.libraries_dir.join(jna_compat_rel_path(artifact)));
+                continue;
+            }
 
-            if let Some(mut p) = path {
-                if cfg!(target_os = "macos") && p.contains("net/java/dev/jna") {
-                    p = p.replace("5.10.0", "5.13.0");
-                }
-                parts.push(p);
+            let rel: Option<PathBuf> = match &lib.downloads {
+                Some(d) => match &d.artifact {
+                    Some(a) => a
+                        .path
+                        .as_ref()
+                        .map(PathBuf::from)
+                        .or_else(|| maven_coord_to_path(&lib.name)),
+                    // 只有 classifiers（natives-only）的 lib：jar 走解壓流程，不上 classpath
+                    None => None,
+                },
+                // 無 downloads 資訊（如第三方 loader 的 lib）：以 maven 座標推路徑
+                None => maven_coord_to_path(&lib.name),
+            };
+            if let Some(r) = rel {
+                parts.push(self.libraries_dir.join(r));
             }
         }
 
         parts.push(
             self.versions_dir
                 .join(&self.version.id)
-                .join(format!("{}.jar", self.version.id))
-                .to_string_lossy()
-                .into_owned(),
+                .join(format!("{}.jar", self.version.id)),
         );
 
-        parts.join(sep)
+        parts
+    }
+
+    fn build_classpath(&self) -> String {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        self.classpath_paths()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(sep)
+    }
+
+    /// 啟動前檢查：回傳 classpath 上實際不存在的檔案清單
+    pub fn missing_classpath_files(&self) -> Vec<PathBuf> {
+        self.classpath_paths()
+            .into_iter()
+            .filter(|p| !p.exists())
+            .collect()
     }
 
     fn java_compat_args(&self) -> Vec<String> {
@@ -795,5 +877,83 @@ mod test {
         assert!(args.contains(&"msa".into()), "user_type 應為 msa");
         assert!(args.contains(&"--uuid".into()));
         assert!(args.contains(&"uuid-1234".into()), "auth_uuid 未替換");
+    }
+
+    #[test]
+    fn test_jna_needs_bump() {
+        assert_eq!(jna_needs_bump("net.java.dev.jna:jna:5.10.0"), Some("jna"));
+        assert_eq!(
+            jna_needs_bump("net.java.dev.jna:jna-platform:5.8.0"),
+            Some("jna-platform")
+        );
+        // 已是相容版本以上 → 不升
+        assert_eq!(jna_needs_bump("net.java.dev.jna:jna:5.13.0"), None);
+        assert_eq!(jna_needs_bump("net.java.dev.jna:jna:5.14.0"), None);
+        // 3.x / 4.x 太舊，API 不相容，不做替換
+        assert_eq!(jna_needs_bump("net.java.dev.jna:jna:4.4.0"), None);
+        assert_eq!(jna_needs_bump("net.java.dev.jna:jna:3.4.0"), None);
+        assert_eq!(jna_needs_bump("net.java.dev.jna:platform:3.4.0"), None);
+        assert_eq!(jna_needs_bump("org.lwjgl:lwjgl:3.3.3"), None);
+    }
+
+    #[test]
+    fn test_jna_compat_rel_path() {
+        assert_eq!(
+            jna_compat_rel_path("jna"),
+            PathBuf::from("net/java/dev/jna/jna/5.13.0/jna-5.13.0.jar")
+        );
+    }
+
+    #[test]
+    fn test_native_classifier_key_from_natives_map() {
+        use crate::mc_types::McLibrary;
+        let os_key = match OS {
+            "windows" => "windows",
+            "macos" => "osx",
+            _ => "linux",
+        };
+        let lib = McLibrary {
+            name: "org.lwjgl.lwjgl:lwjgl-platform:2.9.4".into(),
+            downloads: None,
+            rules: None,
+            natives: Some(HashMap::from([(
+                os_key.to_string(),
+                format!("natives-{os_key}-${{arch}}"),
+            )])),
+            extract: None,
+        };
+        let key = native_classifier_key(&lib).expect("應有 natives key");
+        assert!(
+            key == format!("natives-{os_key}-64") || key == format!("natives-{os_key}-32"),
+            "arch 未替換：{key}"
+        );
+    }
+
+    #[test]
+    fn test_native_classifier_key_fallback_to_classifiers() {
+        // 1.12.2 測試資料經過正規化，natives 欄位遺失 → 走 classifiers 猜測
+        let v = load_version("data/1.12.2.json");
+        let with_natives: Vec<&str> = v
+            .libraries
+            .iter()
+            .filter(|l| native_classifier_key(l).is_some())
+            .map(|l| l.name.as_str())
+            .collect();
+        assert!(
+            with_natives
+                .iter()
+                .any(|n| n.contains("lwjgl-platform") || n.contains("jinput-platform")),
+            "1.12.2 應偵測到 natives classifier，實際：{with_natives:?}"
+        );
+    }
+
+    #[test]
+    fn test_new_format_has_no_classifier_natives() {
+        // 1.21 的 natives 是獨立 artifact library，不應誤判為 classifier natives
+        let v = load_version("data/1.21.json");
+        assert!(
+            v.libraries.iter().all(|l| native_classifier_key(l).is_none()),
+            "新版格式不應有 classifier natives"
+        );
     }
 }
