@@ -22,39 +22,60 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 
-/// ComboBox 第一項的哨兵值：實例層級「跟隨全域設定」
-const JAVA_FOLLOW_GLOBAL: &str = "Follow Global Settings";
-/// ComboBox 第一項的哨兵值：全域層級「跟隨 Minecraft 建議版本」
-const JAVA_FOLLOW_MINECRAFT: &str = "Follow Minecraft (Auto)";
+/// 下拉選單顯示文字（同時也是 Rust 端比對用的哨兵值）
+const JAVA_MODE_LABEL_GLOBAL: &str = "Use Global Settings";
+const JAVA_MODE_LABEL_MINECRAFT: &str = "Use Minecraft Runtime";
+const JAVA_MODE_LABEL_CUSTOM: &str = "Use Custom Java";
+
+/// 設定檔中儲存的 java_mode 值
+const JAVA_MODE_GLOBAL: &str = "global";
+const JAVA_MODE_MINECRAFT: &str = "minecraft";
+const JAVA_MODE_CUSTOM: &str = "custom";
+
+fn java_mode_to_label(mode: &str, is_instance: bool) -> &'static str {
+    match mode {
+        JAVA_MODE_CUSTOM => JAVA_MODE_LABEL_CUSTOM,
+        JAVA_MODE_MINECRAFT => JAVA_MODE_LABEL_MINECRAFT,
+        // 空字串 = 預設：instance 跟隨全域、全域跟隨 Minecraft
+        _ if is_instance => JAVA_MODE_LABEL_GLOBAL,
+        _ => JAVA_MODE_LABEL_MINECRAFT,
+    }
+}
+
+fn java_label_to_mode(label: &str) -> &'static str {
+    match label {
+        JAVA_MODE_LABEL_CUSTOM => JAVA_MODE_CUSTOM,
+        JAVA_MODE_LABEL_MINECRAFT => JAVA_MODE_MINECRAFT,
+        _ => JAVA_MODE_GLOBAL,
+    }
+}
 
 /// 啟動時實際使用的 Java 來源
 #[derive(Debug)]
 enum JavaSource {
     /// 使用者自訂的 java 執行檔路徑
     CustomPath(PathBuf),
-    /// 指定的 Mojang Java runtime component（如 `java-runtime-gamma`）
-    Runtime(String),
-    /// 跟隨版本 JSON 的 javaVersion.component
+    /// 跟隨版本 JSON 的 javaVersion.component（Minecraft 提供）
     VersionDefault,
 }
 
 /// Java 解析優先序：
-/// instance（path > runtime）→ 全域（path > runtime）→ Minecraft 版本預設
+/// instance（custom / minecraft / global）→ 全域（custom / minecraft）→ Minecraft 版本預設
 fn resolve_java_source(instance: &InstanceConfig, settings: &AppSettings) -> JavaSource {
-    fn pick(path: &str, runtime: &str) -> Option<JavaSource> {
-        let path = path.trim();
-        let runtime = runtime.trim();
-        if !path.is_empty() {
-            return Some(JavaSource::CustomPath(PathBuf::from(path)));
+    match instance.java_mode.as_str() {
+        JAVA_MODE_CUSTOM if !instance.java_path.trim().is_empty() => {
+            return JavaSource::CustomPath(PathBuf::from(instance.java_path.trim()));
         }
-        if !runtime.is_empty() {
-            return Some(JavaSource::Runtime(runtime.to_owned()));
-        }
-        None
+        JAVA_MODE_MINECRAFT => return JavaSource::VersionDefault,
+        // "global" / 空字串 / 其他 → 跟隨全域
+        _ => {}
     }
-    pick(&instance.java_path, &instance.java_runtime)
-        .or_else(|| pick(&settings.java_path, &settings.java_runtime))
-        .unwrap_or(JavaSource::VersionDefault)
+    match settings.java_mode.as_str() {
+        JAVA_MODE_CUSTOM if !settings.java_path.trim().is_empty() => {
+            JavaSource::CustomPath(PathBuf::from(settings.java_path.trim()))
+        }
+        _ => JavaSource::VersionDefault,
+    }
 }
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
@@ -212,59 +233,79 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    // ── Java runtime 清單 + 全域設定載入 ─────────────────────────────────
-    let ui_weak_for_java = ui.as_weak();
-    tokio::spawn(async move {
-        let api = crate::mc_api::McAction::new();
-        let components: Vec<String> = match api.get_java_runtimes().await {
-            Ok(all) => {
-                let os_arch = crate::mc_parser::get_mojang_os_arch();
-                all.get(os_arch)
-                    .map(|by_component| {
-                        let mut list: Vec<String> = by_component
-                            .iter()
-                            .filter(|(_, entries)| !entries.is_empty())
-                            .map(|(name, _)| name.clone())
-                            .collect();
-                        list.sort();
-                        list
-                    })
-                    .unwrap_or_default()
-            }
-            Err(e) => {
-                warn!(error = %e, "取得 Java runtime 清單失敗，下拉選單僅提供預設選項");
-                Vec::new()
-            }
-        };
+    // ── Java 模式選單 + 全域設定載入 ─────────────────────────────────────
+    {
+        let edit_items: Vec<slint::SharedString> = vec![
+            JAVA_MODE_LABEL_GLOBAL.into(),
+            JAVA_MODE_LABEL_MINECRAFT.into(),
+            JAVA_MODE_LABEL_CUSTOM.into(),
+        ];
+        ui.global::<InstanceEditLogic>()
+            .set_java_mode_list(ModelRc::from(Rc::new(VecModel::from(edit_items))));
+
+        let settings_items: Vec<slint::SharedString> = vec![
+            JAVA_MODE_LABEL_MINECRAFT.into(),
+            JAVA_MODE_LABEL_CUSTOM.into(),
+        ];
         let app_settings = AppSettings::load();
+        let sl = ui.global::<SettingsLogic>();
+        sl.set_java_mode_list(ModelRc::from(Rc::new(VecModel::from(settings_items))));
+        sl.set_selected_java_mode(java_mode_to_label(&app_settings.java_mode, false).into());
+        sl.set_java_path(app_settings.java_path.as_str().into());
+    }
+
+    // ── 掃描系統 Java 安裝（背景執行，完成後填入兩處清單）────────────────
+    let ui_weak_for_scan = ui.as_weak();
+    tokio::spawn(async move {
+        let javas = tokio::task::spawn_blocking(crate::java_scan::scan_system_javas)
+            .await
+            .unwrap_or_default();
+        info!(count = javas.len(), "系統 Java 掃描完成");
         let _ = slint::invoke_from_event_loop(move || {
-            let Some(ui) = ui_weak_for_java.upgrade() else {
+            let Some(ui) = ui_weak_for_scan.upgrade() else {
                 return;
             };
-
-            let mut edit_items: Vec<slint::SharedString> = vec![JAVA_FOLLOW_GLOBAL.into()];
-            edit_items.extend(
-                components
-                    .iter()
-                    .map(|c| slint::SharedString::from(c.as_str())),
-            );
+            let items: Vec<slint::SharedString> =
+                javas.iter().map(|p| p.as_str().into()).collect();
             ui.global::<InstanceEditLogic>()
-                .set_java_runtime_list(ModelRc::from(Rc::new(VecModel::from(edit_items))));
+                .set_detected_java_list(ModelRc::from(Rc::new(VecModel::from(items.clone()))));
+            ui.global::<SettingsLogic>()
+                .set_detected_java_list(ModelRc::from(Rc::new(VecModel::from(items))));
+        });
+    });
 
-            let mut settings_items: Vec<slint::SharedString> = vec![JAVA_FOLLOW_MINECRAFT.into()];
-            settings_items.extend(
-                components
-                    .iter()
-                    .map(|c| slint::SharedString::from(c.as_str())),
-            );
-            let sl = ui.global::<SettingsLogic>();
-            sl.set_java_runtime_list(ModelRc::from(Rc::new(VecModel::from(settings_items))));
-            sl.set_java_path(app_settings.java_path.as_str().into());
-            sl.set_selected_java_runtime(if app_settings.java_runtime.trim().is_empty() {
-                JAVA_FOLLOW_MINECRAFT.into()
-            } else {
-                app_settings.java_runtime.as_str().into()
-            });
+    // ── 系統檔案選擇框 ───────────────────────────────────────────────────
+    // rfd 使用 xdg-portal 後端（Linux 不連結 GTK，AppImage 友善），
+    // 該後端僅提供 async API，因此用 slint::spawn_local 在 UI 執行緒上等待。
+    let ui_weak_for_edit_browse = ui.as_weak();
+    ui.global::<InstanceEditLogic>().on_browse_java(move || {
+        let ui_weak = ui_weak_for_edit_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("選擇 Java 執行檔")
+                .pick_file()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<InstanceEditLogic>()
+                    .set_java_path(file.path().display().to_string().into());
+            }
+        });
+    });
+
+    let ui_weak_for_settings_browse = ui.as_weak();
+    ui.global::<SettingsLogic>().on_browse_java(move || {
+        let ui_weak = ui_weak_for_settings_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("選擇 Java 執行檔")
+                .pick_file()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<SettingsLogic>()
+                    .set_java_path(file.path().display().to_string().into());
+            }
         });
     });
 
@@ -377,11 +418,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         edit.set_xmx(c.xmx.as_str().into());
         edit.set_xms(c.xms.as_str().into());
         edit.set_java_path(c.java_path.as_str().into());
-        edit.set_selected_java_runtime(if c.java_runtime.trim().is_empty() {
-            JAVA_FOLLOW_GLOBAL.into()
-        } else {
-            c.java_runtime.as_str().into()
-        });
+        edit.set_selected_java_mode(java_mode_to_label(&c.java_mode, true).into());
         edit.set_error_msg("".into());
         edit.set_show_dialog(true);
     });
@@ -407,17 +444,17 @@ pub async fn open_view() -> anyhow::Result<()> {
         let xmx = edit.get_xmx().trim().to_string();
         let xms = edit.get_xms().trim().to_string();
         let java_path = edit.get_java_path().trim().to_string();
-        let selected_runtime = edit.get_selected_java_runtime().to_string();
-        // 哨兵值 = 未設定（跟隨全域）
-        let java_runtime = if selected_runtime == JAVA_FOLLOW_GLOBAL {
-            String::new()
-        } else {
-            selected_runtime
-        };
+        let java_mode = java_label_to_mode(edit.get_selected_java_mode().as_str());
 
-        if !java_path.is_empty() && !Path::new(&java_path).is_file() {
-            edit.set_error_msg("自訂 Java 路徑不存在或不是檔案".into());
-            return;
+        if java_mode == JAVA_MODE_CUSTOM {
+            if java_path.is_empty() {
+                edit.set_error_msg("選擇自訂 Java 時必須填寫路徑".into());
+                return;
+            }
+            if !Path::new(&java_path).is_file() {
+                edit.set_error_msg("自訂 Java 路徑不存在或不是檔案".into());
+                return;
+            }
         }
 
         let updated_config = {
@@ -428,8 +465,9 @@ pub async fn open_view() -> anyhow::Result<()> {
             };
             c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
             c.xms = if xms.is_empty() { "512M".into() } else { xms };
+            c.java_mode = java_mode.to_string();
+            // 路徑文字保留，切換模式時不清掉使用者輸入
             c.java_path = java_path;
-            c.java_runtime = java_runtime;
             c.clone()
         };
 
@@ -447,22 +485,22 @@ pub async fn open_view() -> anyhow::Result<()> {
         };
         let sl = ui.global::<SettingsLogic>();
         let java_path = sl.get_java_path().trim().to_string();
-        let selected = sl.get_selected_java_runtime().to_string();
-        // 哨兵值 = 未設定（跟隨 Minecraft 建議版本）
-        let java_runtime = if selected == JAVA_FOLLOW_MINECRAFT {
-            String::new()
-        } else {
-            selected
-        };
+        let java_mode = java_label_to_mode(sl.get_selected_java_mode().as_str());
 
-        if !java_path.is_empty() && !Path::new(&java_path).is_file() {
-            sl.set_status_msg("⚠ Java 路徑不存在或不是檔案".into());
-            return;
+        if java_mode == JAVA_MODE_CUSTOM {
+            if java_path.is_empty() {
+                sl.set_status_msg("⚠ 選擇自訂 Java 時必須填寫路徑".into());
+                return;
+            }
+            if !Path::new(&java_path).is_file() {
+                sl.set_status_msg("⚠ Java 路徑不存在或不是檔案".into());
+                return;
+            }
         }
 
         let new_settings = AppSettings {
+            java_mode: java_mode.to_string(),
             java_path,
-            java_runtime,
         };
         match new_settings.save() {
             Ok(()) => sl.set_status_msg("✓ 已儲存".into()),
@@ -960,7 +998,7 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
 
 /// 下載並安裝指定的 Mojang Java runtime component，回傳 java 執行檔路徑
 async fn install_java_runtime(
-    api: &crate::mc_api::McAction,
+    api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
     paths: &McPaths,
     component: &str,
     ui_weak: &slint::Weak<MainApp>,
@@ -1008,9 +1046,6 @@ async fn do_launch(
             }
             set_install_state(&ui_weak, true, 0.4, "使用自訂 Java...", false);
             p
-        }
-        JavaSource::Runtime(component) => {
-            install_java_runtime(&api, &paths, &component, &ui_weak).await?
         }
         JavaSource::VersionDefault => {
             let component = version

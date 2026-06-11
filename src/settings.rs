@@ -5,12 +5,13 @@ use tracing::warn;
 /// 全域應用程式設定，存於 `<data_dir>/settings.toml`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
-    /// 全域自訂 Java 執行檔路徑（留空 = 未設定）
+    /// Java 來源模式：`"minecraft"`（跟隨 Minecraft 提供，預設）/ `"custom"`（自訂路徑）
+    /// 空字串視同 `"minecraft"`（向下相容）
+    #[serde(default)]
+    pub java_mode: String,
+    /// 全域自訂 Java 執行檔路徑（僅 java_mode = "custom" 時生效）
     #[serde(default)]
     pub java_path: String,
-    /// 全域 Mojang Java runtime component（如 `java-runtime-gamma`；留空 = 未設定）
-    #[serde(default)]
-    pub java_runtime: String,
 }
 
 impl AppSettings {
@@ -53,30 +54,31 @@ mod tests {
     #[test]
     fn test_settings_default_is_empty() {
         let s = AppSettings::default();
+        assert!(s.java_mode.is_empty());
         assert!(s.java_path.is_empty());
-        assert!(s.java_runtime.is_empty());
     }
 
     #[test]
     fn test_settings_parse_partial_toml() {
         // 舊版 settings.toml 缺欄位也要能解析
         let s: AppSettings = toml::from_str("").unwrap();
+        assert!(s.java_mode.is_empty());
         assert!(s.java_path.is_empty());
 
-        let s: AppSettings = toml::from_str(r#"java_runtime = "java-runtime-delta""#).unwrap();
-        assert_eq!(s.java_runtime, "java-runtime-delta");
+        let s: AppSettings = toml::from_str(r#"java_mode = "custom""#).unwrap();
+        assert_eq!(s.java_mode, "custom");
         assert!(s.java_path.is_empty());
     }
 
     #[test]
     fn test_settings_roundtrip() {
         let s = AppSettings {
+            java_mode: "custom".into(),
             java_path: "/usr/bin/java".into(),
-            java_runtime: "jre-legacy".into(),
         };
         let toml_str = toml::to_string_pretty(&s).unwrap();
         let back: AppSettings = toml::from_str(&toml_str).unwrap();
+        assert_eq!(back.java_mode, "custom");
         assert_eq!(back.java_path, "/usr/bin/java");
-        assert_eq!(back.java_runtime, "jre-legacy");
     }
 }

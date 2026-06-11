@@ -343,25 +343,35 @@ export global InstanceEditLogic {
     // 記憶體
     in-out property <string>   xmx: "2G";
     in-out property <string>   xms: "512M";
-    // Java：runtime 下拉（第一項 = 跟隨全域）＋自訂路徑（路徑優先）
-    in-out property <[string]> java-runtime-list: [];
-    in-out property <string>   selected-java-runtime: "";
+    // Java 模式：使用全域 / 使用 Minecraft runtime / 使用自訂 Java
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    // 系統掃描到的 Java 安裝路徑
+    in-out property <[string]> detected-java-list: [];
+    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
     in-out property <string>   java-path: "";
     // State
     in-out property <string>   error-msg: "";
 
     callback confirm-edit();
     callback cancel-edit();
+    // 開啟系統檔案選擇框
+    callback browse-java();
 }
 
 export global SettingsLogic {
-    // 全域 Java：runtime 下拉（第一項 = 跟隨 Minecraft）＋自訂路徑（路徑優先）
-    in-out property <[string]> java-runtime-list: [];
-    in-out property <string>   selected-java-runtime: "";
+    // 全域 Java 模式：使用 Minecraft runtime / 使用自訂 Java
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    // 系統掃描到的 Java 安裝路徑
+    in-out property <[string]> detected-java-list: [];
+    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
     in-out property <string>   java-path: "";
     in-out property <string>   status-msg: "";
 
     callback save-settings();
+    // 開啟系統檔案選擇框
+    callback browse-java();
 }
 
 export global InstanceCreateLogic {

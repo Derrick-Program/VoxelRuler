@@ -22,12 +22,13 @@ pub struct InstanceConfig {
     pub shader_pack: String,
     pub last_played: String,
     pub play_time_secs: u64,
-    /// 自訂 Java 執行檔路徑（最高優先；留空 = 未設定）
+    /// Java 來源模式：`"global"`（跟隨全域，預設）/ `"minecraft"`（跟隨 Minecraft 提供）/ `"custom"`（自訂路徑）
+    /// 空字串視同 `"global"`（向下相容）
+    #[serde(default)]
+    pub java_mode: String,
+    /// 自訂 Java 執行檔路徑（僅 java_mode = "custom" 時生效）
     #[serde(default)]
     pub java_path: String,
-    /// 指定 Mojang Java runtime component（如 `java-runtime-gamma`；留空 = 未設定）
-    #[serde(default)]
-    pub java_runtime: String,
 }
 
 impl Default for InstanceConfig {
@@ -45,8 +46,8 @@ impl Default for InstanceConfig {
             shader_pack: String::new(),
             last_played: String::new(),
             play_time_secs: 0,
+            java_mode: String::new(),
             java_path: String::new(),
-            java_runtime: String::new(),
         }
     }
 }
@@ -196,8 +197,8 @@ mod tests {
             shader_pack: "/some/shader".into(),
             last_played: "2024-01-01T00:00:00Z".into(),
             play_time_secs: 3600,
+            java_mode: "custom".into(),
             java_path: "/custom/java/bin/java".into(),
-            java_runtime: "java-runtime-gamma".into(),
         };
         store.append(cfg).unwrap();
         let loaded = store.load().unwrap();
@@ -208,8 +209,8 @@ mod tests {
         assert!(!c.logs_enabled);
         assert_eq!(c.world_path, "/some/world");
         assert_eq!(c.play_time_secs, 3600);
+        assert_eq!(c.java_mode, "custom");
         assert_eq!(c.java_path, "/custom/java/bin/java");
-        assert_eq!(c.java_runtime, "java-runtime-gamma");
     }
 
     #[test]
@@ -230,8 +231,8 @@ mod tests {
             play_time_secs = 0
         "#;
         let cfg: InstanceConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.java_mode.is_empty());
         assert!(cfg.java_path.is_empty());
-        assert!(cfg.java_runtime.is_empty());
     }
 
     #[test]
