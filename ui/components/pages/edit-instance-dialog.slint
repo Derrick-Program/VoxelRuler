@@ -1,5 +1,5 @@
 import { InstanceEditLogic } from "@global";
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { ComboBox, ListView } from "std-widgets.slint";
 
 export component EditInstanceDialog inherits Rectangle {
     background: #000000.with-alpha(0.6);
@@ -133,26 +133,23 @@ export component EditInstanceDialog inherits Rectangle {
                                 horizontal-alignment: center; vertical-alignment: center;
                             }
 
-                            ScrollView {
+                            ListView {
                                 width: parent.width; height: parent.height;
-                                VerticalLayout {
-                                    alignment: start;
-                                    for path in InstanceEditLogic.detected-java-list: Rectangle {
-                                        height: 28px;
-                                        background: InstanceEditLogic.java-path == path
-                                            ? #2e5b22
-                                            : (row-ta.has-hover ? #ffffff.with-alpha(0.06) : transparent);
-                                        row-ta := TouchArea {
-                                            clicked => { InstanceEditLogic.java-path = path; }
-                                        }
-                                        Text {
-                                            x: 10px; width: parent.width - 20px; height: parent.height;
-                                            text: path;
-                                            color: InstanceEditLogic.java-path == path ? #d7f5c9 : #c0c0c0;
-                                            font-size: 11px;
-                                            vertical-alignment: center;
-                                            overflow: elide;
-                                        }
+                                for path in InstanceEditLogic.detected-java-list: Rectangle {
+                                    height: 28px;
+                                    background: InstanceEditLogic.java-path == path
+                                        ? #2e5b22
+                                        : (row-ta.has-hover ? #ffffff.with-alpha(0.06) : transparent);
+                                    row-ta := TouchArea {
+                                        clicked => { InstanceEditLogic.java-path = path; }
+                                    }
+                                    Text {
+                                        x: 10px; width: parent.width - 20px; height: parent.height;
+                                        text: path;
+                                        color: InstanceEditLogic.java-path == path ? #d7f5c9 : #c0c0c0;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
                                     }
                                 }
                             }
