@@ -287,6 +287,10 @@ impl LaunchContext {
         m.insert("clientid", self.client_id.clone());
         m.insert("auth_xuid", self.xuid.clone());
         m.insert("user_type", "msa".into());
+        // 1.7.x–1.8.x 的 --userProperties：必須是合法 JSON（空物件），
+        // 給空字串會讓舊版 Main.main 的 gson 解析回傳 null → NPE
+        m.insert("user_properties", "{}".into());
+        m.insert("user_property_map", "{}".into());
         m.insert("version_name", self.version.id.clone());
         m.insert(
             "game_directory",
@@ -1007,6 +1011,21 @@ mod test {
         let args = cmd_args(&ctx.build_command());
         assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()));
         assert!(args.contains(&"--sun-misc-unsafe-memory-access=allow".into()));
+    }
+
+    #[test]
+    fn test_1_7_10_user_properties_is_valid_json() {
+        let cmd = make_ctx(load_version("data/1.7.10.json")).build_command();
+        let args = cmd_args(&cmd);
+        let pos = args
+            .iter()
+            .position(|a| a == "--userProperties")
+            .expect("1.7.10 應有 --userProperties");
+        assert_eq!(
+            args[pos + 1],
+            "{}",
+            "--userProperties 必須是空 JSON 物件，空字串會讓舊版 Main NPE"
+        );
     }
 
     #[test]
