@@ -37,7 +37,7 @@ export component EditInstanceDialog inherits Rectangle {
                         background: x-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent;
                         x-ta := TouchArea { clicked => { InstanceEditLogic.cancel-edit(); } }
                         Text {
-                            text: "✕";
+                            text: "X";
                             color: #888;
                             font-size: 14px;
                             horizontal-alignment: center;

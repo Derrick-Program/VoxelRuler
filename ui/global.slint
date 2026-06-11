@@ -31,6 +31,9 @@ export struct InstanceData {
 
 export global AppData {
     in property <string> version: @tr("version not found");
+    // 網路狀態（footer status）：checking = 尚未完成第一次偵測
+    in-out property <bool> network-checking: true;
+    in-out property <bool> is-online: false;
 }
 
 export global AppLogic {

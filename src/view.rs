@@ -233,6 +233,37 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
+    // ── 網路狀態偵測（footer status）────────────────────────────────────
+    // 每 15 秒 HEAD 一次 Mojang 端點：對 launcher 而言「連得上 Mojang」才算 online
+    let ui_weak_for_net = ui.as_weak();
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("建立網路偵測 client 失敗");
+        loop {
+            let online = client
+                .head("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json")
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            let ui_weak = ui_weak_for_net.clone();
+            if slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    let app = ui.global::<AppData>();
+                    app.set_network_checking(false);
+                    app.set_is_online(online);
+                }
+            })
+            .is_err()
+            {
+                break; // event loop 已結束
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+        }
+    });
+
     // ── Java 模式選單 + 全域設定載入 ─────────────────────────────────────
     {
         let edit_items: Vec<slint::SharedString> = vec![
