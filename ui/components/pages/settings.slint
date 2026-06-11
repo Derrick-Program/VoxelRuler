@@ -1,0 +1,102 @@
+import { AppTheme } from "@theme";
+import { SettingsLogic } from "@global";
+import { ComboBox } from "std-widgets.slint";
+
+export component Settings inherits Rectangle {
+    width: 100%;
+    height: 100%;
+
+    VerticalLayout {
+        padding: 28px;
+        spacing: 20px;
+        alignment: start;
+
+        Text {
+            text: @tr("Settings");
+            font-size: 24px;
+            font-weight: 800;
+            color: AppTheme.colors.foreground;
+        }
+
+        // ── Java 區塊 ────────────────────────────────────────────
+        Rectangle {
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #ffffff.with-alpha(0.1);
+            background: AppTheme.colors.background.brighter(8%);
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                alignment: start;
+
+                Text {
+                    text: @tr("Global Java");
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: AppTheme.colors.foreground;
+                }
+
+                Text {
+                    text: @tr("Used by every instance without its own Java setting. Leave both empty to follow the Java version recommended by Minecraft.");
+                    font-size: 12px;
+                    color: #888;
+                    wrap: word-wrap;
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: @tr("Java Runtime"); font-size: 12px; color: #9e9e9e; }
+                    ComboBox {
+                        height: 36px;
+                        model: SettingsLogic.java-runtime-list;
+                        current-value <=> SettingsLogic.selected-java-runtime;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text { text: @tr("Custom Java Path (overrides runtime)"); font-size: 12px; color: #9e9e9e; }
+                    Rectangle {
+                        height: 36px; border-radius: 6px;
+                        border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                        background: #242424;
+                        jp-input := TextInput {
+                            x: 12px; width: parent.width - 24px; height: parent.height;
+                            text <=> SettingsLogic.java-path;
+                            color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                        }
+                        if jp-input.text == "": Text {
+                            x: 12px; height: parent.height;
+                            text: @tr("e.g. /usr/bin/java (optional)");
+                            color: #555; font-size: 13px; vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 110px; height: 34px; border-radius: 8px;
+                        background: save-ta.has-hover ? #67ab44 : #5a9a3a;
+                        save-ta := TouchArea { clicked => { SettingsLogic.save-settings(); } }
+                        Text {
+                            text: @tr("Save"); color: white;
+                            font-size: 13px; font-weight: 600;
+                            horizontal-alignment: center; vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: SettingsLogic.status-msg;
+                        font-size: 12px;
+                        color: #76bc51;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -16,6 +16,7 @@ mod mc_parser;
 mod mc_paths;
 mod mc_token;
 mod mc_types;
+mod settings;
 #[cfg(target_os = "macos")]
 mod url_handler;
 mod view;

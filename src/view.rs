@@ -6,6 +6,7 @@ use crate::{
     mc_paths::McPaths,
     mc_token::{self, SessionData},
     mc_types::McSpecificVersionDetail,
+    settings::AppSettings,
 };
 use anyhow::Context as _;
 use slint::{Model, ModelRc, VecModel};
@@ -20,6 +21,41 @@ use std::{
     },
 };
 use tracing::{debug, error, info, warn};
+
+/// ComboBox 第一項的哨兵值：實例層級「跟隨全域設定」
+const JAVA_FOLLOW_GLOBAL: &str = "Follow Global Settings";
+/// ComboBox 第一項的哨兵值：全域層級「跟隨 Minecraft 建議版本」
+const JAVA_FOLLOW_MINECRAFT: &str = "Follow Minecraft (Auto)";
+
+/// 啟動時實際使用的 Java 來源
+#[derive(Debug)]
+enum JavaSource {
+    /// 使用者自訂的 java 執行檔路徑
+    CustomPath(PathBuf),
+    /// 指定的 Mojang Java runtime component（如 `java-runtime-gamma`）
+    Runtime(String),
+    /// 跟隨版本 JSON 的 javaVersion.component
+    VersionDefault,
+}
+
+/// Java 解析優先序：
+/// instance（path > runtime）→ 全域（path > runtime）→ Minecraft 版本預設
+fn resolve_java_source(instance: &InstanceConfig, settings: &AppSettings) -> JavaSource {
+    fn pick(path: &str, runtime: &str) -> Option<JavaSource> {
+        let path = path.trim();
+        let runtime = runtime.trim();
+        if !path.is_empty() {
+            return Some(JavaSource::CustomPath(PathBuf::from(path)));
+        }
+        if !runtime.is_empty() {
+            return Some(JavaSource::Runtime(runtime.to_owned()));
+        }
+        None
+    }
+    pick(&instance.java_path, &instance.java_runtime)
+        .or_else(|| pick(&settings.java_path, &settings.java_runtime))
+        .unwrap_or(JavaSource::VersionDefault)
+}
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
@@ -176,6 +212,62 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
+    // ── Java runtime 清單 + 全域設定載入 ─────────────────────────────────
+    let ui_weak_for_java = ui.as_weak();
+    tokio::spawn(async move {
+        let api = crate::mc_api::McAction::new();
+        let components: Vec<String> = match api.get_java_runtimes().await {
+            Ok(all) => {
+                let os_arch = crate::mc_parser::get_mojang_os_arch();
+                all.get(os_arch)
+                    .map(|by_component| {
+                        let mut list: Vec<String> = by_component
+                            .iter()
+                            .filter(|(_, entries)| !entries.is_empty())
+                            .map(|(name, _)| name.clone())
+                            .collect();
+                        list.sort();
+                        list
+                    })
+                    .unwrap_or_default()
+            }
+            Err(e) => {
+                warn!(error = %e, "取得 Java runtime 清單失敗，下拉選單僅提供預設選項");
+                Vec::new()
+            }
+        };
+        let app_settings = AppSettings::load();
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_weak_for_java.upgrade() else {
+                return;
+            };
+
+            let mut edit_items: Vec<slint::SharedString> = vec![JAVA_FOLLOW_GLOBAL.into()];
+            edit_items.extend(
+                components
+                    .iter()
+                    .map(|c| slint::SharedString::from(c.as_str())),
+            );
+            ui.global::<InstanceEditLogic>()
+                .set_java_runtime_list(ModelRc::from(Rc::new(VecModel::from(edit_items))));
+
+            let mut settings_items: Vec<slint::SharedString> = vec![JAVA_FOLLOW_MINECRAFT.into()];
+            settings_items.extend(
+                components
+                    .iter()
+                    .map(|c| slint::SharedString::from(c.as_str())),
+            );
+            let sl = ui.global::<SettingsLogic>();
+            sl.set_java_runtime_list(ModelRc::from(Rc::new(VecModel::from(settings_items))));
+            sl.set_java_path(app_settings.java_path.as_str().into());
+            sl.set_selected_java_runtime(if app_settings.java_runtime.trim().is_empty() {
+                JAVA_FOLLOW_MINECRAFT.into()
+            } else {
+                app_settings.java_runtime.as_str().into()
+            });
+        });
+    });
+
     let master_for_search = Arc::clone(&master_configs);
     let ui_weak_for_search = ui.as_weak();
     logic.on_search_changed(move |text| {
@@ -200,26 +292,20 @@ pub async fn open_view() -> anyhow::Result<()> {
     let instance_logs_for_launch = Arc::clone(&instance_logs);
     let ui_weak_for_launch = ui.as_weak();
     logic.on_launch_instance(move |id| {
-        let (version_id, instance_id, instance_name, xmx, xms) = {
+        let config = {
             let configs = master_for_launch.lock().unwrap();
-            if let Some(c) = configs.iter().find(|c| c.id == id.as_str()) {
-                (
-                    c.version.clone(),
-                    c.id.clone(),
-                    c.name.clone(),
-                    c.xmx.clone(),
-                    c.xms.clone(),
-                )
-            } else {
-                (
-                    id.to_string(),
-                    id.to_string(),
-                    id.to_string(),
-                    "2G".into(),
-                    "512M".into(),
-                )
-            }
+            configs
+                .iter()
+                .find(|c| c.id == id.as_str())
+                .cloned()
+                .unwrap_or_else(|| InstanceConfig {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    version: id.to_string(),
+                    ..Default::default()
+                })
         };
+        let instance_id = config.id.clone();
         let running_procs = Arc::clone(&running_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
@@ -227,17 +313,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             return;
         }
         tokio::spawn(async move {
-            match do_launch(
-                version_id,
-                instance_id.clone(),
-                instance_name.clone(),
-                xmx,
-                xms,
-                ui_weak.clone(),
-                logs,
-            )
-            .await
-            {
+            match do_launch(config, ui_weak.clone(), logs).await {
                 Ok(child) => {
                     running_procs
                         .lock()
@@ -285,8 +361,113 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    logic.on_open_instance_settings(move |_id| {
-        // TODO: 開啟 instance 設定頁面（M4 里程碑實作）
+    let master_for_edit_open = Arc::clone(&master_configs);
+    let ui_weak_for_edit_open = ui.as_weak();
+    logic.on_open_instance_settings(move |id| {
+        let Some(ui) = ui_weak_for_edit_open.upgrade() else {
+            return;
+        };
+        let configs = master_for_edit_open.lock().unwrap();
+        let Some(c) = configs.iter().find(|c| c.id == id.as_str()) else {
+            return;
+        };
+        let edit = ui.global::<InstanceEditLogic>();
+        edit.set_instance_id(c.id.as_str().into());
+        edit.set_instance_name(c.name.as_str().into());
+        edit.set_xmx(c.xmx.as_str().into());
+        edit.set_xms(c.xms.as_str().into());
+        edit.set_java_path(c.java_path.as_str().into());
+        edit.set_selected_java_runtime(if c.java_runtime.trim().is_empty() {
+            JAVA_FOLLOW_GLOBAL.into()
+        } else {
+            c.java_runtime.as_str().into()
+        });
+        edit.set_error_msg("".into());
+        edit.set_show_dialog(true);
+    });
+
+    let edit_logic = ui.global::<InstanceEditLogic>();
+
+    let ui_weak_for_edit_cancel = ui.as_weak();
+    edit_logic.on_cancel_edit(move || {
+        if let Some(ui) = ui_weak_for_edit_cancel.upgrade() {
+            ui.global::<InstanceEditLogic>().set_show_dialog(false);
+        }
+    });
+
+    let store_for_edit = Arc::clone(&store);
+    let master_for_edit = Arc::clone(&master_configs);
+    let ui_weak_for_edit_confirm = ui.as_weak();
+    edit_logic.on_confirm_edit(move || {
+        let Some(ui) = ui_weak_for_edit_confirm.upgrade() else {
+            return;
+        };
+        let edit = ui.global::<InstanceEditLogic>();
+        let id = edit.get_instance_id().to_string();
+        let xmx = edit.get_xmx().trim().to_string();
+        let xms = edit.get_xms().trim().to_string();
+        let java_path = edit.get_java_path().trim().to_string();
+        let selected_runtime = edit.get_selected_java_runtime().to_string();
+        // 哨兵值 = 未設定（跟隨全域）
+        let java_runtime = if selected_runtime == JAVA_FOLLOW_GLOBAL {
+            String::new()
+        } else {
+            selected_runtime
+        };
+
+        if !java_path.is_empty() && !Path::new(&java_path).is_file() {
+            edit.set_error_msg("自訂 Java 路徑不存在或不是檔案".into());
+            return;
+        }
+
+        let updated_config = {
+            let mut master = master_for_edit.lock().unwrap();
+            let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                edit.set_error_msg("找不到實例".into());
+                return;
+            };
+            c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
+            c.xms = if xms.is_empty() { "512M".into() } else { xms };
+            c.java_path = java_path;
+            c.java_runtime = java_runtime;
+            c.clone()
+        };
+
+        // 寫入 instance.toml；watcher 會自動同步 UI 列表
+        match store_for_edit.lock().unwrap().save_one(&updated_config) {
+            Ok(()) => edit.set_show_dialog(false),
+            Err(e) => edit.set_error_msg(format!("儲存失敗：{e}").into()),
+        }
+    });
+
+    let ui_weak_for_settings = ui.as_weak();
+    ui.global::<SettingsLogic>().on_save_settings(move || {
+        let Some(ui) = ui_weak_for_settings.upgrade() else {
+            return;
+        };
+        let sl = ui.global::<SettingsLogic>();
+        let java_path = sl.get_java_path().trim().to_string();
+        let selected = sl.get_selected_java_runtime().to_string();
+        // 哨兵值 = 未設定（跟隨 Minecraft 建議版本）
+        let java_runtime = if selected == JAVA_FOLLOW_MINECRAFT {
+            String::new()
+        } else {
+            selected
+        };
+
+        if !java_path.is_empty() && !Path::new(&java_path).is_file() {
+            sl.set_status_msg("⚠ Java 路徑不存在或不是檔案".into());
+            return;
+        }
+
+        let new_settings = AppSettings {
+            java_path,
+            java_runtime,
+        };
+        match new_settings.save() {
+            Ok(()) => sl.set_status_msg("✓ 已儲存".into()),
+            Err(e) => sl.set_status_msg(format!("儲存失敗：{e}").into()),
+        }
     });
 
     let ui_weak_for_dismiss = ui.as_weak();
@@ -777,30 +958,19 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
     });
 }
 
-async fn do_launch(
-    version_id: String,
-    instance_id: String,
-    instance_name: String,
-    xmx: String,
-    xms: String,
-    ui_weak: slint::Weak<MainApp>,
-    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-) -> anyhow::Result<Child> {
-    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
-
-    let api = crate::mc_api::McAction::new();
-    let version = api.get_specific_mc_version_detail(&version_id).await?;
-    let java_manifest = api.get_java_runtime_manifest_for_version(&version).await?;
-
-    let paths = McPaths::new()?;
-    let java_component = version
-        .java_version
-        .as_ref()
-        .map(|j| j.component.clone())
-        .unwrap_or_else(|| "jre-legacy".into());
-
-    info!(java_dir = ?paths.java_dir(&java_component), "開始安裝 Java");
-    mc_install::install_java(&java_manifest, &paths.java_dir(&java_component), {
+/// 下載並安裝指定的 Mojang Java runtime component，回傳 java 執行檔路徑
+async fn install_java_runtime(
+    api: &crate::mc_api::McAction,
+    paths: &McPaths,
+    component: &str,
+    ui_weak: &slint::Weak<MainApp>,
+) -> anyhow::Result<PathBuf> {
+    let manifest = api
+        .get_java_runtime_manifest(component)
+        .await
+        .with_context(|| format!("取得 Java runtime '{component}' 資訊失敗"))?;
+    info!(java_dir = ?paths.java_dir(component), component, "開始安裝 Java");
+    mc_install::install_java(&manifest, &paths.java_dir(component), {
         let ui_weak = ui_weak.clone();
         move |p| {
             let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
@@ -809,6 +979,48 @@ async fn do_launch(
     })
     .await
     .context("安裝 Java 失敗")?;
+    Ok(paths.java_bin(component))
+}
+
+async fn do_launch(
+    config: InstanceConfig,
+    ui_weak: slint::Weak<MainApp>,
+    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+) -> anyhow::Result<Child> {
+    let version_id = config.version.clone();
+    let instance_id = config.id.clone();
+
+    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
+
+    let api = crate::mc_api::McAction::new();
+    let version = api.get_specific_mc_version_detail(&version_id).await?;
+    let paths = McPaths::new()?;
+
+    // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
+    let app_settings = AppSettings::load();
+    let java_source = resolve_java_source(&config, &app_settings);
+    info!(?java_source, instance = %config.name, "Java 來源解析結果");
+
+    let java_path: PathBuf = match java_source {
+        JavaSource::CustomPath(p) => {
+            if !p.is_file() {
+                anyhow::bail!("自訂 Java 路徑不存在或不是檔案：{}", p.display());
+            }
+            set_install_state(&ui_weak, true, 0.4, "使用自訂 Java...", false);
+            p
+        }
+        JavaSource::Runtime(component) => {
+            install_java_runtime(&api, &paths, &component, &ui_weak).await?
+        }
+        JavaSource::VersionDefault => {
+            let component = version
+                .java_version
+                .as_ref()
+                .map(|j| j.component.clone())
+                .unwrap_or_else(|| "jre-legacy".into());
+            install_java_runtime(&api, &paths, &component, &ui_weak).await?
+        }
+    };
 
     info!(versions_dir = ?paths.versions_dir(), "開始安裝 Minecraft 主程式");
     mc_install::install_client(&version, &paths.versions_dir(), {
@@ -881,7 +1093,7 @@ async fn do_launch(
 
     let ctx = LaunchContext {
         version,
-        java_path: paths.java_bin(&java_component),
+        java_path,
         game_dir: paths.instance_dir(&instance_id),
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
@@ -892,8 +1104,8 @@ async fn do_launch(
         auth_access_token: token,
         client_id: String::new(),
         xuid: String::new(),
-        xmx,
-        xms,
+        xmx: config.xmx.clone(),
+        xms: config.xms.clone(),
     };
     // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
     let missing = ctx.missing_classpath_files();

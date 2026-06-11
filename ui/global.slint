@@ -334,6 +334,36 @@ export global PageAccountLogic {
     manage-appearance => { debug("Manage appearance"); }
 }
 
+export global InstanceEditLogic {
+    // Dialog control
+    in-out property <bool>     show-dialog: false;
+    // 目標實例
+    in-out property <string>   instance-id: "";
+    in-out property <string>   instance-name: "";
+    // 記憶體
+    in-out property <string>   xmx: "2G";
+    in-out property <string>   xms: "512M";
+    // Java：runtime 下拉（第一項 = 跟隨全域）＋自訂路徑（路徑優先）
+    in-out property <[string]> java-runtime-list: [];
+    in-out property <string>   selected-java-runtime: "";
+    in-out property <string>   java-path: "";
+    // State
+    in-out property <string>   error-msg: "";
+
+    callback confirm-edit();
+    callback cancel-edit();
+}
+
+export global SettingsLogic {
+    // 全域 Java：runtime 下拉（第一項 = 跟隨 Minecraft）＋自訂路徑（路徑優先）
+    in-out property <[string]> java-runtime-list: [];
+    in-out property <string>   selected-java-runtime: "";
+    in-out property <string>   java-path: "";
+    in-out property <string>   status-msg: "";
+
+    callback save-settings();
+}
+
 export global InstanceCreateLogic {
     // Dialog control
     in-out property <bool>     show-dialog: false;
