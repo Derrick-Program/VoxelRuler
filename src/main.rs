@@ -161,8 +161,11 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&log_dir).ok();
         let file_appender = tracing_appender::rolling::never(&log_dir, "voxelruler.log");
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        let filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("voxelruler=info"));
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=info"))
+            // slint 1.16 的文字引擎（parley/ICU4X）遇到 CJK 會狂噴
+            // 「No segmentation model for language: ja」— 無害（僅斷詞品質降級），直接靜音
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
@@ -174,7 +177,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(debug_assertions)]
     {
         let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"));
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"))
+            // 同 release：靜音 ICU4X 的 CJK 斷詞警告（無害，cjdict 未隨 slint 打包）
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer())
