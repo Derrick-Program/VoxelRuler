@@ -1,4 +1,5 @@
 import { AppTheme } from "@theme";
+import { AppData } from "@global";
 export component Footer inherits Rectangle {
     in property <string> version: "v0.0.1";
     background: #111111;
@@ -13,11 +14,26 @@ export component Footer inherits Rectangle {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 10px;
-        Text {
-            text: @tr("Status: Connecting");
-            vertical-alignment: center;
-            font-size: 12px;
-            color: green;
+        HorizontalLayout {
+            spacing: 6px;
+            // 狀態圓點
+            Rectangle {
+                width: 8px; height: 8px; border-radius: 4px;
+                y: (parent.height - self.height) / 2;
+                background: AppData.network-checking
+                    ? #999999
+                    : (AppData.is-online ? #76bc51 : #e74c3c);
+            }
+            Text {
+                text: AppData.network-checking
+                    ? @tr("Status: Connecting")
+                    : (AppData.is-online ? @tr("Status: Online") : @tr("Status: Offline"));
+                vertical-alignment: center;
+                font-size: 12px;
+                color: AppData.network-checking
+                    ? #999999
+                    : (AppData.is-online ? #76bc51 : #e74c3c);
+            }
         }
 
         Text {

@@ -154,12 +154,17 @@ pub async fn install_client(
 pub async fn install_libraries(
     version: &McSpecificVersionDetail,
     libraries_dir: &Path,
+    compat: Option<&'static crate::mc_compat::MacosArm64Override>,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
+    let excluded =
+        |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
+
     let mut applicable: Vec<(PathBuf, String, u64, String)> = version
         .libraries
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+        .filter(|lib| !excluded(&lib.name))
         .filter_map(|lib| {
             let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
             let dest = artifact
@@ -182,6 +187,7 @@ pub async fn install_libraries(
         .libraries
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+        .filter(|lib| !excluded(&lib.name))
     {
         let Some(key) = native_classifier_key(lib) else {
             continue;
@@ -252,6 +258,19 @@ pub async fn install_libraries(
         }
     }
 
+    // Apple Silicon 原生模式：下載替換用的 artifacts
+    if let Some(ov) = compat {
+        warn!(name = ov.name, "Apple Silicon 原生模式：替換不相容函式庫");
+        for art in ov.artifacts {
+            applicable.push((
+                libraries_dir.join(art.rel_path),
+                art.url.to_string(),
+                art.size,
+                art.sha1.to_string(),
+            ));
+        }
+    }
+
     let total = applicable.len().max(1);
     let mut completed = 0usize;
     let mut stream = stream::iter(applicable)
@@ -279,12 +298,17 @@ pub async fn extract_natives(
     version: &McSpecificVersionDetail,
     libraries_dir: &Path,
     natives_dir: &Path,
+    compat: Option<&'static crate::mc_compat::MacosArm64Override>,
 ) -> anyhow::Result<()> {
+    let excluded =
+        |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
+
     let mut jobs: Vec<(PathBuf, Vec<String>)> = Vec::new();
     for lib in version
         .libraries
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+        .filter(|lib| !excluded(&lib.name))
     {
         let Some(key) = native_classifier_key(lib) else {
             continue;
@@ -307,6 +331,13 @@ pub async fn extract_natives(
             .map(|e| e.exclude.clone())
             .unwrap_or_default();
         jobs.push((jar, excludes));
+    }
+
+    // Apple Silicon 原生模式：解壓替換用的 natives jar（LWJGL2）
+    if let Some(ov) = compat {
+        for art in ov.artifacts.iter().filter(|a| a.extract) {
+            jobs.push((libraries_dir.join(art.rel_path), Vec::new()));
+        }
     }
 
     if jobs.is_empty() {
@@ -594,7 +625,7 @@ mod test {
             extract: None,
         }];
 
-        install_libraries(&version, dir.path(), |_| {})
+        install_libraries(&version, dir.path(), None, |_| {})
             .await
             .unwrap();
 
@@ -613,7 +644,7 @@ mod test {
             extract: None,
         }];
 
-        install_libraries(&version, dir.path(), |_| {})
+        install_libraries(&version, dir.path(), None, |_| {})
             .await
             .unwrap();
     }
@@ -682,7 +713,9 @@ mod test {
             }),
         }];
 
-        extract_natives(&version, &libs, &natives).await.unwrap();
+        extract_natives(&version, &libs, &natives, None)
+            .await
+            .unwrap();
 
         assert!(natives.join("libtest.so").exists(), "應解壓 natives 檔案");
         assert!(
@@ -703,7 +736,7 @@ mod test {
             .get_specific_mc_version_detail("1.20.4")
             .await
             .unwrap();
-        install_libraries(&version, dir.path(), |_| {})
+        install_libraries(&version, dir.path(), None, |_| {})
             .await
             .unwrap();
         let count = count_jars(dir.path());

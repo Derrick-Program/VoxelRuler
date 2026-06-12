@@ -1,0 +1,1008 @@
+// 實例詳細視窗 — Prism 式側欄分頁
+// 分頁：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
+//      5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
+import { Assets } from "@assets";
+import { InstanceDetailLogic, InstanceEditLogic, InstanceFileEntry, WorldRow, ServerRow, ScreenshotRow } from "@global";
+import { ComboBox, ListView, CheckBox, TextEdit } from "std-widgets.slint";
+
+// ── 共用小元件 ───────────────────────────────────────────────────────────
+
+component ToolButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: false;
+    callback clicked();
+
+    height: 30px;
+    width: tb-layout.preferred-width + 24px;
+    border-radius: 6px;
+    border-width: root.primary ? 0px : 1px;
+    border-color: #ffffff.with-alpha(0.2);
+    background: tb-ta.has-hover
+        ? (root.primary ? #76bc51 : #ffffff.with-alpha(0.1))
+        : (root.primary ? #5a9a3a : #2a2a2a);
+
+    tb-ta := TouchArea { clicked => { root.clicked(); } }
+
+    tb-layout := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        Text {
+            text: root.label;
+            color: root.primary ? white : #e0e0e0;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// 兩段式刪除按鈕：第一次點變「確認?」，再點才真的刪
+component DeleteButton inherits Rectangle {
+    in property <string> del-key;
+    callback confirmed();
+
+    property <bool> pending: InstanceDetailLogic.pending-delete-key == root.del-key;
+
+    width: 70px;
+    height: 24px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: #c04040.with-alpha(0.6);
+    background: root.pending
+        ? #c04040
+        : (del-ta.has-hover ? #c04040.with-alpha(0.3) : transparent);
+
+    del-ta := TouchArea {
+        clicked => {
+            if (root.pending) {
+                InstanceDetailLogic.pending-delete-key = "";
+                root.confirmed();
+            } else {
+                InstanceDetailLogic.pending-delete-key = root.del-key;
+            }
+        }
+    }
+
+    Text {
+        text: root.pending ? @tr("Confirm?") : @tr("Delete");
+        color: root.pending ? white : #d07070;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component SideTabItem inherits Rectangle {
+    in property <int> tab-index;
+    in property <string> label;
+    in property <image> icon;
+
+    property <bool> active: InstanceDetailLogic.active-tab == root.tab-index;
+
+    // 用 min/max 固定格高（layout 約束），避免被內容撐開
+    min-height: 34px;
+    max-height: 34px;
+    border-radius: 6px;
+    background: root.active
+        ? #67ab44.with-alpha(0.25)
+        : (st-ta.has-hover ? #ffffff.with-alpha(0.07) : transparent);
+
+    st-ta := TouchArea {
+        clicked => {
+            InstanceDetailLogic.active-tab = root.tab-index;
+            InstanceDetailLogic.tab-changed(root.tab-index);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        // icon 包在固定尺寸 Rectangle 內手動置中（同 SideButton 的 icon-container，
+        // 避免 Image height:100% 在 layout 內造成格高被撐爆）
+        Rectangle {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            Image {
+                source: root.icon;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+                colorize: root.active ? #9be07a : #b0b0b0;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: root.active ? #d7f5c9 : #c0c0c0;
+            font-size: 12px;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// 模組 / 資源包 / 光影包 共用分頁
+component FileTab inherits VerticalLayout {
+    in property <string> category;
+    in property <[InstanceFileEntry]> entries;
+    in property <string> empty-text;
+
+    spacing: 10px;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        ToolButton {
+            label: @tr("Add...");
+            primary: true;
+            clicked => { InstanceDetailLogic.add-entry(root.category); }
+        }
+
+        ToolButton {
+            label: @tr("Open Folder");
+            clicked => { InstanceDetailLogic.open-subfolder(root.category); }
+        }
+    }
+
+    Rectangle {
+        vertical-stretch: 1;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #ffffff.with-alpha(0.1);
+        background: #191a20;
+        clip: true;
+
+        if root.entries.length == 0: Text {
+            text: root.empty-text;
+            color: #666;
+            font-size: 12px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        ListView {
+            width: parent.width;
+            height: parent.height;
+            for entry in root.entries: Rectangle {
+                height: 44px;
+                background: row-ta.has-hover ? #ffffff.with-alpha(0.04) : transparent;
+                row-ta := TouchArea { }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        CheckBox {
+                            checked: entry.enabled;
+                            toggled => {
+                                InstanceDetailLogic.toggle-entry(root.category, entry.file-name);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text {
+                            text: entry.file-name;
+                            color: entry.enabled ? #e0e0e0 : #777;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: entry.info;
+                            color: #666;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        DeleteButton {
+                            del-key: root.category + "/" + entry.file-name;
+                            confirmed => {
+                                InstanceDetailLogic.delete-entry(root.category, entry.file-name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── 主視窗 ───────────────────────────────────────────────────────────────
+
+export component InstanceDetailWindow inherits Rectangle {
+    background: #000000.with-alpha(0.6);
+
+    // 原版（無 mod loader）不顯示模組分頁
+    property <bool> is-vanilla: InstanceDetailLogic.mod-loader == ""
+        || InstanceDetailLogic.mod-loader == "None";
+
+    // 阻擋點擊穿透
+    TouchArea { }
+
+    panel := Rectangle {
+        width: Math.min(parent.width - 60px, 920px);
+        height: Math.min(parent.height - 60px, 640px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #1e2028;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #ffffff.with-alpha(0.1);
+        clip: true;
+
+        VerticalLayout {
+            // ── Header ──────────────────────────────────────────
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 12px;
+                    spacing: 12px;
+                    alignment: space-between;
+                    Text {
+                        text: InstanceDetailLogic.instance-name;
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: #e0e0e0;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: InstanceDetailLogic.status-msg;
+                            color: #9e9e9e;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 6px;
+                            background: x-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent;
+                            x-ta := TouchArea { clicked => { InstanceDetailLogic.close-detail(); } }
+                            Text {
+                                text: "X";
+                                color: #888;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+
+                // ── Sidebar ─────────────────────────────────────
+                Rectangle {
+                    width: 190px;
+                    background: #191a20;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 2px;
+                        alignment: start;
+                        SideTabItem { tab-index: 0; label: @tr("Minecraft Log"); icon: Assets.log; }
+                        SideTabItem { tab-index: 1; label: @tr("Version"); icon: Assets.cube; }
+                        if !root.is-vanilla: SideTabItem { tab-index: 2; label: @tr("Mods"); icon: Assets.puzzle; }
+                        SideTabItem { tab-index: 3; label: @tr("Resource Packs"); icon: Assets.picture; }
+                        SideTabItem { tab-index: 4; label: @tr("Shader Packs"); icon: Assets.sun; }
+                        SideTabItem { tab-index: 5; label: @tr("Notes"); icon: Assets.note; }
+                        SideTabItem { tab-index: 6; label: @tr("Worlds"); icon: Assets.globe; }
+                        SideTabItem { tab-index: 7; label: @tr("Servers"); icon: Assets.server; }
+                        SideTabItem { tab-index: 8; label: @tr("Screenshots"); icon: Assets.camera; }
+                        SideTabItem { tab-index: 9; label: @tr("Settings"); icon: Assets.setting; }
+                        SideTabItem { tab-index: 10; label: @tr("Other Logs"); icon: Assets.book; }
+                        // 吸收剩餘空間，保證項目緊密靠上（同主側欄做法）
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                Rectangle { width: 1px; background: #ffffff.with-alpha(0.08); }
+
+                // ── Content ─────────────────────────────────────
+                Rectangle {
+                    horizontal-stretch: 1;
+
+                    // 0：Minecraft 紀錄檔（live）
+                    if InstanceDetailLogic.active-tab == 0: VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                y: (parent.height - 8px) / 2;
+                                border-radius: 4px;
+                                background: InstanceDetailLogic.instance-running ? #50fa7b : #6272a4;
+                            }
+
+                            Text {
+                                text: InstanceDetailLogic.instance-running
+                                    ? @tr("Instance is running")
+                                    : @tr("Instance is not running");
+                                color: #9e9e9e;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #15161a;
+                            clip: true;
+
+                            if InstanceDetailLogic.live-log-lines.length == 0: Text {
+                                text: @tr("No log output yet.");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for line in InstanceDetailLogic.live-log-lines: Rectangle {
+                                    height: 16px;
+                                    Text {
+                                        x: 8px;
+                                        width: parent.width - 16px;
+                                        height: parent.height;
+                                        text: line;
+                                        font-size: 11px;
+                                        color: #c5c8c6;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 1：版本
+                    if InstanceDetailLogic.active-tab == 1: VerticalLayout {
+                        padding: 16px;
+                        spacing: 16px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: @tr("Current Version");
+                                width: 150px;
+                                font-size: 13px;
+                                color: #e0e0e0;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: InstanceDetailLogic.version;
+                                font-size: 13px;
+                                color: #9be07a;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: @tr("Mod Loader");
+                                width: 150px;
+                                font-size: 13px;
+                                color: #e0e0e0;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: InstanceDetailLogic.mod-loader == "" ? @tr("None") : InstanceDetailLogic.mod-loader;
+                                font-size: 13px;
+                                color: #9e9e9e;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: @tr("Change Version");
+                                width: 150px;
+                                font-size: 13px;
+                                color: #e0e0e0;
+                                vertical-alignment: center;
+                            }
+
+                            ComboBox {
+                                horizontal-stretch: 1;
+                                height: 36px;
+                                model: InstanceDetailLogic.version-list;
+                                current-value <=> InstanceDetailLogic.selected-version;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            alignment: end;
+                            ToolButton {
+                                label: @tr("Save Version");
+                                primary: true;
+                                clicked => { InstanceDetailLogic.save-version(); }
+                            }
+                        }
+
+                        Text {
+                            text: @tr("Changing the version will re-download game files on next launch.");
+                            color: #666;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    // 2/3/4：模組 / 資源包 / 光影包
+                    if InstanceDetailLogic.active-tab == 2: Rectangle {
+                        VerticalLayout {
+                            padding: 16px;
+                            FileTab {
+                                category: "mods";
+                                entries: InstanceDetailLogic.mods;
+                                empty-text: @tr("No mods installed.");
+                            }
+                        }
+                    }
+                    if InstanceDetailLogic.active-tab == 3: Rectangle {
+                        VerticalLayout {
+                            padding: 16px;
+                            FileTab {
+                                category: "resourcepacks";
+                                entries: InstanceDetailLogic.resource-packs;
+                                empty-text: @tr("No resource packs.");
+                            }
+                        }
+                    }
+                    if InstanceDetailLogic.active-tab == 4: Rectangle {
+                        VerticalLayout {
+                            padding: 16px;
+                            FileTab {
+                                category: "shaderpacks";
+                                entries: InstanceDetailLogic.shader-packs;
+                                empty-text: @tr("No shader packs.");
+                            }
+                        }
+                    }
+
+                    // 5：筆記
+                    if InstanceDetailLogic.active-tab == 5: VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        TextEdit {
+                            vertical-stretch: 1;
+                            text <=> InstanceDetailLogic.notes;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: end;
+                            Text {
+                                text: InstanceDetailLogic.notes-status;
+                                color: #9be07a;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+
+                            ToolButton {
+                                label: @tr("Save Notes");
+                                primary: true;
+                                clicked => { InstanceDetailLogic.save-notes(); }
+                            }
+                        }
+                    }
+
+                    // 6：世界
+                    if InstanceDetailLogic.active-tab == 6: VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            alignment: start;
+                            ToolButton {
+                                label: @tr("Open Folder");
+                                clicked => { InstanceDetailLogic.open-subfolder("saves"); }
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #191a20;
+                            clip: true;
+
+                            if InstanceDetailLogic.worlds.length == 0: Text {
+                                text: @tr("No worlds yet.");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for world in InstanceDetailLogic.worlds: Rectangle {
+                                    height: 44px;
+                                    background: w-ta.has-hover ? #ffffff.with-alpha(0.04) : transparent;
+                                    w-ta := TouchArea { }
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 10px;
+                                        spacing: 10px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            horizontal-stretch: 1;
+                                            spacing: 2px;
+                                            Text {
+                                                text: world.level-name;
+                                                color: #e0e0e0;
+                                                font-size: 12px;
+                                                overflow: elide;
+                                            }
+
+                                            Text {
+                                                text: world.dir-name + " · " + world.info;
+                                                color: #666;
+                                                font-size: 10px;
+                                                overflow: elide;
+                                            }
+                                        }
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            DeleteButton {
+                                                del-key: "worlds/" + world.dir-name;
+                                                confirmed => {
+                                                    InstanceDetailLogic.delete-entry("worlds", world.dir-name);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 7：伺服器
+                    if InstanceDetailLogic.active-tab == 7: VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            alignment: start;
+                            ToolButton {
+                                label: @tr("Open Folder");
+                                clicked => { InstanceDetailLogic.open-subfolder("root"); }
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #191a20;
+                            clip: true;
+
+                            if InstanceDetailLogic.servers.length == 0: Text {
+                                text: @tr("No servers found (servers.dat missing or empty).");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for server in InstanceDetailLogic.servers: Rectangle {
+                                    height: 44px;
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 10px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 2px;
+                                            Text {
+                                                text: server.name;
+                                                color: #e0e0e0;
+                                                font-size: 12px;
+                                                overflow: elide;
+                                            }
+
+                                            Text {
+                                                text: server.ip;
+                                                color: #8be9fd;
+                                                font-size: 10px;
+                                                overflow: elide;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 8：螢幕擷取畫面
+                    if InstanceDetailLogic.active-tab == 8: VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
+                        HorizontalLayout {
+                            alignment: start;
+                            ToolButton {
+                                label: @tr("Open Folder");
+                                clicked => { InstanceDetailLogic.open-subfolder("screenshots"); }
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #191a20;
+                            clip: true;
+
+                            if InstanceDetailLogic.screenshots.length == 0: Text {
+                                text: @tr("No screenshots yet.");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for shot in InstanceDetailLogic.screenshots: Rectangle {
+                                    height: 76px;
+                                    background: sc-ta.has-hover ? #ffffff.with-alpha(0.04) : transparent;
+                                    sc-ta := TouchArea { }
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        padding-top: 6px;
+                                        padding-bottom: 6px;
+                                        spacing: 12px;
+                                        Rectangle {
+                                            width: 110px;
+                                            border-radius: 4px;
+                                            background: #101114;
+                                            clip: true;
+                                            Image {
+                                                source: shot.thumb;
+                                                width: 100%;
+                                                height: 100%;
+                                                image-fit: contain;
+                                            }
+                                        }
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                text: shot.file-name;
+                                                color: #e0e0e0;
+                                                font-size: 12px;
+                                                overflow: elide;
+                                            }
+                                        }
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            DeleteButton {
+                                                del-key: "screenshots/" + shot.file-name;
+                                                confirmed => {
+                                                    InstanceDetailLogic.delete-entry("screenshots", shot.file-name);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 9：設定（記憶體 + Java，沿用 InstanceEditLogic）
+                    if InstanceDetailLogic.active-tab == 9: VerticalLayout {
+                        padding: 16px;
+                        spacing: 14px;
+                        alignment: start;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: @tr("Max Memory (Xmx)");
+                                width: 150px;
+                                font-size: 13px;
+                                color: #e0e0e0;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 36px;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                xmx-input := TextInput {
+                                    x: 12px;
+                                    width: parent.width - 24px;
+                                    height: parent.height;
+                                    text <=> InstanceEditLogic.xmx;
+                                    color: #e0e0e0;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+
+                                if xmx-input.text == "": Text {
+                                    x: 12px;
+                                    height: parent.height;
+                                    text: "2G";
+                                    color: #555;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: @tr("Init Memory (Xms)");
+                                width: 150px;
+                                font-size: 13px;
+                                color: #e0e0e0;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 36px;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                xms-input := TextInput {
+                                    x: 12px;
+                                    width: parent.width - 24px;
+                                    height: parent.height;
+                                    text <=> InstanceEditLogic.xms;
+                                    color: #e0e0e0;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+
+                                if xms-input.text == "": Text {
+                                    x: 12px;
+                                    height: parent.height;
+                                    text: "512M";
+                                    color: #555;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text { text: @tr("Java"); font-size: 12px; color: #9e9e9e; }
+                            ComboBox {
+                                height: 36px;
+                                model: InstanceEditLogic.java-mode-list;
+                                current-value <=> InstanceEditLogic.selected-java-mode;
+                            }
+                        }
+
+                        if InstanceEditLogic.selected-java-mode == "Use Custom Java": VerticalLayout {
+                            spacing: 6px;
+
+                            Text {
+                                text: @tr("Detected Java Installations");
+                                font-size: 12px;
+                                color: #9e9e9e;
+                            }
+
+                            Rectangle {
+                                height: 110px;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                clip: true;
+
+                                if InstanceEditLogic.detected-java-list.length == 0: Text {
+                                    text: @tr("No Java installation found");
+                                    color: #555;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                ListView {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    for path in InstanceEditLogic.detected-java-list: Rectangle {
+                                        height: 28px;
+                                        background: InstanceEditLogic.java-path == path
+                                            ? #2e5b22
+                                            : (jrow-ta.has-hover ? #ffffff.with-alpha(0.06) : transparent);
+                                        jrow-ta := TouchArea {
+                                            clicked => { InstanceEditLogic.java-path = path; }
+                                        }
+                                        Text {
+                                            x: 10px;
+                                            width: parent.width - 20px;
+                                            height: parent.height;
+                                            text: path;
+                                            color: InstanceEditLogic.java-path == path ? #d7f5c9 : #c0c0c0;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                ToolButton {
+                                    label: @tr("Browse...");
+                                    clicked => { InstanceEditLogic.browse-java(); }
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: InstanceEditLogic.java-path == ""
+                                        ? @tr("No Java selected")
+                                        : InstanceEditLogic.java-path;
+                                    color: InstanceEditLogic.java-path == "" ? #555 : #9e9e9e;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: end;
+                            Text {
+                                text: InstanceEditLogic.error-msg;
+                                color: #e74c3c;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            ToolButton {
+                                label: @tr("Save Settings");
+                                primary: true;
+                                clicked => { InstanceEditLogic.confirm-edit(); }
+                            }
+                        }
+                    }
+
+                    // 10：其他紀錄檔
+                    if InstanceDetailLogic.active-tab == 10: HorizontalLayout {
+                        padding: 16px;
+                        spacing: 12px;
+
+                        // 左：log 檔清單
+                        Rectangle {
+                            width: 200px;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #191a20;
+                            clip: true;
+
+                            if InstanceDetailLogic.other-logs.length == 0: Text {
+                                text: @tr("No log files.");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for log-name in InstanceDetailLogic.other-logs: Rectangle {
+                                    height: 30px;
+                                    background: InstanceDetailLogic.viewing-log-name == log-name
+                                        ? #2e5b22
+                                        : (lrow-ta.has-hover ? #ffffff.with-alpha(0.06) : transparent);
+                                    lrow-ta := TouchArea {
+                                        clicked => { InstanceDetailLogic.view-log-file(log-name); }
+                                    }
+                                    Text {
+                                        x: 10px;
+                                        width: parent.width - 20px;
+                                        height: parent.height;
+                                        text: log-name;
+                                        color: InstanceDetailLogic.viewing-log-name == log-name ? #d7f5c9 : #c0c0c0;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 右：log 內容
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: #ffffff.with-alpha(0.1);
+                            background: #15161a;
+                            clip: true;
+
+                            if InstanceDetailLogic.other-log-content.length == 0: Text {
+                                text: InstanceDetailLogic.viewing-log-name == ""
+                                    ? @tr("Select a log file on the left.")
+                                    : @tr("(empty)");
+                                color: #666;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            ListView {
+                                width: parent.width;
+                                height: parent.height;
+                                for line in InstanceDetailLogic.other-log-content: Rectangle {
+                                    height: 16px;
+                                    Text {
+                                        x: 8px;
+                                        width: parent.width - 16px;
+                                        height: parent.height;
+                                        text: line;
+                                        font-size: 11px;
+                                        color: #c5c8c6;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -98,6 +98,11 @@ pub struct LaunchContext {
     pub xmx: String,
     /// Initial heap size passed to JVM, e.g. `"512M"`
     pub xms: String,
+    /// 實際使用的 Java major 版本（自訂 Java 時偵測而得）。
+    /// `None` 時 fallback 至版本 JSON 的 javaVersion.majorVersion。
+    pub java_major_version: Option<i32>,
+    /// macOS Apple Silicon 原生模式的函式庫替換表（Prism 式）
+    pub compat_override: Option<&'static crate::mc_compat::MacosArm64Override>,
 }
 
 impl LaunchContext {
@@ -180,6 +185,13 @@ impl LaunchContext {
                 continue;
             }
 
+            // Apple Silicon 原生模式：被替換的 lib 不上 classpath
+            if let Some(ov) = self.compat_override
+                && ov.excludes(&lib.name)
+            {
+                continue;
+            }
+
             // macOS：過舊 jna 一律改指向相容版本（install 端會下載對應檔案）
             if cfg!(target_os = "macos")
                 && let Some(artifact) = jna_needs_bump(&lib.name)
@@ -206,11 +218,22 @@ impl LaunchContext {
             }
         }
 
+        // Apple Silicon 原生模式：替換用的 jar 上 classpath
+        if let Some(ov) = self.compat_override {
+            for art in ov.artifacts.iter().filter(|a| !a.extract) {
+                parts.push(self.libraries_dir.join(art.rel_path));
+            }
+        }
+
         parts.push(
             self.versions_dir
                 .join(&self.version.id)
                 .join(format!("{}.jar", self.version.id)),
         );
+
+        // 同名 lib 可能因規則重複通過（如 1.18.x 的 lwjgl）→ 去重保留首見順序
+        let mut seen = std::collections::HashSet::new();
+        parts.retain(|p| seen.insert(p.clone()));
 
         parts
     }
@@ -233,11 +256,15 @@ impl LaunchContext {
     }
 
     fn java_compat_args(&self) -> Vec<String> {
-        let major = self
-            .version
-            .java_version
-            .as_ref()
-            .map_or(8, |jv| jv.major_version);
+        // compat flags 必須依「實際執行的 Java」決定：
+        // 例如 1.18.1（建議 Java 17）配自訂 Java 8 時，
+        // 不能塞 --add-modules=jdk.incubator.vector（Java 8 不認識 → JVM 起不來）
+        let major = self.java_major_version.unwrap_or_else(|| {
+            self.version
+                .java_version
+                .as_ref()
+                .map_or(8, |jv| jv.major_version)
+        });
 
         let mut args: Vec<String> = Vec::new();
         if major >= 17 {
@@ -260,6 +287,10 @@ impl LaunchContext {
         m.insert("clientid", self.client_id.clone());
         m.insert("auth_xuid", self.xuid.clone());
         m.insert("user_type", "msa".into());
+        // 1.7.x–1.8.x 的 --userProperties：必須是合法 JSON（空物件），
+        // 給空字串會讓舊版 Main.main 的 gson 解析回傳 null → NPE
+        m.insert("user_properties", "{}".into());
+        m.insert("user_property_map", "{}".into());
         m.insert("version_name", self.version.id.clone());
         m.insert(
             "game_directory",
@@ -493,6 +524,64 @@ pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
     Some(path)
 }
 
+/// 此版本是否提供 macOS arm64（Apple Silicon）原生函式庫。
+/// 1.19+ 的版本 JSON 會包含 `natives-macos-arm64` 的 lwjgl 條目；
+/// 1.18.x 以前只有 x86_64，必須用 x64 Java 透過 Rosetta 執行。
+pub fn version_supports_macos_arm64(version: &McSpecificVersionDetail) -> bool {
+    version.libraries.iter().any(|lib| {
+        lib.name.contains("natives-macos-arm64")
+            || lib
+                .downloads
+                .as_ref()
+                .and_then(|d| d.classifiers.as_ref())
+                .is_some_and(|c| c.contains_key("natives-macos-arm64"))
+    })
+}
+
+/// 偵測 Mach-O 執行檔支援的架構（macOS；透過 `lipo -archs`）
+#[cfg(target_os = "macos")]
+pub fn detect_java_archs(java_path: &std::path::Path) -> Vec<String> {
+    Command::new("/usr/bin/lipo")
+        .arg("-archs")
+        .arg(java_path)
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 執行 `java -version` 偵測實際 Java major 版本（如 8 / 17 / 21）
+pub fn detect_java_major_version(java_path: &std::path::Path) -> Option<i32> {
+    let output = Command::new(java_path).arg("-version").output().ok()?;
+    // `java -version` 輸出在 stderr；保險起見 stdout 也試
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let text = if stderr.contains("version") {
+        stderr
+    } else {
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    parse_java_major_version(&text)
+}
+
+/// 解析 `version "..."` 字串：`"1.8.0_392"` → 8、`"17.0.2"` → 17、`"21"` → 21
+fn parse_java_major_version(text: &str) -> Option<i32> {
+    let start = text.find("version \"")? + "version \"".len();
+    let quoted = text[start..].split('"').next()?;
+    let mut nums = quoted.split(['.', '_', '-', '+']);
+    let first: i32 = nums.next()?.trim().parse().ok()?;
+    if first == 1 {
+        // 舊式 1.x 命名（Java 8 以前）
+        nums.next()?.trim().parse().ok()
+    } else {
+        Some(first)
+    }
+}
+
 pub fn get_mojang_os_arch() -> &'static str {
     match (OS, ARCH) {
         ("windows", "x86_64") => "windows-x64",
@@ -625,6 +714,8 @@ mod test {
             xuid: "".into(),
             xmx: "2G".into(),
             xms: "512M".into(),
+            java_major_version: None,
+            compat_override: None,
         }
     }
 
@@ -877,6 +968,112 @@ mod test {
         assert!(args.contains(&"msa".into()), "user_type 應為 msa");
         assert!(args.contains(&"--uuid".into()));
         assert!(args.contains(&"uuid-1234".into()), "auth_uuid 未替換");
+    }
+
+    #[test]
+    fn test_parse_java_major_version() {
+        assert_eq!(
+            parse_java_major_version(r#"openjdk version "1.8.0_392""#),
+            Some(8)
+        );
+        assert_eq!(
+            parse_java_major_version(r#"openjdk version "17.0.2" 2022-01-18"#),
+            Some(17)
+        );
+        assert_eq!(
+            parse_java_major_version(r#"java version "21" 2023-09-19 LTS"#),
+            Some(21)
+        );
+        assert_eq!(
+            parse_java_major_version(r#"openjdk version "21.0.1+12-LTS""#),
+            Some(21)
+        );
+        assert_eq!(parse_java_major_version("no version here"), None);
+    }
+
+    #[test]
+    fn test_compat_args_follow_actual_java_not_version_requirement() {
+        // 1.21 建議 Java 21，但實際用 Java 8 → 不得出現 compat flags
+        let mut ctx = make_ctx(load_version("data/1.21.json"));
+        ctx.java_major_version = Some(8);
+        let args = cmd_args(&ctx.build_command());
+        assert!(
+            !args.contains(&"--add-modules=jdk.incubator.vector".into()),
+            "實際 Java 8 不應有 incubator.vector"
+        );
+        assert!(
+            !args.contains(&"--enable-native-access=ALL-UNNAMED".into()),
+            "實際 Java 8 不應有 native-access"
+        );
+
+        // 實際 Java 21 → 應有完整 compat flags
+        ctx.java_major_version = Some(21);
+        let args = cmd_args(&ctx.build_command());
+        assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()));
+        assert!(args.contains(&"--sun-misc-unsafe-memory-access=allow".into()));
+    }
+
+    #[test]
+    fn test_1_7_10_user_properties_is_valid_json() {
+        let cmd = make_ctx(load_version("data/1.7.10.json")).build_command();
+        let args = cmd_args(&cmd);
+        let pos = args
+            .iter()
+            .position(|a| a == "--userProperties")
+            .expect("1.7.10 應有 --userProperties");
+        assert_eq!(
+            args[pos + 1],
+            "{}",
+            "--userProperties 必須是空 JSON 物件，空字串會讓舊版 Main NPE"
+        );
+    }
+
+    #[test]
+    fn test_compat_override_replaces_lwjgl_in_classpath() {
+        let mut ctx = make_ctx(load_version("data/1.18.1.json"));
+        ctx.compat_override = crate::mc_compat::arm64_override_for(&ctx.version);
+        assert!(ctx.compat_override.is_some(), "1.18.1 應有替換表");
+
+        let cp = ctx
+            .classpath_paths()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(cp.contains("lwjgl-3.3.1.jar"), "應有 lwjgl 3.3.1");
+        assert!(
+            cp.contains("lwjgl-glfw-3.3.1-natives-macos-arm64.jar"),
+            "應有 arm64 natives"
+        );
+        assert!(!cp.contains("3.2.1"), "原 lwjgl 3.2.1 應被排除");
+        assert!(
+            cp.contains("java-objc-bridge-1.1"),
+            "應換成 java-objc-bridge 1.1"
+        );
+        assert!(
+            !cp.contains("java-objc-bridge-1.0.0"),
+            "java-objc-bridge 1.0.0 應被排除"
+        );
+    }
+
+    #[test]
+    fn test_version_supports_macos_arm64() {
+        assert!(
+            version_supports_macos_arm64(&load_version("data/1.21.json")),
+            "1.21 應支援 Apple Silicon"
+        );
+        assert!(
+            version_supports_macos_arm64(&load_version("data/1.19.2.json")),
+            "1.19.2 應支援 Apple Silicon"
+        );
+        assert!(
+            !version_supports_macos_arm64(&load_version("data/1.18.1.json")),
+            "1.18.1 不支援 Apple Silicon（僅 x86_64 natives）"
+        );
+        assert!(
+            !version_supports_macos_arm64(&load_version("data/1.12.2.json")),
+            "1.12.2 不支援 Apple Silicon"
+        );
     }
 
     #[test]

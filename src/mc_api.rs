@@ -59,6 +59,7 @@ impl McAction<Unauthenticated> {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
+                .user_agent(format!("VoxelRulerLauncher/{} (https://github.com/Derrick-Program/VoxelRuler)", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("Failed to build client"),
             _state: PhantomData,
@@ -186,8 +187,21 @@ impl McAction<Unauthenticated> {
         &self,
         component: &str,
     ) -> anyhow::Result<McJavaManifest> {
+        self.get_java_runtime_manifest_for_platform(
+            component,
+            crate::mc_parser::get_mojang_os_arch(),
+        )
+        .await
+    }
+
+    /// 指定 Mojang 平台字串（如 `mac-os` / `mac-os-arm64`）取得 Java runtime manifest。
+    /// Apple Silicon 跑 1.18.x 以前的版本時需強制抓 x64（`mac-os`）經 Rosetta 執行。
+    pub async fn get_java_runtime_manifest_for_platform(
+        &self,
+        component: &str,
+        os_arch: &str,
+    ) -> anyhow::Result<McJavaManifest> {
         let runtimes = self.get_java_runtimes().await?;
-        let os_arch = crate::mc_parser::get_mojang_os_arch();
         let manifest_url = runtimes
             .get(os_arch)
             .and_then(|by_component| by_component.get(component))

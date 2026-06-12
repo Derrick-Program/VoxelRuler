@@ -31,6 +31,9 @@ export struct InstanceData {
 
 export global AppData {
     in property <string> version: @tr("version not found");
+    // 網路狀態（footer status）：checking = 尚未完成第一次偵測
+    in-out property <bool> network-checking: true;
+    in-out property <bool> is-online: false;
 }
 
 export global AppLogic {
@@ -163,6 +166,104 @@ export global InstanceLogic {
     in-out property <[string]> log-lines: [];
     callback open-log(string);
     callback close-log();
+
+    // ── 右鍵選單操作 ─────────────────────────────────────────────
+    callback open-instance-folder(string);
+    callback duplicate-instance(string);
+
+    // 重新命名對話框
+    in-out property <bool> show-rename: false;
+    in-out property <string> rename-id: "";
+    in-out property <string> rename-text: "";
+    in-out property <string> rename-error: "";
+    callback confirm-rename();
+
+    // 刪除確認對話框
+    in-out property <bool> show-delete-confirm: false;
+    in-out property <string> delete-id: "";
+    in-out property <string> delete-name: "";
+    callback confirm-delete();
+}
+
+// ── 實例詳細視窗（Prism 式側欄分頁）────────────────────────────────
+// 分頁索引：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
+//          5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
+
+export struct InstanceFileEntry {
+    file-name: string,
+    info: string,
+    enabled: bool,
+}
+
+export struct WorldRow {
+    dir-name: string,
+    level-name: string,
+    info: string,
+}
+
+export struct ServerRow {
+    name: string,
+    ip: string,
+}
+
+export struct ScreenshotRow {
+    file-name: string,
+    thumb: image,
+}
+
+export global InstanceDetailLogic {
+    in-out property <bool> show-dialog: false;
+    in-out property <string> instance-id: "";
+    in-out property <string> instance-name: "";
+    in-out property <int> active-tab: 0;
+    in-out property <string> status-msg: "";
+
+    // 0：Minecraft 紀錄檔（live）
+    in-out property <[string]> live-log-lines: [];
+    in-out property <bool> instance-running: false;
+
+    // 1：版本
+    in-out property <string> version: "";
+    in-out property <string> mod-loader: "";
+    in-out property <[string]> version-list: [];
+    in-out property <string> selected-version: "";
+    callback save-version();
+
+    // 2/3/4：模組 / 資源包 / 光影包（category key："mods" / "resourcepacks" / "shaderpacks"）
+    in-out property <[InstanceFileEntry]> mods: [];
+    in-out property <[InstanceFileEntry]> resource-packs: [];
+    in-out property <[InstanceFileEntry]> shader-packs: [];
+    callback toggle-entry(string, string);  // category, file-name
+    callback delete-entry(string, string);  // category, file-name（世界/截圖也共用）
+    callback add-entry(string);             // category → 檔案選擇框
+    // 兩段式刪除確認："category/file-name"，再點一次才真的刪
+    in-out property <string> pending-delete-key: "";
+
+    // 5：筆記
+    in-out property <string> notes: "";
+    in-out property <string> notes-status: "";
+    callback save-notes();
+
+    // 6：世界
+    in-out property <[WorldRow]> worlds: [];
+
+    // 7：伺服器
+    in-out property <[ServerRow]> servers: [];
+
+    // 8：螢幕擷取畫面
+    in-out property <[ScreenshotRow]> screenshots: [];
+
+    // 10：其他紀錄檔
+    in-out property <[string]> other-logs: [];
+    in-out property <string> viewing-log-name: "";
+    in-out property <[string]> other-log-content: [];
+    callback view-log-file(string);
+
+    // 視窗控制與導航
+    callback open-detail(string, int);  // instance-id, tab
+    callback close-detail();
+    callback tab-changed(int);
+    callback open-subfolder(string);    // category key（"root" = 實例根目錄）
 }
 
 export struct ModData {
@@ -332,6 +433,46 @@ export global PageAccountLogic {
     set-default-account => { debug("Set default account"); }
     unset-default-account => { debug("Unset default account"); }
     manage-appearance => { debug("Manage appearance"); }
+}
+
+export global InstanceEditLogic {
+    // Dialog control
+    in-out property <bool>     show-dialog: false;
+    // 目標實例
+    in-out property <string>   instance-id: "";
+    in-out property <string>   instance-name: "";
+    // 記憶體
+    in-out property <string>   xmx: "2G";
+    in-out property <string>   xms: "512M";
+    // Java 模式：使用全域 / 使用 Minecraft runtime / 使用自訂 Java
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    // 系統掃描到的 Java 安裝路徑
+    in-out property <[string]> detected-java-list: [];
+    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
+    in-out property <string>   java-path: "";
+    // State
+    in-out property <string>   error-msg: "";
+
+    callback confirm-edit();
+    callback cancel-edit();
+    // 開啟系統檔案選擇框
+    callback browse-java();
+}
+
+export global SettingsLogic {
+    // 全域 Java 模式：使用 Minecraft runtime / 使用自訂 Java
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    // 系統掃描到的 Java 安裝路徑
+    in-out property <[string]> detected-java-list: [];
+    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
+    in-out property <string>   java-path: "";
+    in-out property <string>   status-msg: "";
+
+    callback save-settings();
+    // 開啟系統檔案選擇框
+    callback browse-java();
 }
 
 export global InstanceCreateLogic {

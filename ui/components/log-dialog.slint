@@ -1,44 +1,90 @@
-import { StandardButton, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 
-export component LogDialog inherits Dialog {
-    title: @tr("Instance Log");
-    preferred-width: 720px;
-    preferred-height: 500px;
-    min-width: 480px;
-    min-height: 300px;
+export component LogDialog inherits Rectangle {
+    background: #000000.with-alpha(0.6);
 
     in property <[string]> lines;
     callback closed();
 
-    StandardButton { kind: close; clicked => { root.closed(); } }
+    // 阻擋點擊穿透到下層
+    TouchArea { }
 
-    sv := ScrollView {
-        width: 100%;
-        height: 100%;
-        viewport-width: self.width;
+    Rectangle {
+        width: Math.min(parent.width - 80px, 720px);
+        height: Math.min(parent.height - 80px, 500px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: #1e2028;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #ffffff.with-alpha(0.1);
+        clip: true;
 
-        Rectangle {
-            background: #1a1a1a;
-            width: sv.width;
-
-            VerticalLayout {
-                padding: 12px;
-                spacing: 1px;
-                alignment: start;
-                width: sv.width - 24px;
-
-                if root.lines.length == 0: Text {
-                    text: @tr("No log output yet.");
-                    color: #666;
-                    font-size: 12px;
-                    horizontal-alignment: center;
+        VerticalLayout {
+            // ── Header ──────────────────────────────────────────────
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 12px;
+                    alignment: space-between;
+                    Text {
+                        text: @tr("Instance Log");
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: #e0e0e0;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 6px;
+                        background: x-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent;
+                        x-ta := TouchArea { clicked => { root.closed(); } }
+                        Text {
+                            text: "X";
+                            color: #888;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
                 }
+            }
 
-                for line in root.lines: Text {
-                    text: line;
-                    font-size: 11px;
-                    color: #c5c8c6;
-                    wrap: word-wrap;
+            Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
+
+            // ── Log Content ─────────────────────────────────────────
+            Rectangle {
+                vertical-stretch: 1;
+                background: #1a1a1a;
+
+                sv := ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    viewport-width: self.width;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 1px;
+                        alignment: start;
+                        width: sv.width - 24px;
+
+                        if root.lines.length == 0: Text {
+                            text: @tr("No log output yet.");
+                            color: #666;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+
+                        for line in root.lines: Text {
+                            text: line;
+                            font-size: 11px;
+                            color: #c5c8c6;
+                            wrap: word-wrap;
+                        }
+                    }
                 }
             }
         }

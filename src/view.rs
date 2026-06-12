@@ -6,6 +6,7 @@ use crate::{
     mc_paths::McPaths,
     mc_token::{self, SessionData},
     mc_types::McSpecificVersionDetail,
+    settings::AppSettings,
 };
 use anyhow::Context as _;
 use slint::{Model, ModelRc, VecModel};
@@ -20,6 +21,62 @@ use std::{
     },
 };
 use tracing::{debug, error, info, warn};
+
+/// 下拉選單顯示文字（同時也是 Rust 端比對用的哨兵值）
+const JAVA_MODE_LABEL_GLOBAL: &str = "Use Global Settings";
+const JAVA_MODE_LABEL_MINECRAFT: &str = "Use Minecraft Runtime";
+const JAVA_MODE_LABEL_CUSTOM: &str = "Use Custom Java";
+
+/// 設定檔中儲存的 java_mode 值
+const JAVA_MODE_GLOBAL: &str = "global";
+const JAVA_MODE_MINECRAFT: &str = "minecraft";
+const JAVA_MODE_CUSTOM: &str = "custom";
+
+fn java_mode_to_label(mode: &str, is_instance: bool) -> &'static str {
+    match mode {
+        JAVA_MODE_CUSTOM => JAVA_MODE_LABEL_CUSTOM,
+        JAVA_MODE_MINECRAFT => JAVA_MODE_LABEL_MINECRAFT,
+        // 空字串 = 預設：instance 跟隨全域、全域跟隨 Minecraft
+        _ if is_instance => JAVA_MODE_LABEL_GLOBAL,
+        _ => JAVA_MODE_LABEL_MINECRAFT,
+    }
+}
+
+fn java_label_to_mode(label: &str) -> &'static str {
+    match label {
+        JAVA_MODE_LABEL_CUSTOM => JAVA_MODE_CUSTOM,
+        JAVA_MODE_LABEL_MINECRAFT => JAVA_MODE_MINECRAFT,
+        _ => JAVA_MODE_GLOBAL,
+    }
+}
+
+/// 啟動時實際使用的 Java 來源
+#[derive(Debug)]
+enum JavaSource {
+    /// 使用者自訂的 java 執行檔路徑
+    CustomPath(PathBuf),
+    /// 跟隨版本 JSON 的 javaVersion.component（Minecraft 提供）
+    VersionDefault,
+}
+
+/// Java 解析優先序：
+/// instance（custom / minecraft / global）→ 全域（custom / minecraft）→ Minecraft 版本預設
+fn resolve_java_source(instance: &InstanceConfig, settings: &AppSettings) -> JavaSource {
+    match instance.java_mode.as_str() {
+        JAVA_MODE_CUSTOM if !instance.java_path.trim().is_empty() => {
+            return JavaSource::CustomPath(PathBuf::from(instance.java_path.trim()));
+        }
+        JAVA_MODE_MINECRAFT => return JavaSource::VersionDefault,
+        // "global" / 空字串 / 其他 → 跟隨全域
+        _ => {}
+    }
+    match settings.java_mode.as_str() {
+        JAVA_MODE_CUSTOM if !settings.java_path.trim().is_empty() => {
+            JavaSource::CustomPath(PathBuf::from(settings.java_path.trim()))
+        }
+        _ => JavaSource::VersionDefault,
+    }
+}
 
 async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
     let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
@@ -176,6 +233,113 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
+    // ── 網路狀態偵測（footer status）────────────────────────────────────
+    // 每 15 秒 HEAD 一次 Mojang 端點：對 launcher 而言「連得上 Mojang」才算 online
+    let ui_weak_for_net = ui.as_weak();
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("建立網路偵測 client 失敗");
+        loop {
+            let online = client
+                .head("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json")
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            let ui_weak = ui_weak_for_net.clone();
+            if slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    let app = ui.global::<AppData>();
+                    app.set_network_checking(false);
+                    app.set_is_online(online);
+                }
+            })
+            .is_err()
+            {
+                break; // event loop 已結束
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+        }
+    });
+
+    // ── Java 模式選單 + 全域設定載入 ─────────────────────────────────────
+    {
+        let edit_items: Vec<slint::SharedString> = vec![
+            JAVA_MODE_LABEL_GLOBAL.into(),
+            JAVA_MODE_LABEL_MINECRAFT.into(),
+            JAVA_MODE_LABEL_CUSTOM.into(),
+        ];
+        ui.global::<InstanceEditLogic>()
+            .set_java_mode_list(ModelRc::from(Rc::new(VecModel::from(edit_items))));
+
+        let settings_items: Vec<slint::SharedString> = vec![
+            JAVA_MODE_LABEL_MINECRAFT.into(),
+            JAVA_MODE_LABEL_CUSTOM.into(),
+        ];
+        let app_settings = AppSettings::load();
+        let sl = ui.global::<SettingsLogic>();
+        sl.set_java_mode_list(ModelRc::from(Rc::new(VecModel::from(settings_items))));
+        sl.set_selected_java_mode(java_mode_to_label(&app_settings.java_mode, false).into());
+        sl.set_java_path(app_settings.java_path.as_str().into());
+    }
+
+    // ── 掃描系統 Java 安裝（背景執行，完成後填入兩處清單）────────────────
+    let ui_weak_for_scan = ui.as_weak();
+    tokio::spawn(async move {
+        let javas = tokio::task::spawn_blocking(crate::java_scan::scan_system_javas)
+            .await
+            .unwrap_or_default();
+        info!(count = javas.len(), "系統 Java 掃描完成");
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_weak_for_scan.upgrade() else {
+                return;
+            };
+            let items: Vec<slint::SharedString> =
+                javas.iter().map(|p| p.as_str().into()).collect();
+            ui.global::<InstanceEditLogic>()
+                .set_detected_java_list(ModelRc::from(Rc::new(VecModel::from(items.clone()))));
+            ui.global::<SettingsLogic>()
+                .set_detected_java_list(ModelRc::from(Rc::new(VecModel::from(items))));
+        });
+    });
+
+    // ── 系統檔案選擇框 ───────────────────────────────────────────────────
+    // rfd 使用 xdg-portal 後端（Linux 不連結 GTK，AppImage 友善），
+    // 該後端僅提供 async API，因此用 slint::spawn_local 在 UI 執行緒上等待。
+    let ui_weak_for_edit_browse = ui.as_weak();
+    ui.global::<InstanceEditLogic>().on_browse_java(move || {
+        let ui_weak = ui_weak_for_edit_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("選擇 Java 執行檔")
+                .pick_file()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<InstanceEditLogic>()
+                    .set_java_path(file.path().display().to_string().into());
+            }
+        });
+    });
+
+    let ui_weak_for_settings_browse = ui.as_weak();
+    ui.global::<SettingsLogic>().on_browse_java(move || {
+        let ui_weak = ui_weak_for_settings_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("選擇 Java 執行檔")
+                .pick_file()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<SettingsLogic>()
+                    .set_java_path(file.path().display().to_string().into());
+            }
+        });
+    });
+
     let master_for_search = Arc::clone(&master_configs);
     let ui_weak_for_search = ui.as_weak();
     logic.on_search_changed(move |text| {
@@ -200,26 +364,20 @@ pub async fn open_view() -> anyhow::Result<()> {
     let instance_logs_for_launch = Arc::clone(&instance_logs);
     let ui_weak_for_launch = ui.as_weak();
     logic.on_launch_instance(move |id| {
-        let (version_id, instance_id, instance_name, xmx, xms) = {
+        let config = {
             let configs = master_for_launch.lock().unwrap();
-            if let Some(c) = configs.iter().find(|c| c.id == id.as_str()) {
-                (
-                    c.version.clone(),
-                    c.id.clone(),
-                    c.name.clone(),
-                    c.xmx.clone(),
-                    c.xms.clone(),
-                )
-            } else {
-                (
-                    id.to_string(),
-                    id.to_string(),
-                    id.to_string(),
-                    "2G".into(),
-                    "512M".into(),
-                )
-            }
+            configs
+                .iter()
+                .find(|c| c.id == id.as_str())
+                .cloned()
+                .unwrap_or_else(|| InstanceConfig {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    version: id.to_string(),
+                    ..Default::default()
+                })
         };
+        let instance_id = config.id.clone();
         let running_procs = Arc::clone(&running_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
@@ -227,17 +385,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             return;
         }
         tokio::spawn(async move {
-            match do_launch(
-                version_id,
-                instance_id.clone(),
-                instance_name.clone(),
-                xmx,
-                xms,
-                ui_weak.clone(),
-                logs,
-            )
-            .await
-            {
+            match do_launch(config, ui_weak.clone(), logs).await {
                 Ok(child) => {
                     running_procs
                         .lock()
@@ -285,8 +433,112 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    logic.on_open_instance_settings(move |_id| {
-        // TODO: 開啟 instance 設定頁面（M4 里程碑實作）
+    // 「編輯實例」→ 開啟詳細視窗的「設定」分頁（tab 9）
+    let master_for_edit_open = Arc::clone(&master_configs);
+    let running_for_edit_open = Arc::clone(&running_procs);
+    let logs_for_edit_open = Arc::clone(&instance_logs);
+    let ui_weak_for_edit_open = ui.as_weak();
+    logic.on_open_instance_settings(move |id| {
+        let Some(ui) = ui_weak_for_edit_open.upgrade() else {
+            return;
+        };
+        open_instance_detail(
+            &ui,
+            &master_for_edit_open,
+            &running_for_edit_open,
+            &logs_for_edit_open,
+            id.as_str(),
+            9,
+        );
+    });
+
+    let edit_logic = ui.global::<InstanceEditLogic>();
+
+    let ui_weak_for_edit_cancel = ui.as_weak();
+    edit_logic.on_cancel_edit(move || {
+        if let Some(ui) = ui_weak_for_edit_cancel.upgrade() {
+            ui.global::<InstanceEditLogic>().set_show_dialog(false);
+        }
+    });
+
+    let store_for_edit = Arc::clone(&store);
+    let master_for_edit = Arc::clone(&master_configs);
+    let ui_weak_for_edit_confirm = ui.as_weak();
+    edit_logic.on_confirm_edit(move || {
+        let Some(ui) = ui_weak_for_edit_confirm.upgrade() else {
+            return;
+        };
+        let edit = ui.global::<InstanceEditLogic>();
+        let id = edit.get_instance_id().to_string();
+        let xmx = edit.get_xmx().trim().to_string();
+        let xms = edit.get_xms().trim().to_string();
+        let java_path = edit.get_java_path().trim().to_string();
+        let java_mode = java_label_to_mode(edit.get_selected_java_mode().as_str());
+
+        if java_mode == JAVA_MODE_CUSTOM {
+            if java_path.is_empty() {
+                edit.set_error_msg("選擇自訂 Java 時必須填寫路徑".into());
+                return;
+            }
+            if !Path::new(&java_path).is_file() {
+                edit.set_error_msg("自訂 Java 路徑不存在或不是檔案".into());
+                return;
+            }
+        }
+
+        let updated_config = {
+            let mut master = master_for_edit.lock().unwrap();
+            let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                edit.set_error_msg("找不到實例".into());
+                return;
+            };
+            c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
+            c.xms = if xms.is_empty() { "512M".into() } else { xms };
+            c.java_mode = java_mode.to_string();
+            // 路徑文字保留，切換模式時不清掉使用者輸入
+            c.java_path = java_path;
+            c.clone()
+        };
+
+        // 寫入 instance.toml；watcher 會自動同步 UI 列表
+        match store_for_edit.lock().unwrap().save_one(&updated_config) {
+            Ok(()) => {
+                edit.set_error_msg("".into());
+                ui.global::<InstanceDetailLogic>()
+                    .set_status_msg("✓ 已儲存".into());
+            }
+            Err(e) => edit.set_error_msg(format!("儲存失敗：{e}").into()),
+        }
+    });
+
+    let ui_weak_for_settings = ui.as_weak();
+    ui.global::<SettingsLogic>().on_save_settings(move || {
+        let Some(ui) = ui_weak_for_settings.upgrade() else {
+            return;
+        };
+        let sl = ui.global::<SettingsLogic>();
+        let java_path = sl.get_java_path().trim().to_string();
+        let java_mode = java_label_to_mode(sl.get_selected_java_mode().as_str());
+
+        if java_mode == JAVA_MODE_CUSTOM {
+            if java_path.is_empty() {
+                sl.set_status_msg("⚠ 選擇自訂 Java 時必須填寫路徑".into());
+                return;
+            }
+            if !Path::new(&java_path).is_file() {
+                sl.set_status_msg("⚠ Java 路徑不存在或不是檔案".into());
+                return;
+            }
+        }
+
+        let new_settings = AppSettings {
+            java_mode: java_mode.to_string(),
+            java_path,
+        };
+        match new_settings.save() {
+            Ok(()) => sl.set_status_msg("✓ 已儲存".into()),
+            Err(e) => sl.set_status_msg(format!("儲存失敗：{e}").into()),
+        }
     });
 
     let ui_weak_for_dismiss = ui.as_weak();
@@ -321,6 +573,293 @@ pub async fn open_view() -> anyhow::Result<()> {
     logic.on_close_log(move || {
         if let Some(ui) = ui_weak_for_close_log.upgrade() {
             ui.global::<InstanceLogic>().set_show_log(false);
+        }
+    });
+
+    // ── 右鍵選單：開啟資料夾 / 複製 / 重新命名 / 刪除 ─────────────────────
+    logic.on_open_instance_folder(move |id| {
+        if let Ok(paths) = McPaths::new() {
+            let _ = open::that(paths.instance_dir(id.as_str()));
+        }
+    });
+
+    let store_for_dup = Arc::clone(&store);
+    let master_for_dup = Arc::clone(&master_configs);
+    let ui_weak_for_dup = ui.as_weak();
+    logic.on_duplicate_instance(move |id| {
+        let config = {
+            let configs = master_for_dup.lock().unwrap();
+            configs.iter().find(|c| c.id == id.as_str()).cloned()
+        };
+        let Some(config) = config else { return };
+        let store = Arc::clone(&store_for_dup);
+        let ui_weak = ui_weak_for_dup.clone();
+        // 實例資料夾可能很大（worlds / mods），放 blocking thread 複製
+        tokio::task::spawn_blocking(move || {
+            let result = (|| -> anyhow::Result<()> {
+                let paths = McPaths::new()?;
+                let mut new_config = config.clone();
+                new_config.id = uuid::Uuid::new_v4().to_string();
+                new_config.name = format!("{} (copy)", config.name);
+                new_config.last_played = String::new();
+                new_config.play_time_secs = 0;
+                let src = paths.instance_dir(&config.id);
+                let dst = paths.instance_dir(&new_config.id);
+                crate::instance_assets::copy_dir_recursive(&src, &dst)?;
+                // 覆寫複製來的 instance.toml（換 id / 名稱）；watcher 會同步列表
+                store.lock().unwrap().save_one(&new_config)?;
+                Ok(())
+            })();
+            if let Err(e) = result {
+                error!("複製實例失敗: {e:#}");
+                set_install_state(&ui_weak, true, 0.0, &format!("複製實例失敗：{e:#}"), true);
+            }
+        });
+    });
+
+    let store_for_rename = Arc::clone(&store);
+    let master_for_rename = Arc::clone(&master_configs);
+    let ui_weak_for_rename = ui.as_weak();
+    logic.on_confirm_rename(move || {
+        let Some(ui) = ui_weak_for_rename.upgrade() else {
+            return;
+        };
+        let logic = ui.global::<InstanceLogic>();
+        let id = logic.get_rename_id().to_string();
+        let new_name = logic.get_rename_text().trim().to_string();
+        if new_name.is_empty() {
+            logic.set_rename_error("名稱不可為空".into());
+            return;
+        }
+        let updated = {
+            let mut master = master_for_rename.lock().unwrap();
+            let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                logic.set_rename_error("找不到實例".into());
+                return;
+            };
+            c.name = new_name;
+            c.clone()
+        };
+        match store_for_rename.lock().unwrap().save_one(&updated) {
+            Ok(()) => logic.set_show_rename(false),
+            Err(e) => logic.set_rename_error(format!("儲存失敗：{e}").into()),
+        }
+    });
+
+    let store_for_del = Arc::clone(&store);
+    let running_for_del = Arc::clone(&running_procs);
+    let ui_weak_for_del = ui.as_weak();
+    logic.on_confirm_delete(move || {
+        let Some(ui) = ui_weak_for_del.upgrade() else {
+            return;
+        };
+        let logic = ui.global::<InstanceLogic>();
+        let id = logic.get_delete_id().to_string();
+        // 執行中先停止
+        if let Some(mut child) = running_for_del.lock().unwrap().remove(&id) {
+            let _ = child.kill();
+        }
+        if let Err(e) = store_for_del.lock().unwrap().delete_one(&id) {
+            error!("刪除實例失敗: {e:#}");
+        }
+        logic.set_show_delete_confirm(false);
+        // 詳細視窗若開著同一實例，順手關閉
+        let detail = ui.global::<InstanceDetailLogic>();
+        if detail.get_instance_id().as_str() == id {
+            detail.set_show_dialog(false);
+        }
+    });
+
+    // ── 實例詳細視窗（側欄分頁）──────────────────────────────────────────
+    let detail_logic = ui.global::<InstanceDetailLogic>();
+
+    let master_for_detail_open = Arc::clone(&master_configs);
+    let running_for_detail_open = Arc::clone(&running_procs);
+    let logs_for_detail_open = Arc::clone(&instance_logs);
+    let ui_weak_for_detail_open = ui.as_weak();
+    detail_logic.on_open_detail(move |id, tab| {
+        let Some(ui) = ui_weak_for_detail_open.upgrade() else {
+            return;
+        };
+        open_instance_detail(
+            &ui,
+            &master_for_detail_open,
+            &running_for_detail_open,
+            &logs_for_detail_open,
+            id.as_str(),
+            tab,
+        );
+    });
+
+    let ui_weak_for_detail_close = ui.as_weak();
+    detail_logic.on_close_detail(move || {
+        if let Some(ui) = ui_weak_for_detail_close.upgrade() {
+            ui.global::<InstanceDetailLogic>().set_show_dialog(false);
+        }
+    });
+
+    let logs_for_tab = Arc::clone(&instance_logs);
+    let ui_weak_for_tab = ui.as_weak();
+    detail_logic.on_tab_changed(move |tab| {
+        let Some(ui) = ui_weak_for_tab.upgrade() else {
+            return;
+        };
+        let id = ui
+            .global::<InstanceDetailLogic>()
+            .get_instance_id()
+            .to_string();
+        load_detail_tab(&ui, &id, tab, &logs_for_tab);
+    });
+
+    let ui_weak_for_subfolder = ui.as_weak();
+    detail_logic.on_open_subfolder(move |category| {
+        let Some(ui) = ui_weak_for_subfolder.upgrade() else {
+            return;
+        };
+        let id = ui
+            .global::<InstanceDetailLogic>()
+            .get_instance_id()
+            .to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = open::that(dir);
+    });
+
+    let logs_for_toggle = Arc::clone(&instance_logs);
+    let ui_weak_for_toggle = ui.as_weak();
+    detail_logic.on_toggle_entry(move |category, file_name| {
+        let Some(ui) = ui_weak_for_toggle.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        match crate::instance_assets::toggle_disabled(&dir, file_name.as_str()) {
+            Ok(_) => detail.set_status_msg("".into()),
+            Err(e) => detail.set_status_msg(format!("{e}").into()),
+        }
+        load_detail_tab(&ui, &id, detail_category_tab(category.as_str()), &logs_for_toggle);
+    });
+
+    let logs_for_delete_entry = Arc::clone(&instance_logs);
+    let ui_weak_for_delete_entry = ui.as_weak();
+    detail_logic.on_delete_entry(move |category, file_name| {
+        let Some(ui) = ui_weak_for_delete_entry.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        match crate::instance_assets::delete_entry(&dir, file_name.as_str()) {
+            Ok(()) => detail.set_status_msg("".into()),
+            Err(e) => detail.set_status_msg(format!("{e}").into()),
+        }
+        load_detail_tab(
+            &ui,
+            &id,
+            detail_category_tab(category.as_str()),
+            &logs_for_delete_entry,
+        );
+    });
+
+    let logs_for_add = Arc::clone(&instance_logs);
+    let ui_weak_for_add = ui.as_weak();
+    detail_logic.on_add_entry(move |category| {
+        let ui_weak = ui_weak_for_add.clone();
+        let logs = Arc::clone(&logs_for_add);
+        let category = category.to_string();
+        let _ = slint::spawn_local(async move {
+            let mut dialog = rfd::AsyncFileDialog::new().set_title("選擇要加入的檔案");
+            dialog = match category.as_str() {
+                "mods" => dialog.add_filter("Minecraft Mod", &["jar"]),
+                "resourcepacks" | "shaderpacks" => dialog.add_filter("Pack", &["zip"]),
+                _ => dialog,
+            };
+            let Some(files) = dialog.pick_files().await else {
+                return;
+            };
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let detail = ui.global::<InstanceDetailLogic>();
+            let id = detail.get_instance_id().to_string();
+            let Ok(paths) = McPaths::new() else { return };
+            let dir = detail_category_dir(&paths, &id, &category);
+            for f in files {
+                if let Err(e) = crate::instance_assets::add_file(&dir, f.path()) {
+                    detail.set_status_msg(format!("{e}").into());
+                }
+            }
+            load_detail_tab(&ui, &id, detail_category_tab(&category), &logs);
+        });
+    });
+
+    let ui_weak_for_notes = ui.as_weak();
+    detail_logic.on_save_notes(move || {
+        let Some(ui) = ui_weak_for_notes.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        match crate::instance_assets::save_notes(&paths.instance_dir(&id), detail.get_notes().as_str())
+        {
+            Ok(()) => detail.set_notes_status("✓ 已儲存".into()),
+            Err(e) => detail.set_notes_status(format!("{e}").into()),
+        }
+    });
+
+    let ui_weak_for_view_log = ui.as_weak();
+    detail_logic.on_view_log_file(move |name| {
+        let Some(ui) = ui_weak_for_view_log.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let logs_dir = paths.instance_dir(&id).join("logs");
+        detail.set_viewing_log_name(name.clone());
+        match crate::instance_assets::read_log_lines(&logs_dir, name.as_str(), 2000) {
+            Ok(lines) => {
+                let shared: Vec<slint::SharedString> =
+                    lines.iter().map(|s| s.as_str().into()).collect();
+                detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(shared))));
+            }
+            Err(e) => {
+                let msg: Vec<slint::SharedString> = vec![format!("讀取失敗：{e}").into()];
+                detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(msg))));
+            }
+        }
+    });
+
+    let store_for_version = Arc::clone(&store);
+    let master_for_version = Arc::clone(&master_configs);
+    let ui_weak_for_version_save = ui.as_weak();
+    detail_logic.on_save_version(move || {
+        let Some(ui) = ui_weak_for_version_save.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let new_version = detail.get_selected_version().to_string();
+        if new_version.is_empty() {
+            return;
+        }
+        let updated = {
+            let mut master = master_for_version.lock().unwrap();
+            let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                return;
+            };
+            c.version = new_version.clone();
+            c.clone()
+        };
+        match store_for_version.lock().unwrap().save_one(&updated) {
+            Ok(()) => {
+                detail.set_version(new_version.as_str().into());
+                detail.set_status_msg("✓ 已儲存".into());
+            }
+            Err(e) => detail.set_status_msg(format!("儲存失敗：{e}").into()),
         }
     });
 
@@ -759,6 +1298,11 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
     let ui_weak = ui_weak.clone();
     let _ = slint::invoke_from_event_loop(move || {
         let Some(ui) = ui_weak.upgrade() else { return };
+        // 詳細視窗開著同一實例時，同步 running 狀態指示
+        let detail = ui.global::<InstanceDetailLogic>();
+        if detail.get_instance_id().as_str() == id {
+            detail.set_instance_running(status == "running");
+        }
         let list = ui.global::<InstanceLogic>().get_instance_list();
         for i in 0..list.row_count() {
             if i >= list.row_count() {
@@ -777,30 +1321,44 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
     });
 }
 
-async fn do_launch(
-    version_id: String,
-    instance_id: String,
-    instance_name: String,
-    xmx: String,
-    xms: String,
-    ui_weak: slint::Weak<MainApp>,
-    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-) -> anyhow::Result<Child> {
-    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
+/// 下載並安裝指定的 Mojang Java runtime component，
+/// 回傳 (java 執行檔路徑, 實際使用的平台字串)。
+/// `os_arch` 可覆寫平台（如 Apple Silicon 上強制 `mac-os` 抓 x64 Java 經 Rosetta 執行），
+/// 覆寫時安裝目錄加上平台後綴避免與原生版本混放。
+/// 注意：官方 arm64 目錄缺 component 時會自動 fallback 至 x64，
+/// 呼叫端須檢查回傳的平台字串以維持 natives 架構一致。
+async fn install_java_runtime(
+    api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
+    paths: &McPaths,
+    component: &str,
+    os_arch: &str,
+    ui_weak: &slint::Weak<MainApp>,
+) -> anyhow::Result<(PathBuf, String)> {
+    let native_arch = crate::mc_parser::get_mojang_os_arch();
+    let mut os_arch = os_arch.to_string();
+    let mut manifest = api
+        .get_java_runtime_manifest_for_platform(component, &os_arch)
+        .await;
 
-    let api = crate::mc_api::McAction::new();
-    let version = api.get_specific_mc_version_detail(&version_id).await?;
-    let java_manifest = api.get_java_runtime_manifest_for_version(&version).await?;
+    // 官方目錄缺漏保險：Apple Silicon 目錄沒有該 component（如 java-runtime-beta
+    // 只有 x64 版）→ 自動改抓 x64 經 Rosetta 執行
+    if manifest.is_err() && os_arch == "mac-os-arm64" {
+        warn!(component, "官方無 arm64 版本，自動 fallback 至 x86_64（Rosetta）");
+        os_arch = "mac-os".to_string();
+        manifest = api
+            .get_java_runtime_manifest_for_platform(component, &os_arch)
+            .await;
+    }
+    let manifest = manifest
+        .with_context(|| format!("取得 Java runtime '{component}'（{os_arch}）資訊失敗"))?;
 
-    let paths = McPaths::new()?;
-    let java_component = version
-        .java_version
-        .as_ref()
-        .map(|j| j.component.clone())
-        .unwrap_or_else(|| "jre-legacy".into());
-
-    info!(java_dir = ?paths.java_dir(&java_component), "開始安裝 Java");
-    mc_install::install_java(&java_manifest, &paths.java_dir(&java_component), {
+    let dir_name = if os_arch == native_arch {
+        component.to_string()
+    } else {
+        format!("{component}-{os_arch}")
+    };
+    info!(java_dir = ?paths.java_dir(&dir_name), component, %os_arch, "開始安裝 Java");
+    mc_install::install_java(&manifest, &paths.java_dir(&dir_name), {
         let ui_weak = ui_weak.clone();
         move |p| {
             let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
@@ -809,6 +1367,138 @@ async fn do_launch(
     })
     .await
     .context("安裝 Java 失敗")?;
+    Ok((paths.java_bin(&dir_name), os_arch))
+}
+
+async fn do_launch(
+    config: InstanceConfig,
+    ui_weak: slint::Weak<MainApp>,
+    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+) -> anyhow::Result<Child> {
+    let version_id = config.version.clone();
+    let instance_id = config.id.clone();
+
+    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
+
+    let api = crate::mc_api::McAction::new();
+    let version = api.get_specific_mc_version_detail(&version_id).await?;
+    let paths = McPaths::new()?;
+
+    // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
+    let app_settings = AppSettings::load();
+    let java_source = resolve_java_source(&config, &app_settings);
+    info!(?java_source, instance = %config.name, "Java 來源解析結果");
+
+    let required_java_major = version.java_version.as_ref().map(|j| j.major_version);
+    let mut actual_java_major: Option<i32> = None;
+
+    // Apple Silicon：1.19 之前的版本只有 x86_64 natives。
+    // 若實際使用 arm64 Java，改用 Prism 式函式庫替換（compat）原生執行；
+    // 若使用 x86_64 Java（Rosetta），維持原版函式庫。
+    let is_arm_mac = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
+    let supports_arm64 = crate::mc_parser::version_supports_macos_arm64(&version);
+    let mut compat: Option<&'static crate::mc_compat::MacosArm64Override> = None;
+
+    let java_path: PathBuf = match java_source {
+        JavaSource::CustomPath(p) => {
+            if !p.is_file() {
+                anyhow::bail!("自訂 Java 路徑不存在或不是檔案：{}", p.display());
+            }
+            set_install_state(&ui_weak, true, 0.4, "使用自訂 Java...", false);
+
+            #[cfg(target_os = "macos")]
+            if is_arm_mac && !supports_arm64 {
+                let probe = p.clone();
+                let archs = tokio::task::spawn_blocking(move || {
+                    crate::mc_parser::detect_java_archs(&probe)
+                })
+                .await
+                .unwrap_or_default();
+                info!(?archs, "自訂 Java 架構偵測");
+                let java_is_arm64 = archs.is_empty() || archs.iter().any(|a| a == "arm64");
+                if java_is_arm64 {
+                    compat = crate::mc_compat::arm64_override_for(&version);
+                    match compat {
+                        Some(ov) => {
+                            info!(name = ov.name, "啟用 Apple Silicon 原生模式（函式庫替換）")
+                        }
+                        None if !archs.iter().any(|a| a == "x86_64") => {
+                            anyhow::bail!(
+                                "此 Minecraft 版本沒有 Apple Silicon 原生函式庫且無可用替換，\n需要 x86_64 Java 經 Rosetta 執行，但所選 Java 架構為 {}。",
+                                archs.join("/")
+                            );
+                        }
+                        None => {}
+                    }
+                }
+            }
+
+            // 偵測實際 Java 版本：compat flags 依此決定，過舊則提前給明確錯誤
+            let probe = p.clone();
+            actual_java_major = tokio::task::spawn_blocking(move || {
+                crate::mc_parser::detect_java_major_version(&probe)
+            })
+            .await
+            .ok()
+            .flatten();
+            info!(?actual_java_major, ?required_java_major, "自訂 Java 版本偵測");
+
+            if let (Some(actual), Some(required)) = (actual_java_major, required_java_major)
+                && actual < required
+            {
+                anyhow::bail!(
+                    "此 Minecraft 版本需要 Java {required} 以上，但所選 Java 為 {actual}（{}）。\n請到實例設定或全域設定更換 Java。",
+                    p.display()
+                );
+            }
+            p
+        }
+        JavaSource::VersionDefault => {
+            let component = version
+                .java_version
+                .as_ref()
+                .map(|j| j.component.clone())
+                .unwrap_or_else(|| "jre-legacy".into());
+
+            if is_arm_mac && !supports_arm64 {
+                compat = crate::mc_compat::arm64_override_for(&version);
+            }
+
+            // Mojang 只有 Java 17+（gamma/delta）的 arm64 版；
+            // 版本需求 >= 16（1.17–1.18）才能走原生模式，否則退回 Rosetta
+            if compat.is_some() && required_java_major.is_some_and(|m| m >= 16) {
+                info!(
+                    name = compat.map(|o| o.name),
+                    "Apple Silicon 原生模式：使用 arm64 java-runtime-gamma"
+                );
+                actual_java_major = Some(17);
+                let requested_arch = crate::mc_parser::get_mojang_os_arch();
+                let (path, used_arch) =
+                    install_java_runtime(&api, &paths, "java-runtime-gamma", requested_arch, &ui_weak)
+                        .await?;
+                // 官方 arm64 目錄缺貨而 fallback 至 x64 時，
+                // 必須同步取消替換（x64 Java 配 arm64 natives 會炸）→ 改走 Rosetta + 原版函式庫
+                if used_arch != requested_arch {
+                    warn!("arm64 Java 不可用，已 fallback 至 x86_64，取消函式庫替換（Rosetta 模式）");
+                    compat = None;
+                }
+                path
+            } else {
+                let os_arch = if is_arm_mac && !supports_arm64 {
+                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta + 原版函式庫
+                    compat = None;
+                    info!("此版本無 arm64 natives 且無 arm64 Java，改抓 x86_64 Java（Rosetta）");
+                    "mac-os"
+                } else {
+                    crate::mc_parser::get_mojang_os_arch()
+                };
+                actual_java_major = required_java_major;
+                let (path, _) =
+                    install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
+                path
+            }
+        }
+    };
 
     info!(versions_dir = ?paths.versions_dir(), "開始安裝 Minecraft 主程式");
     mc_install::install_client(&version, &paths.versions_dir(), {
@@ -822,7 +1512,7 @@ async fn do_launch(
     .context("安裝 Minecraft 主程式失敗")?;
 
     info!(libraries_dir = ?paths.libraries_dir(), "開始安裝函式庫");
-    mc_install::install_libraries(&version, &paths.libraries_dir(), {
+    mc_install::install_libraries(&version, &paths.libraries_dir(), compat, {
         let ui_weak = ui_weak.clone();
         move |p| {
             let status = format!("下載函式庫... {:.0}%", p * 100.0);
@@ -838,6 +1528,7 @@ async fn do_launch(
         &version,
         &paths.libraries_dir(),
         &paths.natives_dir(&version_id),
+        compat,
     )
     .await
     .context("解壓原生函式庫失敗")?;
@@ -881,7 +1572,7 @@ async fn do_launch(
 
     let ctx = LaunchContext {
         version,
-        java_path: paths.java_bin(&java_component),
+        java_path,
         game_dir: paths.instance_dir(&instance_id),
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
@@ -892,8 +1583,10 @@ async fn do_launch(
         auth_access_token: token,
         client_id: String::new(),
         xuid: String::new(),
-        xmx,
-        xms,
+        xmx: config.xmx.clone(),
+        xms: config.xms.clone(),
+        java_major_version: actual_java_major,
+        compat_override: compat,
     };
     // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
     let missing = ctx.missing_classpath_files();
@@ -947,6 +1640,195 @@ async fn do_launch(
     Ok(child)
 }
 
+/// 把一行 log 附加到模型：VecModel 直接原地 push（O(1)，ListView 增量更新）；
+/// 其他模型型別 fallback 重建並回傳新模型由呼叫端重設。
+fn append_log_line(
+    model: &ModelRc<slint::SharedString>,
+    line: slint::SharedString,
+) -> Option<ModelRc<slint::SharedString>> {
+    if let Some(vec_model) = model
+        .as_any()
+        .downcast_ref::<VecModel<slint::SharedString>>()
+    {
+        vec_model.push(line);
+        None
+    } else {
+        let mut lines: Vec<slint::SharedString> = (0..model.row_count())
+            .filter_map(|i| model.row_data(i))
+            .collect();
+        lines.push(line);
+        Some(ModelRc::from(Rc::new(VecModel::from(lines))))
+    }
+}
+
+/// 詳細視窗 category key → 實際資料夾
+fn detail_category_dir(paths: &McPaths, instance_id: &str, category: &str) -> PathBuf {
+    let root = paths.instance_dir(instance_id);
+    match category {
+        "root" => root,
+        "worlds" => root.join("saves"),
+        other => root.join(other),
+    }
+}
+
+/// category key → 所屬分頁索引（操作後重新整理用）
+fn detail_category_tab(category: &str) -> i32 {
+    match category {
+        "mods" => 2,
+        "resourcepacks" => 3,
+        "shaderpacks" => 4,
+        "saves" | "worlds" => 6,
+        "screenshots" => 8,
+        _ => -1,
+    }
+}
+
+fn shared_model(items: Vec<slint::SharedString>) -> ModelRc<slint::SharedString> {
+    ModelRc::from(Rc::new(VecModel::from(items)))
+}
+
+fn file_entries_model(dir: &Path, exts: &[&str], allow_dirs: bool) -> ModelRc<InstanceFileEntry> {
+    let items: Vec<InstanceFileEntry> = crate::instance_assets::list_entries(dir, exts, allow_dirs)
+        .into_iter()
+        .map(|e| InstanceFileEntry {
+            file_name: e.file_name.as_str().into(),
+            info: e.info.as_str().into(),
+            enabled: e.enabled,
+        })
+        .collect();
+    ModelRc::from(Rc::new(VecModel::from(items)))
+}
+
+/// 載入詳細視窗指定分頁的資料（必須在 UI 執行緒呼叫）
+fn load_detail_tab(
+    ui: &MainApp,
+    instance_id: &str,
+    tab: i32,
+    instance_logs: &Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+) {
+    let Ok(paths) = McPaths::new() else { return };
+    let dir = paths.instance_dir(instance_id);
+    let detail = ui.global::<InstanceDetailLogic>();
+    detail.set_pending_delete_key("".into());
+    match tab {
+        // Minecraft 紀錄檔（live，先帶入目前 buffer，後續由 log reader 增量 push）
+        0 => {
+            let lines: Vec<slint::SharedString> = instance_logs
+                .lock()
+                .unwrap()
+                .get(instance_id)
+                .map(|d| d.iter().map(|s| s.as_str().into()).collect())
+                .unwrap_or_default();
+            detail.set_live_log_lines(shared_model(lines));
+        }
+        2 => detail.set_mods(file_entries_model(&dir.join("mods"), &[".jar"], false)),
+        3 => detail.set_resource_packs(file_entries_model(
+            &dir.join("resourcepacks"),
+            &[".zip"],
+            true,
+        )),
+        4 => detail.set_shader_packs(file_entries_model(
+            &dir.join("shaderpacks"),
+            &[".zip"],
+            true,
+        )),
+        5 => {
+            detail.set_notes(crate::instance_assets::read_notes(&dir).as_str().into());
+            detail.set_notes_status("".into());
+        }
+        6 => {
+            let rows: Vec<WorldRow> = crate::instance_assets::list_worlds(&dir.join("saves"))
+                .into_iter()
+                .map(|w| WorldRow {
+                    dir_name: w.dir_name.as_str().into(),
+                    level_name: w.level_name.as_str().into(),
+                    info: w.info.as_str().into(),
+                })
+                .collect();
+            detail.set_worlds(ModelRc::from(Rc::new(VecModel::from(rows))));
+        }
+        7 => {
+            let rows: Vec<ServerRow> =
+                crate::instance_assets::read_servers(&dir.join("servers.dat"))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| ServerRow {
+                        name: s.name.as_str().into(),
+                        ip: s.ip.as_str().into(),
+                    })
+                    .collect();
+            detail.set_servers(ModelRc::from(Rc::new(VecModel::from(rows))));
+        }
+        8 => {
+            let rows: Vec<ScreenshotRow> =
+                crate::instance_assets::list_screenshots(&dir.join("screenshots"), 24)
+                    .into_iter()
+                    .map(|p| ScreenshotRow {
+                        file_name: p
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default()
+                            .as_str()
+                            .into(),
+                        thumb: slint::Image::load_from_path(&p).unwrap_or_default(),
+                    })
+                    .collect();
+            detail.set_screenshots(ModelRc::from(Rc::new(VecModel::from(rows))));
+        }
+        10 => {
+            let names: Vec<slint::SharedString> =
+                crate::instance_assets::list_log_files(&dir.join("logs"))
+                    .iter()
+                    .map(|s| s.as_str().into())
+                    .collect();
+            detail.set_other_logs(shared_model(names));
+            detail.set_viewing_log_name("".into());
+            detail.set_other_log_content(shared_model(Vec::new()));
+        }
+        _ => {}
+    }
+}
+
+/// 開啟詳細視窗：填基本資料 + 設定分頁（InstanceEditLogic）+ 載入指定分頁
+fn open_instance_detail(
+    ui: &MainApp,
+    master_configs: &Arc<Mutex<Vec<InstanceConfig>>>,
+    running_procs: &Arc<Mutex<HashMap<String, Child>>>,
+    instance_logs: &Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+    id: &str,
+    tab: i32,
+) {
+    let config = {
+        let configs = master_configs.lock().unwrap();
+        configs.iter().find(|c| c.id == id).cloned()
+    };
+    let Some(c) = config else { return };
+
+    // 設定分頁沿用 InstanceEditLogic（記憶體 / Java）
+    let edit = ui.global::<InstanceEditLogic>();
+    edit.set_instance_id(c.id.as_str().into());
+    edit.set_instance_name(c.name.as_str().into());
+    edit.set_xmx(c.xmx.as_str().into());
+    edit.set_xms(c.xms.as_str().into());
+    edit.set_java_path(c.java_path.as_str().into());
+    edit.set_selected_java_mode(java_mode_to_label(&c.java_mode, true).into());
+    edit.set_error_msg("".into());
+
+    let detail = ui.global::<InstanceDetailLogic>();
+    detail.set_instance_id(c.id.as_str().into());
+    detail.set_instance_name(c.name.as_str().into());
+    detail.set_version(c.version.as_str().into());
+    detail.set_mod_loader(c.mod_loader.as_str().into());
+    detail.set_selected_version(c.version.as_str().into());
+    // 版本清單與「建立實例」對話框共用（啟動時已從 Mojang 取得）
+    detail.set_version_list(ui.global::<InstanceCreateLogic>().get_version_list());
+    detail.set_instance_running(running_procs.lock().unwrap().contains_key(id));
+    detail.set_status_msg("".into());
+    detail.set_active_tab(tab);
+    load_detail_tab(ui, id, tab, instance_logs);
+    detail.set_show_dialog(true);
+}
+
 fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     reader: R,
     instance_id: String,
@@ -975,13 +1857,21 @@ fn spawn_log_reader<R: std::io::Read + Send + 'static>(
                     return;
                 };
                 let logic = ui_handle.global::<InstanceLogic>();
-                if logic.get_show_log() && logic.get_log_instance_id().as_str() == id {
-                    let current = logic.get_log_lines();
-                    let mut lines: Vec<slint::SharedString> = (0..current.row_count())
-                        .filter_map(|i| current.row_data(i))
-                        .collect();
-                    lines.push(line_shared);
-                    logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
+                if logic.get_show_log() && logic.get_log_instance_id().as_str() == id
+                    && let Some(new_model) =
+                        append_log_line(&logic.get_log_lines(), line_shared.clone())
+                {
+                    logic.set_log_lines(new_model);
+                }
+                // 詳細視窗的「Minecraft 紀錄檔」分頁（live）
+                let detail = ui_handle.global::<InstanceDetailLogic>();
+                if detail.get_show_dialog()
+                    && detail.get_active_tab() == 0
+                    && detail.get_instance_id().as_str() == id
+                    && let Some(new_model) =
+                        append_log_line(&detail.get_live_log_lines(), line_shared)
+                {
+                    detail.set_live_log_lines(new_model);
                 }
             });
         }
