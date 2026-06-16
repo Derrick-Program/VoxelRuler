@@ -18,22 +18,47 @@ const API_RETRY_BASE_MS: u64 = 1000;
 async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwest::Response> {
     use anyhow::Context;
     let mut last_err: anyhow::Error = anyhow::anyhow!("尚未嘗試");
+    let mut delay_ms = 0;
+
     for attempt in 0..API_MAX_RETRIES {
-        if attempt > 0 {
-            let delay = API_RETRY_BASE_MS * (1u64 << (attempt - 1));
+        if delay_ms > 0 {
             warn!(
                 attempt,
                 max = API_MAX_RETRIES - 1,
-                delay_ms = delay,
+                delay_ms,
                 url,
-                "API 重試中"
+                "API 重試中，暫停等待..."
             );
-            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
+
         match client.get(url).send().await {
-            Ok(resp) => return Ok(resp),
+            Ok(resp) => {
+                if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    last_err = anyhow::anyhow!("請求過於頻繁 (429 Too Many Requests)");
+                    
+                    delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
+                    if let Some(retry_after) = resp.headers().get(reqwest::header::RETRY_AFTER) {
+                        if let Ok(retry_str) = retry_after.to_str() {
+                            if let Ok(secs) = retry_str.parse::<u64>() {
+                                delay_ms = secs * 1000;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                
+                if resp.status().is_server_error() {
+                    last_err = anyhow::anyhow!("伺服器錯誤 ({})", resp.status());
+                    delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
+                    continue;
+                }
+
+                return Ok(resp);
+            }
             Err(e) => {
                 last_err = e.into();
+                delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
             }
         }
     }
