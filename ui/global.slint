@@ -474,6 +474,71 @@ export global SettingsLogic {
     // 開啟系統檔案選擇框
     callback browse-java();
 }
+export struct CapeData {
+    id: string,
+    alias: string,
+    state: string,
+    url: string,
+}
+
+export struct SkinData {
+    id: string,
+    name: string,
+    variant: string,
+    url: string,
+    preview-image: image,
+    has-preview: bool,
+}
+
+export global AppearanceLogic {
+    in-out property <bool>   show-appearance: false;
+    in-out property <bool>   is-uploading: false;
+    in-out property <string> upload-status: "";
+    in-out property <bool>   upload-is-error: false;
+    in-out property <string> skin-url: "";
+    in-out property <string> selected-skin-path: "";
+    in-out property <string> skin-variant: "classic";
+    in-out property <image>  preview-image;
+    in-out property <bool>   has-preview: false;
+    in-out property <string> active-skin-url: "";
+    in-out property <string> selected-library-skin-url: "";
+    in-out property <string> new-skin-name: "";
+
+    in-out property <[CapeData]> capes: [];
+    in-out property <bool>   has-capes: false;
+
+    in-out property <[SkinData]> skin-history: [];
+    in-out property <bool>   has-skin-history: false;
+
+    in-out property <bool>   show-result-dialog: false;
+
+    in-out property <float>  preview-yaw: 30.0;
+    in-out property <float>  preview-pitch: 15.0;
+    in-out property <float>  preview-time: 0.0;
+    in-out property <float>  base-yaw: 30.0;
+    in-out property <float>  base-pitch: 15.0;
+
+    callback close-appearance();
+    callback browse-skin-file();
+    callback upload-from-file();
+    callback upload-from-url(string);
+    callback preview-library-skin(string);
+    callback save-to-library();
+    callback set-active-cape(string);
+    callback apply-history-skin(SkinData);
+    callback delete-skin(string);
+    callback close-result-dialog();
+    callback preview-drag-started();
+    callback preview-dragged(float, float);
+    callback preview-drag-ended();
+
+    close-appearance    => { debug("Close appearance"); }
+    browse-skin-file    => { debug("Browse skin file"); }
+    upload-from-file    => { debug("Upload from file"); }
+    upload-from-url(u)  => { debug("Upload from url: " + u); }
+    delete-skin(id)     => { debug("Delete skin: " + id); }
+    close-result-dialog => { show-result-dialog = false; }
+}
 
 export global InstanceCreateLogic {
     // Dialog control

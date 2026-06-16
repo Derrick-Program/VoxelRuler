@@ -1,0 +1,779 @@
+import { AppTheme } from "@theme";
+import { AppearanceLogic } from "@global";
+import { LineEdit, Button } from "std-widgets.slint";
+
+export component AppearanceWindow inherits Window {
+    title: @tr("外觀管理");
+    width: 860px;
+    height: 580px;
+    background: AppTheme.colors.background;
+    icon: @image-url("../../assets/icons/voxelruler.png");
+
+    property <bool> show-add-skin: false;
+
+    if !show-add-skin: HorizontalLayout {
+        padding-top: 32px;
+        padding-bottom: 32px;
+        padding-left: 32px;
+        padding-right: 32px;
+
+        VerticalLayout {
+            width: 240px;
+            spacing: 14px;
+            alignment: start;
+
+            Text {
+                text: @tr("目前外觀");
+                font-size: 11px;
+                font-weight: 700;
+                color: AppTheme.colors.muted-foreground;
+            }
+
+            Rectangle {
+                height: 320px;
+                border-radius: AppTheme.radius-lg;
+                background: AppTheme.colors.muted;
+                clip: true;
+
+                VerticalLayout {
+                    opacity: !AppearanceLogic.has-preview ? 1.0 : 0.0;
+                    animate opacity { duration: 300ms; }
+                    alignment: center;
+                    spacing: 8px;
+                    Text {
+                        text: "?";
+                        font-size: 40px;
+                        color: AppTheme.colors.muted-foreground;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: @tr("無預覽");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                TouchArea {
+                    width: 100%; height: 100%;
+                    opacity: AppearanceLogic.has-preview ? 1.0 : 0.0;
+                    animate opacity { duration: 300ms; }
+                    Image {
+                        source: AppearanceLogic.preview-image;
+                        width: parent.width;
+                        height: parent.height;
+                        image-fit: contain;
+                    }
+                    moved => {
+                        AppearanceLogic.preview-dragged(
+                            (self.mouse-x - self.pressed-x) / 1px,
+                            (self.mouse-y - self.pressed-y) / 1px
+                        );
+                    }
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            AppearanceLogic.preview-drag-started();
+                        }
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                            AppearanceLogic.preview-drag-ended();
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: cur-variant-text.preferred-width + 18px;
+                        height: 24px;
+                        border-radius: 12px;
+                        background: AppTheme.colors.secondary;
+                        cur-variant-text := Text {
+                            text: AppearanceLogic.skin-variant == "slim"
+                                ? @tr("Alex (苗條)")
+                                : @tr("Steve (經典)");
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    text: @tr("拖曳旋轉預覽");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                }
+                Rectangle { height: 4px; }
+                Button {
+                    primary: true;
+                    text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用此皮膚");
+                    enabled: !AppearanceLogic.is-uploading && AppearanceLogic.selected-library-skin-url != "";
+                    clicked => {
+                        AppearanceLogic.upload-from-url(AppearanceLogic.selected-library-skin-url);
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            Rectangle {
+                width: 1px;
+                background: AppTheme.colors.border;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 14px;
+
+            HorizontalLayout {
+                Text {
+                    text: @tr("皮膚庫");
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: AppTheme.colors.muted-foreground;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: add-btn-label.preferred-width + 24px;
+                    height: 30px;
+                    border-radius: AppTheme.radius-sm;
+                    background: add-btn-ta.has-hover
+                        ? AppTheme.colors.primary
+                        : AppTheme.colors.secondary;
+                    add-btn-ta := TouchArea {
+                        clicked => { root.show-add-skin = true; }
+                    }
+                    add-btn-label := Text {
+                        text: @tr("+ 新增外觀");
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: add-btn-ta.has-hover
+                            ? AppTheme.colors.primary-foreground
+                            : AppTheme.colors.secondary-foreground;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            skin-grid := Flickable {
+                vertical-stretch: 1;
+                property <length> item-w: 140px;
+                property <length> item-h: 240px;
+                property <length> spacing: 16px;
+                property <int> cols: Math.max(1, Math.floor((self.width + self.spacing) / (self.item-w + self.spacing)));
+                
+                viewport-height: Math.ceil(AppearanceLogic.skin-history.length / Math.max(1.0, self.cols * 1.0)) * (self.item-h + self.spacing) + 8px;
+
+                Rectangle {
+                    width: skin-grid.width;
+                    height: skin-grid.viewport-height;
+
+                    for skin[idx] in AppearanceLogic.skin-history: VerticalLayout {
+                        x: Math.mod(idx, skin-grid.cols) * (skin-grid.item-w + skin-grid.spacing) + 4px;
+                        y: Math.floor(idx / skin-grid.cols) * (skin-grid.item-h + skin-grid.spacing) + 4px;
+                        width: skin-grid.item-w;
+                        height: skin-grid.item-h;
+                        spacing: 8px;
+                        alignment: start;
+
+                        Text {
+                            text: skin.name != "" ? skin.name : @tr("未命名外觀");
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: AppTheme.colors.foreground;
+                            horizontal-alignment: center;
+                            vertical-alignment: bottom;
+                            overflow: elide;
+                            width: parent.width;
+                            height: 20px;
+                        }
+
+                        Rectangle {
+                            width: 140px;
+                            height: 200px;
+                            border-radius: AppTheme.radius-md;
+                            background: skin-card-ta.has-hover
+                                ? AppTheme.colors.secondary
+                                : AppTheme.colors.card;
+
+                            if AppearanceLogic.selected-library-skin-url == skin.url: Rectangle {
+                                x: -2px; y: -2px;
+                                width: parent.width + 4px;
+                                height: parent.height + 4px;
+                                border-radius: AppTheme.radius-md + 2px;
+                                border-width: 2px;
+                                border-color: AppTheme.mc-green;
+                                background: transparent;
+                            }
+
+                            if skin.has-preview: Image {
+                                source: skin.preview-image;
+                                width: 100%; height: 100%;
+                                image-fit: contain;
+                            }
+                            if !skin.has-preview: Text {
+                                text: "?";
+                                font-size: 28px;
+                                color: AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                x: 6px;
+                                y: parent.height - 25px;
+                                width: 44px;
+                                height: 18px;
+                                border-radius: 9px;
+                                background: #000000.with-alpha(0.55);
+                                Text {
+                                    text: skin.variant == "slim" ? "Alex" : "Steve";
+                                    color: #ffffff;
+                                    font-size: 10px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            skin-card-ta := TouchArea {
+                                clicked => {
+                                    AppearanceLogic.skin-variant = skin.variant;
+                                    AppearanceLogic.selected-library-skin-url = skin.url;
+                                    AppearanceLogic.preview-library-skin(skin.url);
+                                }
+                            }
+
+                            if AppearanceLogic.active-skin-url != skin.url: Rectangle {
+                                x: parent.width - 28px;
+                                y: 6px;
+                                width: 22px;
+                                height: 22px;
+                                border-radius: 11px;
+                                opacity: skin-card-ta.has-hover || del-ta.has-hover ? 1.0 : 0.0;
+                                animate opacity { duration: 150ms; }
+                                background: del-ta.has-hover
+                                    ? AppTheme.colors.destructive
+                                    : #000000.with-alpha(0.3);
+                                del-ta := TouchArea {
+                                    clicked => { AppearanceLogic.delete-skin(skin.id); }
+                                }
+                                Text {
+                                    text: "×";
+                                    color: del-ta.has-hover ? #ffffff : #ffffff.with-alpha(0.6);
+                                    font-size: 14px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        }
+                    }
+                }
+            }
+        }
+
+    if show-add-skin: VerticalLayout {
+        padding-top: 32px;
+        padding-bottom: 32px;
+        padding-left: 32px;
+        padding-right: 32px;
+        spacing: 24px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            height: 32px;
+
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                border-radius: AppTheme.radius-sm;
+                background: back-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                back-ta := TouchArea {
+                    clicked => { root.show-add-skin = false; }
+                }
+                Text {
+                    text: "←";
+                    font-size: 16px;
+                    color: back-ta.has-hover
+                        ? AppTheme.colors.foreground
+                        : AppTheme.colors.muted-foreground;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: @tr("新增外觀");
+                font-size: 20px;
+                font-weight: 700;
+                color: AppTheme.colors.foreground;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 48px;
+
+            VerticalLayout {
+                width: 320px;
+                spacing: 20px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("名稱");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    LineEdit {
+                        placeholder-text: @tr("幫這個外觀取個名字...");
+                        text <=> AppearanceLogic.new-skin-name;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("玩家模型");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: start;
+
+                        Rectangle {
+                            height: 40px;
+                            width: classic-row.preferred-width + 20px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppearanceLogic.skin-variant == "classic"
+                                ? AppTheme.mc-green : AppTheme.colors.border;
+                            background: AppearanceLogic.skin-variant == "classic"
+                                ? AppTheme.mc-green.with-alpha(0.1)
+                                : classic-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                            classic-ta := TouchArea {
+                                clicked => { AppearanceLogic.skin-variant = "classic"; }
+                            }
+                            classic-row := HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+                                padding: 10px;
+                                Rectangle {
+                                    width: 14px; height: 14px; border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: AppearanceLogic.skin-variant == "classic"
+                                        ? AppTheme.mc-green : AppTheme.colors.muted-foreground;
+                                    background: transparent;
+                                    if AppearanceLogic.skin-variant == "classic": Rectangle {
+                                        width: 6px; height: 6px; x: 2px; y: 2px;
+                                        border-radius: 3px;
+                                        background: AppTheme.mc-green;
+                                    }
+                                }
+                                Text {
+                                    text: @tr("經典 (Steve)");
+                                    color: AppearanceLogic.skin-variant == "classic"
+                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 40px;
+                            width: slim-row.preferred-width + 20px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppearanceLogic.skin-variant == "slim"
+                                ? AppTheme.mc-green : AppTheme.colors.border;
+                            background: AppearanceLogic.skin-variant == "slim"
+                                ? AppTheme.mc-green.with-alpha(0.1)
+                                : slim-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                            slim-ta := TouchArea {
+                                clicked => { AppearanceLogic.skin-variant = "slim"; }
+                            }
+                            slim-row := HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+                                padding: 10px;
+                                Rectangle {
+                                    width: 14px; height: 14px; border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: AppearanceLogic.skin-variant == "slim"
+                                        ? AppTheme.mc-green : AppTheme.colors.muted-foreground;
+                                    background: transparent;
+                                    if AppearanceLogic.skin-variant == "slim": Rectangle {
+                                        width: 6px; height: 6px; x: 2px; y: 2px;
+                                        border-radius: 3px;
+                                        background: AppTheme.mc-green;
+                                    }
+                                }
+                                Text {
+                                    text: @tr("苗條 (Alex)");
+                                    color: AppearanceLogic.skin-variant == "slim"
+                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("皮膚檔案");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    Rectangle {
+                        height: 76px;
+                        border-radius: AppTheme.radius-md;
+                        border-width: 1px;
+                        border-color: AppearanceLogic.selected-skin-path != ""
+                            ? AppTheme.mc-green
+                            : upload-zone-ta.has-hover ? AppTheme.colors.primary : AppTheme.colors.border;
+                        background: upload-zone-ta.has-hover
+                            ? AppTheme.colors.primary.with-alpha(0.06)
+                            : AppTheme.colors.muted;
+                        upload-zone-ta := TouchArea {
+                            clicked => { AppearanceLogic.browse-skin-file(); }
+                        }
+                        if AppearanceLogic.selected-skin-path == "": VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text {
+                                text: "↑";
+                                font-size: 18px;
+                                color: upload-zone-ta.has-hover
+                                    ? AppTheme.colors.primary : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: @tr("點擊選擇 PNG 皮膚檔案");
+                                font-size: 13px;
+                                color: upload-zone-ta.has-hover
+                                    ? AppTheme.colors.primary : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                            }
+                        }
+                        if AppearanceLogic.selected-skin-path != "": VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text {
+                                text: "✓";
+                                font-size: 18px;
+                                color: AppTheme.mc-green;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: @tr("已選取皮膚檔案");
+                                font-size: 13px;
+                                color: AppTheme.mc-green;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        padding-top: 4px;
+                        Rectangle {
+                            width: url-opt-label.preferred-width + 24px;
+                            height: 32px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppTheme.colors.border;
+                            background: url-opt-ta.has-hover
+                                ? AppTheme.colors.secondary : transparent;
+                            url-opt-ta := TouchArea {
+                                clicked => { url-popup.show(); }
+                            }
+                            url-opt-label := Text {
+                                text: @tr("或從網址匯入");
+                                font-size: 12px;
+                                color: url-opt-ta.has-hover
+                                    ? AppTheme.colors.foreground : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("披風");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    Flickable {
+                        height: 38px;
+                        viewport-width: capes-layout.min-width;
+                        capes-layout := HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 88px;
+                                height: 34px;
+                                border-radius: AppTheme.radius-sm;
+                                border-width: 1px;
+                                border-color: AppTheme.colors.border;
+                                background: hide-cape-ta.has-hover
+                                    ? AppTheme.colors.secondary : AppTheme.colors.muted;
+                                hide-cape-ta := TouchArea {
+                                    enabled: !AppearanceLogic.is-uploading;
+                                    clicked => { AppearanceLogic.set-active-cape(""); }
+                                }
+                                Text {
+                                    text: @tr("無披風");
+                                    color: AppTheme.colors.foreground;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            for cape in AppearanceLogic.capes: Rectangle {
+                                width: 88px;
+                                height: 34px;
+                                border-radius: AppTheme.radius-sm;
+                                border-width: 1px;
+                                border-color: cape.state == "ACTIVE"
+                                    ? AppTheme.mc-green : AppTheme.colors.border;
+                                background: cape-btn-ta.has-hover
+                                    ? AppTheme.colors.secondary
+                                    : cape.state == "ACTIVE"
+                                        ? AppTheme.mc-green.with-alpha(0.1)
+                                        : AppTheme.colors.muted;
+                                cape-btn-ta := TouchArea {
+                                    enabled: !AppearanceLogic.is-uploading;
+                                    clicked => { AppearanceLogic.set-active-cape(cape.id); }
+                                }
+                                Text {
+                                    text: cape.alias != "" ? cape.alias : cape.id;
+                                    color: cape.state == "ACTIVE"
+                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    text: @tr("預覽");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                Rectangle {
+                    width: 200px;
+                    height: 300px;
+                    border-radius: AppTheme.radius-lg;
+                    background: AppTheme.colors.muted;
+                    clip: true;
+
+                    VerticalLayout {
+                        opacity: !AppearanceLogic.has-preview ? 1.0 : 0.0;
+                        animate opacity { duration: 300ms; }
+                        alignment: center;
+                        spacing: 8px;
+                        Text {
+                            text: "?";
+                            font-size: 36px;
+                            color: AppTheme.colors.muted-foreground;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: @tr("無預覽");
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 13px;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        width: 100%; height: 100%;
+                        opacity: AppearanceLogic.has-preview ? 1.0 : 0.0;
+                        animate opacity { duration: 300ms; }
+                        Image {
+                            source: AppearanceLogic.preview-image;
+                            width: parent.width;
+                            height: parent.height;
+                            image-fit: contain;
+                        }
+                        moved => {
+                            AppearanceLogic.preview-dragged(
+                                (self.mouse-x - self.pressed-x) / 1px,
+                                (self.mouse-y - self.pressed-y) / 1px
+                            );
+                        }
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                AppearanceLogic.preview-drag-started();
+                            }
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                AppearanceLogic.preview-drag-ended();
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: @tr("拖曳旋轉預覽");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            alignment: end;
+            HorizontalLayout {
+                alignment: end;
+                spacing: 12px;
+                Button {
+                    text: @tr("取消");
+                    clicked => { root.show-add-skin = false; }
+                }
+                Button {
+                    primary: true;
+                    text: @tr("加入皮膚庫");
+                    enabled: !AppearanceLogic.is-uploading
+                        && (AppearanceLogic.selected-skin-path != "" || AppearanceLogic.skin-url != "");
+                    clicked => {
+                        AppearanceLogic.save-to-library();
+                        root.show-add-skin = false;
+                    }
+                }
+            }
+        }
+    }
+
+    url-popup := PopupWindow {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 320px;
+        height: 148px;
+        Rectangle {
+            background: AppTheme.colors.card;
+            border-radius: AppTheme.radius-lg;
+            border-width: 1px;
+            border-color: AppTheme.colors.border;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: @tr("請輸入皮膚網址");
+                    color: AppTheme.colors.foreground;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+                url-input := LineEdit {
+                    placeholder-text: "https://...";
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: @tr("取消");
+                        clicked => { url-popup.close(); }
+                    }
+                    Button {
+                        primary: true;
+                        text: @tr("匯入");
+                        clicked => {
+                            AppearanceLogic.skin-url = url-input.text;
+                            AppearanceLogic.upload-from-url(url-input.text);
+                            url-popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if AppearanceLogic.show-result-dialog: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000.with-alpha(0.5);
+
+        TouchArea { }
+
+        Rectangle {
+            width: 300px;
+            height: 160px;
+            border-radius: AppTheme.radius-lg;
+            background: AppTheme.colors.card;
+            border-width: 1px;
+            border-color: AppTheme.colors.border;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                alignment: space-between;
+
+                Text {
+                    text: AppearanceLogic.upload-is-error ? @tr("上傳失敗") : @tr("上傳成功");
+                    color: AppearanceLogic.upload-is-error
+                        ? AppTheme.colors.destructive : AppTheme.mc-green;
+                    font-size: 16px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: AppearanceLogic.upload-status;
+                    color: AppTheme.colors.foreground;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    Button {
+                        text: @tr("確定");
+                        clicked => {
+                            AppearanceLogic.close-result-dialog();
+                            if !AppearanceLogic.upload-is-error {
+                                AppearanceLogic.close-appearance();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

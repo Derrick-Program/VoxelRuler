@@ -20,6 +20,8 @@ mod mc_paths;
 mod mc_token;
 mod mc_types;
 mod settings;
+mod skin_history;
+mod skin_renderer;
 #[cfg(target_os = "macos")]
 mod url_handler;
 mod view;
