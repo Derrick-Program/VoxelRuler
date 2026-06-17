@@ -537,6 +537,8 @@ export global AppearanceLogic {
     callback preview-drag-started();
     callback preview-dragged(float, float);
     callback preview-drag-ended();
+    
+    callback apply-appearance();
 
     close-appearance    => { debug("Close appearance"); }
     browse-skin-file    => { debug("Browse skin file"); }

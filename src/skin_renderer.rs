@@ -107,6 +107,60 @@ impl SkinRenderer {
         add_face(p1, p5, p6, p2, u + d + w, v + d, d, h);
     }
 
+
+    fn add_box_cape(&self, tris: &mut Vec<Triangle>, tex: u8, x: f32, y: f32, z: f32, w: f32, h: f32, d: f32, u: f32, v: f32, tex_w: f32, tex_h: f32, inflate: f32, local_tx: impl Fn(Vec3) -> Vec3) {
+        let p0 = local_tx(Vec3::new(x - inflate, y - inflate, z - inflate));
+        let p1 = local_tx(Vec3::new(x + w + inflate, y - inflate, z - inflate));
+        let p2 = local_tx(Vec3::new(x + w + inflate, y + h + inflate, z - inflate));
+        let p3 = local_tx(Vec3::new(x - inflate, y + h + inflate, z - inflate));
+        let p4 = local_tx(Vec3::new(x - inflate, y - inflate, z + d + inflate));
+        let p5 = local_tx(Vec3::new(x + w + inflate, y - inflate, z + d + inflate));
+        let p6 = local_tx(Vec3::new(x + w + inflate, y + h + inflate, z + d + inflate));
+        let p7 = local_tx(Vec3::new(x - inflate, y + h + inflate, z + d + inflate));
+
+        let mut add_face = |tl: Vec3, tr: Vec3, br: Vec3, bl: Vec3, tu: f32, tv: f32, tw: f32, th: f32| {
+            let t_tl = (tu / tex_w, tv / tex_h);
+            let t_tr = ((tu + tw) / tex_w, tv / tex_h);
+            let t_br = ((tu + tw) / tex_w, (tv + th) / tex_h);
+            let t_bl = (tu / tex_w, (tv + th) / tex_h);
+            
+            tris.push(Triangle {
+                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1, tex },
+                v1: Vertex { pos: bl, u: t_bl.0, v: t_bl.1, tex },
+                v2: Vertex { pos: br, u: t_br.0, v: t_br.1, tex },
+            });
+            tris.push(Triangle {
+                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1, tex },
+                v1: Vertex { pos: br, u: t_br.0, v: t_br.1, tex },
+                v2: Vertex { pos: tr, u: t_tr.0, v: t_tr.1, tex },
+            });
+        };
+
+        // For cape, the outward face (Back face of the box, p5, p4, p7, p6) should get u=1 (which is u+d in standard)
+        // And the inward face (Front face of the box, p0, p1, p2, p3) should get u=12 (which is u+d+w+d in standard)
+        
+        // Front face (inward, touching body)
+        add_face(p0, p1, p2, p3, u + d + w + d, v + d, w, h);
+
+        // Back face (outward, with logo)
+        // BUT WAIT! If we look at the back face (p5, p4, p7, p6) from the outside, p5 is on the left, p4 is on the right.
+        // If we map it with u+d, p5 gets u+d, p4 gets u+d+w.
+        // This is correct.
+        add_face(p5, p4, p7, p6, u + d, v + d, w, h);
+
+        // Top face
+        add_face(p4, p5, p1, p0, u + d, v, w, d);
+
+        // Bottom face
+        add_face(p3, p2, p6, p7, u + d + w, v, w, d);
+
+        // Right face
+        add_face(p4, p0, p3, p7, u, v + d, d, h);
+
+        // Left face
+        add_face(p1, p5, p6, p2, u + d + w, v + d, d, h);
+    }
+
     pub fn render(&self, width: u32, height: u32, yaw: f32, pitch: f32, slim: bool, walk_anim: f32) -> SharedPixelBuffer<Rgba8Pixel> {
         let mut tris = Vec::new();
         
@@ -150,7 +204,7 @@ impl SkinRenderer {
 
         if self.cape.is_some() {
             let cape_tx = rotate_x(Vec3::new(0.0, -4.0, 2.0), (walk_anim * std::f32::consts::PI * 2.0).sin() * 0.15 + 0.25);
-            self.add_box(&mut tris, 1, -5.0, -4.0, 2.0, 10.0, 16.0, 1.0, 0.0, 0.0, 64.0, 32.0, 0.0, cape_tx);
+            self.add_box_cape(&mut tris, 1, -5.0, -4.0, 2.0, 10.0, 16.0, 1.0, 0.0, 0.0, 64.0, 32.0, 0.0, cape_tx);
         }
 
         let cy = yaw.cos();

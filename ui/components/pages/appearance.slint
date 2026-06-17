@@ -30,7 +30,7 @@ export component AppearanceWindow inherits Window {
             }
 
             Rectangle {
-                height: 320px;
+                height: 280px;
                 border-radius: AppTheme.radius-lg;
                 background: AppTheme.colors.muted;
                 clip: true;
@@ -108,16 +108,6 @@ export component AppearanceWindow inherits Window {
                     horizontal-alignment: center;
                 }
                 Rectangle { height: 4px; }
-                Button {
-                    primary: true;
-                    text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用此皮膚");
-                    enabled: !AppearanceLogic.is-uploading && AppearanceLogic.selected-library-skin-url != "";
-                    clicked => {
-                        AppearanceLogic.upload-from-url(AppearanceLogic.selected-library-skin-url);
-                    }
-                }
-
-                if AppearanceLogic.has-capes: Rectangle { height: 8px; }
                 if AppearanceLogic.has-capes: VerticalLayout {
                     spacing: 6px;
                     Text {
@@ -258,13 +248,15 @@ export component AppearanceWindow inherits Window {
                             }
                         }
                     }
-                    Rectangle { height: 4px; }
-                    Button {
-                        text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用披風變更");
-                        enabled: !AppearanceLogic.is-uploading && AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id;
-                        clicked => {
-                            AppearanceLogic.apply-cape(AppearanceLogic.selected-cape-id);
-                        }
+                }
+                
+                Button {
+                    primary: true;
+                    text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用外觀變更");
+                    // 啟用條件：皮膚或披風其中之一有變更，且不是上傳中狀態
+                    enabled: !AppearanceLogic.is-uploading && ((AppearanceLogic.selected-library-skin-url != "" && AppearanceLogic.selected-library-skin-url != AppearanceLogic.active-skin-url) || AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id);
+                    clicked => {
+                        AppearanceLogic.apply-appearance();
                     }
                 }
             }

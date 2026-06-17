@@ -406,7 +406,7 @@ impl McAction<Authenticated> {
         Ok(owns_games)
     }
 
-    pub async fn set_active_cape(&self, cape_id: &str) -> anyhow::Result<()> {
+    pub async fn set_active_cape(&self, cape_id: &str) -> anyhow::Result<crate::mc_types::McProfile> {
         let endpoint = format!("{}/minecraft/profile/capes/active", NEW_MC_SERVER);
         let body = serde_json::json!({ "capeId": cape_id });
         let resp = self.client.put(&endpoint).json(&body).send().await?;
@@ -415,7 +415,8 @@ impl McAction<Authenticated> {
             let body_text = resp.text().await.unwrap_or_default();
             anyhow::bail!("HTTP {} — {}", status, body_text);
         }
-        Ok(())
+        let profile = resp.json::<crate::mc_types::McProfile>().await?;
+        Ok(profile)
     }
 
     pub async fn hide_cape(&self) -> anyhow::Result<()> {

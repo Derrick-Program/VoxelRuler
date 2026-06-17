@@ -1548,40 +1548,176 @@ pub async fn open_view() -> anyhow::Result<()> {
                             let _ = ap.hide();
                         }
                     });
-            let ap_weak_cape = ap.as_weak();
-                    ap.global::<AppearanceLogic>().on_apply_cape(move |cape_id| {
-                        let cape_id = cape_id.to_string();
-                        let ap_weak = ap_weak_cape.clone();
+                    let ap_weak_apply = ap.as_weak();
+                    let main_ui_weak_apply = main_ui_weak_for_appearance.clone();
+                    ap.global::<AppearanceLogic>().on_apply_appearance(move || {
+                        let ap_weak = ap_weak_apply.clone();
                         let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|r| r.value().clone()).unwrap_or_default();
                         if token.is_empty() { return; }
+                        
+                        let mut skin_url_to_apply = String::new();
+                        let mut variant_to_apply = String::new();
+                        let mut cape_id_to_apply = String::new();
+                        
+                        let mut skin_changed = false;
+                        let mut cape_changed = false;
+                        
+                        if let Some(ap) = ap_weak.upgrade() {
+                            let apl = ap.global::<AppearanceLogic>();
+                            let selected_skin_url = apl.get_selected_library_skin_url().to_string();
+                            let active_skin_url = apl.get_active_skin_url().to_string();
+                            let selected_cape_id = apl.get_selected_cape_id().to_string();
+                            let active_cape_id = apl.get_active_cape_id().to_string();
+                            
+                            skin_url_to_apply = selected_skin_url.clone();
+                            variant_to_apply = apl.get_skin_variant().to_string();
+                            cape_id_to_apply = selected_cape_id.clone();
+                            
+                            skin_changed = !selected_skin_url.is_empty() && selected_skin_url != active_skin_url;
+                            cape_changed = selected_cape_id != active_cape_id;
+                            
+                            if !skin_changed && !cape_changed { return; }
+                            
+                            apl.set_is_uploading(true);
+                            apl.set_upload_status("套用變更中...".into());
+                        }
+                        
+                        let main_ui_weak = main_ui_weak_apply.clone();
+                        let username = crate::mc_token::SessionData::load_session()
+                            .ok()
+                            .flatten()
+                            .map(|s| s.mc_username().clone())
+                            .unwrap_or_default();
+                            
                         tokio::spawn(async move {
                             let api = crate::mc_api::McAction::new().authenticate(&token);
-                            let res = if cape_id.is_empty() {
-                                api.hide_cape().await
-                            } else {
-                                api.set_active_cape(&cape_id).await
-                            };
                             
-                            if let Some(ap) = ap_weak.upgrade() {
-                                let apl = ap.global::<AppearanceLogic>();
-                                if let Err(e) = res {
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(ap) = ap_weak.upgrade() {
-                                            let apl = ap.global::<AppearanceLogic>();
-                                            apl.set_upload_status(format!("披風設定失敗：{}", e).into());
-                                            apl.set_upload_is_error(true);
-                                            apl.set_show_result_dialog(true);
+                            let mut has_error = false;
+                            let mut err_msg = String::new();
+                            let mut skin_success = false;
+                            let mut new_profile = None;
+                            
+                            if skin_changed {
+                                let mut auto_variant = variant_to_apply;
+                                let mut is_file = false;
+                                let mut file_path = std::path::PathBuf::new();
+                                
+                                if skin_url_to_apply.starts_with("file://") {
+                                    is_file = true;
+                                    if let Ok(parsed_url) = url::Url::parse(&skin_url_to_apply) {
+                                        if let Ok(path) = parsed_url.to_file_path() {
+                                            file_path = path.clone();
+                                            if let Ok(bytes) = std::fs::read(&path) {
+                                                if let Ok(img) = image::load_from_memory(&bytes) {
+                                                    auto_variant = if detect_is_slim(&img) { "slim".to_string() } else { "classic".to_string() };
+                                                }
+                                            }
                                         }
-                                    });
+                                    }
+                                } else if let Ok(resp) = reqwest::get(&skin_url_to_apply).await {
+                                    if let Ok(bytes) = resp.bytes().await {
+                                        if let Ok(img) = image::load_from_memory(&bytes) {
+                                            auto_variant = if detect_is_slim(&img) { "slim".to_string() } else { "classic".to_string() };
+                                        }
+                                    }
+                                }
+                                
+                                let result = if is_file {
+                                    api.upload_skin_from_file(&file_path, &auto_variant).await
                                 } else {
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(ap) = ap_weak.upgrade() {
-                                            let apl = ap.global::<AppearanceLogic>();
-                                            apl.set_active_cape_id(cape_id.clone().into());
-                                        }
-                                    });
+                                    api.upload_skin_from_url(&skin_url_to_apply, &auto_variant).await
+                                };
+                                
+                                match result {
+                                    Ok(()) => skin_success = true,
+                                    Err(e) => {
+                                        has_error = true;
+                                        err_msg.push_str(&format!("皮膚套用失敗：{}\n", e));
+                                    }
                                 }
                             }
+                            
+                            if cape_changed {
+                                let res = if cape_id_to_apply.is_empty() {
+                                    api.hide_cape().await.map(|_| None)
+                                } else {
+                                    api.set_active_cape(&cape_id_to_apply).await.map(|p| Some(p))
+                                };
+                                
+                                match res {
+                                    Ok(Some(p)) => new_profile = Some(p),
+                                    Ok(None) => {},
+                                    Err(e) => {
+                                        has_error = true;
+                                        err_msg.push_str(&format!("披風套用失敗：{}\n", e));
+                                    }
+                                }
+                            }
+                            
+                            let fetch_result = if skin_success && !username.is_empty() {
+                                fetch_avatar_from_mojang(&token, &username, false).await
+                            } else {
+                                None
+                            };
+                            let avatar_path_opt = fetch_result.as_ref().map(|(p, _)| p.clone());
+                            let new_active_url = fetch_result.map(|(_, u)| u);
+                            
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ap) = ap_weak.upgrade() {
+                                    let apl = ap.global::<AppearanceLogic>();
+                                    apl.set_is_uploading(false);
+                                    
+                                    if has_error {
+                                        apl.set_upload_is_error(true);
+                                        apl.set_upload_status(err_msg.trim().into());
+                                    } else {
+                                        apl.set_upload_is_error(false);
+                                        apl.set_upload_status("外觀已成功套用！\n（遊戲內可能需要重新登入才會生效）".into());
+                                        if skin_changed {
+                                            apl.set_active_skin_url(skin_url_to_apply.clone().into());
+                                        }
+                                        if cape_changed {
+                                            apl.set_active_cape_id(cape_id_to_apply.clone().into());
+                                        }
+                                    }
+                                    apl.set_show_result_dialog(true);
+                                    
+                                    if cape_changed && !has_error {
+                                        if let Ok(paths) = crate::mc_paths::McPaths::new() {
+                                            let f = paths.capes_dir().join("profile_cache.json");
+                                            if let Some(profile) = &new_profile {
+                                                let _ = std::fs::write(&f, serde_json::to_string_pretty(profile).unwrap_or_default());
+                                            } else {
+                                                if let Ok(s) = std::fs::read_to_string(&f) {
+                                                    if let Ok(mut p) = serde_json::from_str::<crate::mc_types::McProfile>(&s) {
+                                                        for c in &mut p.capes {
+                                                            c.state = if c.id == cape_id_to_apply { crate::mc_types::McState::Active } else { crate::mc_types::McState::Inactive };
+                                                        }
+                                                        let _ = std::fs::write(&f, serde_json::to_string_pretty(&p).unwrap_or_default());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if let Some(avatar_path) = avatar_path_opt {
+                                    if let Some(main_ui) = main_ui_weak.upgrade() {
+                                        if let Ok(img) = slint::Image::load_from_path(&avatar_path) {
+                                            let pal = main_ui.global::<PageAccountLogic>();
+                                            let mut active = pal.get_active_account();
+                                            active.avatar = img.clone();
+                                            pal.set_active_account(active.clone());
+                                            
+                                            let mut accounts: Vec<_> = pal.get_accounts().iter().collect();
+                                            if let Some(row) = accounts.iter_mut().find(|r| r.username == username) {
+                                                row.avatar = img;
+                                            }
+                                            pal.set_accounts(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(accounts))));
+                                        }
+                                    }
+                                }
+                            });
                         });
                     });
 
@@ -2123,7 +2259,28 @@ pub async fn open_view() -> anyhow::Result<()> {
                     let ap_weak = ap.as_weak();
                     tokio::spawn(async move {
                         let api = crate::mc_api::McAction::new().authenticate(&token);
-                        if let Ok(profile) = api.get_user_profile().await {
+                        
+                        let mut profile_cache_file = None;
+                        let mut cached_profile = None;
+                        if let Ok(paths) = crate::mc_paths::McPaths::new() {
+                            let f = paths.capes_dir().join("profile_cache.json");
+                            if let Ok(s) = std::fs::read_to_string(&f) {
+                                cached_profile = serde_json::from_str::<crate::mc_types::McProfile>(&s).ok();
+                            }
+                            profile_cache_file = Some(f);
+                        }
+                        
+                        let mut profile_opt = api.get_user_profile().await.ok();
+                        
+                        if let Some(p) = &profile_opt {
+                            if let Some(f) = &profile_cache_file {
+                                let _ = std::fs::write(f, serde_json::to_string_pretty(p).unwrap_or_default());
+                            }
+                        } else if let Some(p) = cached_profile {
+                            profile_opt = Some(p); // use cache if API fails
+                        }
+                        
+                        if let Some(profile) = profile_opt {
                             let mut active_skin_url = String::new();
                             for skin in &profile.skins {
                                 if skin.state == crate::mc_types::McState::Active {
@@ -2177,37 +2334,45 @@ pub async fn open_view() -> anyhow::Result<()> {
                             }
 
 
-                            if !active_skin_url.is_empty() {
-                                let active_url_clone = active_skin_url.clone();
-                                let ap_weak_1 = ap_weak.clone();
-                                let active_cape_id_clone = active_cape_id.clone();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(ap) = ap_weak_1.upgrade() {
-                                        let apl = ap.global::<AppearanceLogic>();
-                                        apl.set_active_skin_url(active_url_clone.into());
-                                        
-                                        let mut capes_ui = Vec::new();
-                                        for t in capes_temp {
-                                            let preview = match t.buffer {
-                                                Some(b) => slint::Image::from_rgba8(b),
-                                                None => slint::Image::default(),
-                                            };
-                                            capes_ui.push(CapeData {
-                                                id: t.id.into(),
-                                                alias: t.alias.into(),
-                                                state: if t.state == crate::mc_types::McState::Active { "ACTIVE".into() } else { "INACTIVE".into() },
-                                                url: t.url.into(),
-                                                preview,
-                                            });
+                            let active_url_clone = active_skin_url.clone();
+                            let ap_weak_1 = ap_weak.clone();
+                            let active_cape_id_clone = active_cape_id.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ap) = ap_weak_1.upgrade() {
+                                    let apl = ap.global::<AppearanceLogic>();
+                                    apl.set_active_skin_url(active_url_clone.into());
+                                    
+                                    let mut capes_ui = Vec::new();
+                                    let mut active_cape_name = String::from("無披風");
+                                    let mut active_cape_preview = slint::Image::default();
+                                    
+                                    for t in capes_temp {
+                                        let preview = match t.buffer {
+                                            Some(ref b) => slint::Image::from_rgba8(b.clone()),
+                                            None => slint::Image::default(),
+                                        };
+                                        if t.id == active_cape_id_clone {
+                                            active_cape_name = if !t.alias.is_empty() { t.alias.clone() } else { t.id.clone() };
+                                            active_cape_preview = preview.clone();
                                         }
-                                        
-                                        apl.set_capes(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(capes_ui))));
-                                        apl.set_has_capes(has_capes);
-                                        apl.set_active_cape_id(active_cape_id_clone.clone().into());
-                                        apl.set_selected_cape_id(active_cape_id_clone.into());
+                                        capes_ui.push(CapeData {
+                                            id: t.id.into(),
+                                            alias: t.alias.into(),
+                                            state: if t.state == crate::mc_types::McState::Active { "ACTIVE".into() } else { "INACTIVE".into() },
+                                            url: t.url.into(),
+                                            preview,
+                                        });
                                     }
-                                });
-
+                                    
+                                    apl.set_capes(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(capes_ui))));
+                                    apl.set_has_capes(has_capes);
+                                    apl.set_active_cape_id(active_cape_id_clone.clone().into());
+                                    apl.set_selected_cape_id(active_cape_id_clone.into());
+                                    apl.set_selected_cape_name(active_cape_name.into());
+                                    apl.set_selected_cape_preview(active_cape_preview);
+                                }
+                            });
+                            
                                 if let Ok(resp) = reqwest::get(&active_skin_url).await {
                                     if let Ok(bytes) = resp.bytes().await {
                                         if let Ok(img) = image::load_from_memory(&bytes) {
@@ -2256,7 +2421,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                                         }
                                     }
                                 }
-                            }
                         }
                     });
                 }
