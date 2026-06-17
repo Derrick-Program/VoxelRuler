@@ -479,6 +479,7 @@ export struct CapeData {
     alias: string,
     state: string,
     url: string,
+    preview: image,
 }
 
 export struct SkinData {
@@ -506,6 +507,10 @@ export global AppearanceLogic {
 
     in-out property <[CapeData]> capes: [];
     in-out property <bool>   has-capes: false;
+    in-out property <string>   active-cape-id: "";
+    in-out property <string>   selected-cape-id: "";
+    in-out property <string>   selected-cape-name: "無披風";
+    in-out property <image>    selected-cape-preview;
 
     in-out property <[SkinData]> skin-history: [];
     in-out property <bool>   has-skin-history: false;
@@ -524,13 +529,16 @@ export global AppearanceLogic {
     callback upload-from-url(string);
     callback preview-library-skin(string);
     callback save-to-library();
-    callback set-active-cape(string);
+    callback select-cape(string);
+    callback apply-cape(string);
     callback apply-history-skin(SkinData);
     callback delete-skin(string);
     callback close-result-dialog();
     callback preview-drag-started();
     callback preview-dragged(float, float);
     callback preview-drag-ended();
+    
+    callback apply-appearance();
 
     close-appearance    => { debug("Close appearance"); }
     browse-skin-file    => { debug("Browse skin file"); }
