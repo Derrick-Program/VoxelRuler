@@ -1505,6 +1505,23 @@ pub async fn open_view() -> anyhow::Result<()> {
                             let apl = ap.global::<AppearanceLogic>();
                             apl.set_base_yaw(apl.get_preview_yaw());
                             apl.set_base_pitch(apl.get_preview_pitch());
+                            
+                            #[cfg(target_os = "macos")]
+                            {
+                                if crate::GLOBAL_CACHE.get("mac_natural_scroll").is_none() {
+                                    let mut is_natural = "1";
+                                    if let Ok(output) = std::process::Command::new("defaults")
+                                        .args(&["read", "-g", "com.apple.swipescrolldirection"])
+                                        .output() {
+                                        if let Ok(s) = String::from_utf8(output.stdout) {
+                                            if s.trim() == "0" {
+                                                is_natural = "0";
+                                            }
+                                        }
+                                    }
+                                    crate::GLOBAL_CACHE.insert("mac_natural_scroll".to_string(), is_natural.to_string());
+                                }
+                            }
                         }
                     });
 
@@ -1512,8 +1529,21 @@ pub async fn open_view() -> anyhow::Result<()> {
                     ap.global::<AppearanceLogic>().on_preview_dragged(move |dx, dy| {
                         if let Some(ap) = ap_weak_drag2.upgrade() {
                             let apl = ap.global::<AppearanceLogic>();
-                            let new_yaw = apl.get_base_yaw() - dx;
-                            let new_pitch = (apl.get_base_pitch() - dy).clamp(-90.0, 90.0);
+                            let mut multiplier = 1.0;
+                            
+                            #[cfg(target_os = "macos")]
+                            {
+                                if let Some(val) = crate::GLOBAL_CACHE.get("mac_natural_scroll") {
+                                    if val.value() == "1" {
+                                        multiplier = -1.0;
+                                    }
+                                } else {
+                                    multiplier = -1.0;
+                                }
+                            }
+                            
+                            let new_yaw = apl.get_base_yaw() - dx * multiplier;
+                            let new_pitch = (apl.get_base_pitch() - dy * multiplier).clamp(-90.0, 90.0);
                             apl.set_preview_yaw(new_yaw);
                             apl.set_preview_pitch(new_pitch);
                         }

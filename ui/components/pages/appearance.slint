@@ -177,7 +177,6 @@ export component AppearanceWindow inherits Window {
                                 drop-shadow-color: #000000.with-alpha(0.3);
                                 drop-shadow-blur: 8px;
                                 drop-shadow-offset-y: 4px;
-                                // 設定最大高度：最多顯示 8 個選項後出現捲軸
                                 height: min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px);
                                 
                                 Flickable {
@@ -250,10 +249,10 @@ export component AppearanceWindow inherits Window {
                     }
                 }
                 
+                Rectangle { height: 16px; }
                 Button {
                     primary: true;
                     text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用外觀變更");
-                    // 啟用條件：皮膚或披風其中之一有變更，且不是上傳中狀態
                     enabled: !AppearanceLogic.is-uploading && ((AppearanceLogic.selected-library-skin-url != "" && AppearanceLogic.selected-library-skin-url != AppearanceLogic.active-skin-url) || AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id);
                     clicked => {
                         AppearanceLogic.apply-appearance();
