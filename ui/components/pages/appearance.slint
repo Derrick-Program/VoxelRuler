@@ -178,7 +178,6 @@ export component AppearanceWindow inherits Window {
                         popup := PopupWindow {
                             width: 200px;
                             x: 0;
-                            // 往上展開：y 座標 = -(選單高度) - 4px 間距
                             y: -min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px) - 4px;
                             Rectangle {
                                 border-radius: AppTheme.radius-sm;
