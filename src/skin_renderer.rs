@@ -31,6 +31,7 @@ struct Vertex {
     pos: Vec3,
     u: f32,
     v: f32,
+    tex: u8,
 }
 
 struct Triangle {
@@ -41,16 +42,30 @@ struct Triangle {
 
 pub struct SkinRenderer {
     image: image::RgbaImage,
+    cape: Option<image::RgbaImage>,
 }
 
 impl SkinRenderer {
     pub fn new(img: DynamicImage) -> Self {
         Self {
             image: img.into_rgba8(),
+            cape: None,
         }
     }
+    
+    pub fn set_cape(&mut self, img: Option<DynamicImage>) {
+        self.cape = img.map(|i| i.into_rgba8());
+    }
 
-    fn add_box(&self, tris: &mut Vec<Triangle>, x: f32, y: f32, z: f32, w: f32, h: f32, d: f32, u: f32, v: f32, tex_w: f32, tex_h: f32, inflate: f32, local_tx: impl Fn(Vec3) -> Vec3) {
+    pub fn get_cape(&self) -> Option<image::RgbaImage> {
+        self.cape.clone()
+    }
+
+    pub fn set_cape_rgba(&mut self, cape: Option<image::RgbaImage>) {
+        self.cape = cape;
+    }
+
+    fn add_box(&self, tris: &mut Vec<Triangle>, tex: u8, x: f32, y: f32, z: f32, w: f32, h: f32, d: f32, u: f32, v: f32, tex_w: f32, tex_h: f32, inflate: f32, local_tx: impl Fn(Vec3) -> Vec3) {
         let p0 = local_tx(Vec3::new(x - inflate, y - inflate, z - inflate));
         let p1 = local_tx(Vec3::new(x + w + inflate, y - inflate, z - inflate));
         let p2 = local_tx(Vec3::new(x + w + inflate, y + h + inflate, z - inflate));
@@ -60,22 +75,21 @@ impl SkinRenderer {
         let p6 = local_tx(Vec3::new(x + w + inflate, y + h + inflate, z + d + inflate));
         let p7 = local_tx(Vec3::new(x - inflate, y + h + inflate, z + d + inflate));
 
-        let s = 64.0;
         let mut add_face = |tl: Vec3, tr: Vec3, br: Vec3, bl: Vec3, tu: f32, tv: f32, tw: f32, th: f32| {
-            let t_tl = (tu / s, tv / s);
-            let t_tr = ((tu + tw) / s, tv / s);
-            let t_br = ((tu + tw) / s, (tv + th) / s);
-            let t_bl = (tu / s, (tv + th) / s);
+            let t_tl = (tu / tex_w, tv / tex_h);
+            let t_tr = ((tu + tw) / tex_w, tv / tex_h);
+            let t_br = ((tu + tw) / tex_w, (tv + th) / tex_h);
+            let t_bl = (tu / tex_w, (tv + th) / tex_h);
             
             tris.push(Triangle {
-                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1 },
-                v1: Vertex { pos: bl, u: t_bl.0, v: t_bl.1 },
-                v2: Vertex { pos: br, u: t_br.0, v: t_br.1 },
+                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1, tex },
+                v1: Vertex { pos: bl, u: t_bl.0, v: t_bl.1, tex },
+                v2: Vertex { pos: br, u: t_br.0, v: t_br.1, tex },
             });
             tris.push(Triangle {
-                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1 },
-                v1: Vertex { pos: br, u: t_br.0, v: t_br.1 },
-                v2: Vertex { pos: tr, u: t_tr.0, v: t_tr.1 },
+                v0: Vertex { pos: tl, u: t_tl.0, v: t_tl.1, tex },
+                v1: Vertex { pos: br, u: t_br.0, v: t_br.1, tex },
+                v2: Vertex { pos: tr, u: t_tr.0, v: t_tr.1, tex },
             });
         };
 
@@ -103,8 +117,8 @@ impl SkinRenderer {
 
         let arm_w = if slim { 3.0 } else { 4.0 };
 
-        self.add_box(&mut tris, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 0.0, 0.0, 64.0, 64.0, 0.0, identity); // Head
-        self.add_box(&mut tris, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 16.0, 64.0, 64.0, 0.0, identity); // Body
+        self.add_box(&mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 0.0, 0.0, 64.0, 64.0, 0.0, identity); // Head
+        self.add_box(&mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 16.0, 64.0, 64.0, 0.0, identity); // Body
 
         let rotate_x = |anchor: Vec3, angle: f32| move |v: Vec3| -> Vec3 {
             let dy = v.y - anchor.y;
@@ -119,19 +133,25 @@ impl SkinRenderer {
         let r_leg_tx = rotate_x(Vec3::new(-2.0, 8.0, 0.0), leg_angle);
         let l_leg_tx = rotate_x(Vec3::new(2.0, 8.0, 0.0), -leg_angle);
 
-        self.add_box(&mut tris, -4.0 - arm_w, -4.0, -2.0, arm_w, 12.0, 4.0, 40.0, 16.0, 64.0, 64.0, 0.0, r_arm_tx.clone()); // Right Arm
-        self.add_box(&mut tris, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 32.0, 48.0, 64.0, 64.0, 0.0, l_arm_tx.clone()); // Left Arm
+        self.add_box(&mut tris, 0, -4.0 - arm_w, -4.0, -2.0, arm_w, 12.0, 4.0, 40.0, 16.0, 64.0, 64.0, 0.0, r_arm_tx.clone()); // Right Arm
+        self.add_box(&mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 32.0, 48.0, 64.0, 64.0, 0.0, l_arm_tx.clone()); // Left Arm
         
-        self.add_box(&mut tris, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 16.0, 64.0, 64.0, 0.0, r_leg_tx.clone()); // Right Leg
-        self.add_box(&mut tris, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 16.0, 48.0, 64.0, 64.0, 0.0, l_leg_tx.clone()); // Left Leg
+        self.add_box(&mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 16.0, 64.0, 64.0, 0.0, r_leg_tx.clone()); // Right Leg
+        self.add_box(&mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 16.0, 48.0, 64.0, 64.0, 0.0, l_leg_tx.clone()); // Left Leg
 
         let inf = 0.25;
-        self.add_box(&mut tris, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 32.0, 0.0, 64.0, 64.0, inf, identity); // Head Overlay
-        self.add_box(&mut tris, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 32.0, 64.0, 64.0, inf, identity); // Body Overlay
-        self.add_box(&mut tris, -4.0 - arm_w, -4.0, -2.0, arm_w, 12.0, 4.0, 40.0, 32.0, 64.0, 64.0, inf, r_arm_tx); // Right Arm Overlay
-        self.add_box(&mut tris, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 48.0, 48.0, 64.0, 64.0, inf, l_arm_tx); // Left Arm Overlay
-        self.add_box(&mut tris, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 32.0, 64.0, 64.0, inf, r_leg_tx); // Right Leg Overlay
-        self.add_box(&mut tris, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 48.0, 64.0, 64.0, inf, l_leg_tx); // Left Leg Overlay
+        self.add_box(&mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 32.0, 0.0, 64.0, 64.0, inf, identity); // Head Overlay
+        self.add_box(&mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 32.0, 64.0, 64.0, inf, identity); // Body Overlay
+        self.add_box(&mut tris, 0, -4.0 - arm_w, -4.0, -2.0, arm_w, 12.0, 4.0, 40.0, 32.0, 64.0, 64.0, inf, r_arm_tx); // Right Arm Overlay
+        self.add_box(&mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 48.0, 48.0, 64.0, 64.0, inf, l_arm_tx); // Left Arm Overlay
+        self.add_box(&mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 32.0, 64.0, 64.0, inf, r_leg_tx); // Right Leg Overlay
+        self.add_box(&mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 48.0, 64.0, 64.0, inf, l_leg_tx); // Left Leg Overlay
+
+
+        if self.cape.is_some() {
+            let cape_tx = rotate_x(Vec3::new(0.0, -4.0, 2.0), (walk_anim * std::f32::consts::PI * 2.0).sin() * 0.15 + 0.25);
+            self.add_box(&mut tris, 1, -5.0, -4.0, 2.0, 10.0, 16.0, 1.0, 0.0, 0.0, 64.0, 32.0, 0.0, cape_tx);
+        }
 
         let cy = yaw.cos();
         let sy = yaw.sin();
@@ -161,7 +181,7 @@ impl SkinRenderer {
             
             let normal = p1.sub(&p0).cross(&p2.sub(&p0));
             if normal.z < 0.0 {
-                projected.push((p0, tri.v0.u, tri.v0.v, p1, tri.v1.u, tri.v1.v, p2, tri.v2.u, tri.v2.v));
+                projected.push((p0, tri.v0.u, tri.v0.v, p1, tri.v1.u, tri.v1.v, p2, tri.v2.u, tri.v2.v, tri.v0.tex));
             }
         }
 
@@ -175,7 +195,7 @@ impl SkinRenderer {
         let tex_w = self.image.width() as f32;
         let tex_h = self.image.height() as f32;
 
-        for (p0, u0, v0, p1, u1, v1, p2, u2, v2) in projected {
+        for (p0, u0, v0, p1, u1, v1, p2, u2, v2, tex) in projected {
             let min_x = (p0.x.min(p1.x).min(p2.x).max(0.0) as u32).min(width - 1);
             let max_x = (p0.x.max(p1.x).max(p2.x).max(0.0) as u32).min(width - 1);
             let min_y = (p0.y.min(p1.y).min(p2.y).max(0.0) as u32).min(height - 1);
@@ -199,10 +219,21 @@ impl SkinRenderer {
                         if z < z_buffer[idx] {
                             let u = w0 * u0 + w1 * u1 + w2 * u2;
                             let v = w0 * v0 + w1 * v1 + w2 * v2;
-                            
-                            let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
-                            let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
-                            let pixel = self.image.get_pixel(tx, ty);
+
+                            let pixel = if tex == 0 {
+                                let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
+                                let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
+                                self.image.get_pixel(tx, ty)
+                            } else if let Some(cape) = &self.cape {
+                                let c_w = cape.width() as f32;
+                                let c_h = cape.height() as f32;
+                                let tx = (u * c_w).clamp(0.0, c_w - 1.0) as u32;
+                                let ty = (v * c_h).clamp(0.0, c_h - 1.0) as u32;
+                                cape.get_pixel(tx, ty)
+                            } else {
+                                &image::Rgba([0, 0, 0, 0])
+                            };
+
                             
                             if pixel[3] > 0 {
                                 if pixel[3] < 255 {

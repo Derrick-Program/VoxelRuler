@@ -23,7 +23,7 @@ export component AppearanceWindow inherits Window {
             alignment: start;
 
             Text {
-                text: @tr("目前外觀");
+                text: @tr("預覽外觀");
                 font-size: 11px;
                 font-weight: 700;
                 color: AppTheme.colors.muted-foreground;
@@ -114,6 +114,158 @@ export component AppearanceWindow inherits Window {
                     enabled: !AppearanceLogic.is-uploading && AppearanceLogic.selected-library-skin-url != "";
                     clicked => {
                         AppearanceLogic.upload-from-url(AppearanceLogic.selected-library-skin-url);
+                    }
+                }
+
+                if AppearanceLogic.has-capes: Rectangle { height: 8px; }
+                if AppearanceLogic.has-capes: VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("披風設定");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        width: 200px;
+                        height: 38px;
+                        border-radius: AppTheme.radius-sm;
+                        border-width: 1px;
+                        border-color: dropdown-ta.has-hover ? AppTheme.colors.primary : AppTheme.colors.border;
+                        background: AppTheme.colors.muted;
+                        
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 8px;
+                            alignment: start;
+                            
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 4px;
+                                clip: true;
+                                if AppearanceLogic.selected-cape-id != "": Image {
+                                    source: AppearanceLogic.selected-cape-preview;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    image-fit: contain;
+                                }
+                            }
+                            
+                            Text {
+                                text: AppearanceLogic.selected-cape-name;
+                                color: AppTheme.colors.foreground;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                        }
+                        
+                        Text {
+                            x: parent.width - 24px;
+                            y: (parent.height - self.height) / 2;
+                            text: "▼";
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 10px;
+                        }
+                        
+                        dropdown-ta := TouchArea {
+                            enabled: !AppearanceLogic.is-uploading;
+                            clicked => { popup.show(); }
+                        }
+                        
+                        popup := PopupWindow {
+                            width: 200px;
+                            x: 0;
+                            // 往上展開：y 座標 = -(選單高度) - 4px 間距
+                            y: -min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px) - 4px;
+                            Rectangle {
+                                border-radius: AppTheme.radius-sm;
+                                border-width: 1px;
+                                border-color: AppTheme.colors.border;
+                                background: AppTheme.colors.background;
+                                drop-shadow-color: #000000.with-alpha(0.3);
+                                drop-shadow-blur: 8px;
+                                drop-shadow-offset-y: 4px;
+                                // 設定最大高度：最多顯示 8 個選項後出現捲軸
+                                height: min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px);
+                                
+                                Flickable {
+                                    viewport-height: (AppearanceLogic.capes.length + 1) * 38px + 8px;
+                                    VerticalLayout {
+                                        padding: 4px;
+                                        spacing: 2px;
+                                        alignment: start;
+                                        
+                                        Rectangle {
+                                            height: 36px;
+                                            border-radius: 4px;
+                                            background: no-cape-item-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                                            HorizontalLayout {
+                                                padding-left: 12px;
+                                                padding-top: 6px;
+                                                padding-bottom: 6px;
+                                                spacing: 12px;
+                                                alignment: start;
+                                                Rectangle { width: 24px; }
+                                                Text {
+                                                    text: "無披風";
+                                                    color: AppearanceLogic.selected-cape-id == "" ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                                    font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            no-cape-item-ta := TouchArea {
+                                                clicked => {
+                                                    AppearanceLogic.select-cape("");
+                                                    popup.close();
+                                                }
+                                            }
+                                        }
+                                        
+                                        for cape in AppearanceLogic.capes: Rectangle {
+                                            height: 36px;
+                                            border-radius: 4px;
+                                            background: cape-item-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                                            HorizontalLayout {
+                                                padding-left: 12px;
+                                                padding-top: 6px;
+                                                padding-bottom: 6px;
+                                                spacing: 12px;
+                                                alignment: start;
+                                                Image {
+                                                    source: cape.preview;
+                                                    width: 24px;
+                                                    height: 24px;
+                                                    image-fit: contain;
+                                                }
+                                                Text {
+                                                    text: cape.alias != "" ? cape.alias : cape.id;
+                                                    color: AppearanceLogic.selected-cape-id == cape.id ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                                    font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            cape-item-ta := TouchArea {
+                                                clicked => {
+                                                    AppearanceLogic.select-cape(cape.id);
+                                                    popup.close();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle { height: 4px; }
+                    Button {
+                        text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用披風變更");
+                        enabled: !AppearanceLogic.is-uploading && AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id;
+                        clicked => {
+                            AppearanceLogic.apply-cape(AppearanceLogic.selected-cape-id);
+                        }
                     }
                 }
             }
@@ -513,69 +665,6 @@ export component AppearanceWindow inherits Window {
                                     ? AppTheme.colors.foreground : AppTheme.colors.muted-foreground;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
-                            }
-                        }
-                    }
-                }
-
-                VerticalLayout {
-                    spacing: 6px;
-                    Text {
-                        text: @tr("披風");
-                        color: AppTheme.colors.muted-foreground;
-                        font-size: 12px;
-                        font-weight: 600;
-                    }
-                    Flickable {
-                        height: 38px;
-                        viewport-width: capes-layout.min-width;
-                        capes-layout := HorizontalLayout {
-                            spacing: 8px;
-                            Rectangle {
-                                width: 88px;
-                                height: 34px;
-                                border-radius: AppTheme.radius-sm;
-                                border-width: 1px;
-                                border-color: AppTheme.colors.border;
-                                background: hide-cape-ta.has-hover
-                                    ? AppTheme.colors.secondary : AppTheme.colors.muted;
-                                hide-cape-ta := TouchArea {
-                                    enabled: !AppearanceLogic.is-uploading;
-                                    clicked => { AppearanceLogic.set-active-cape(""); }
-                                }
-                                Text {
-                                    text: @tr("無披風");
-                                    color: AppTheme.colors.foreground;
-                                    font-size: 12px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            for cape in AppearanceLogic.capes: Rectangle {
-                                width: 88px;
-                                height: 34px;
-                                border-radius: AppTheme.radius-sm;
-                                border-width: 1px;
-                                border-color: cape.state == "ACTIVE"
-                                    ? AppTheme.mc-green : AppTheme.colors.border;
-                                background: cape-btn-ta.has-hover
-                                    ? AppTheme.colors.secondary
-                                    : cape.state == "ACTIVE"
-                                        ? AppTheme.mc-green.with-alpha(0.1)
-                                        : AppTheme.colors.muted;
-                                cape-btn-ta := TouchArea {
-                                    enabled: !AppearanceLogic.is-uploading;
-                                    clicked => { AppearanceLogic.set-active-cape(cape.id); }
-                                }
-                                Text {
-                                    text: cape.alias != "" ? cape.alias : cape.id;
-                                    color: cape.state == "ACTIVE"
-                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
-                                    font-size: 12px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
                             }
                         }
                     }

@@ -123,6 +123,14 @@ impl McPaths {
         self.skins_dir().join("index.json")
     }
 
+    pub fn capes_dir(&self) -> PathBuf {
+        let d = self.base.join("capes");
+        if !d.exists() {
+            std::fs::create_dir_all(&d).ok();
+        }
+        d
+    }
+
     pub fn natives_dir(&self, version_id: &str) -> PathBuf {
         let d = self.version_dir(version_id).join("natives");
         if !d.exists() {
