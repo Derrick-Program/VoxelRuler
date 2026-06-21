@@ -1,4 +1,5 @@
 name: CI
+
 on:
   push:
     branches:
@@ -18,9 +19,9 @@ env:
 jobs:
   ci:
     name: CI
-    runs-on: ubuntu-rust
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -30,6 +31,22 @@ jobs:
             libxkbcommon-dev   \
             libssl-dev         \
             pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Show Rust version
         run: rustup show
@@ -42,10 +59,3 @@ jobs:
 
       - name: 🧪 test
         run: cargo test -- --nocapture
-
-      - name: 🧹 Cleanup runner
-        if: always()
-        run: |
-          echo "Cleaning up runner..."
-          rm -rf target/
-          echo "✅ Cleanup done"
