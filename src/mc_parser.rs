@@ -1149,7 +1149,9 @@ mod test {
         // 1.21 的 natives 是獨立 artifact library，不應誤判為 classifier natives
         let v = load_version("data/1.21.json");
         assert!(
-            v.libraries.iter().all(|l| native_classifier_key(l).is_none()),
+            v.libraries
+                .iter()
+                .all(|l| native_classifier_key(l).is_none()),
             "新版格式不應有 classifier natives"
         );
     }

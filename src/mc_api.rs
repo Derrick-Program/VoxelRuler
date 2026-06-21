@@ -36,7 +36,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
             Ok(resp) => {
                 if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                     last_err = anyhow::anyhow!("請求過於頻繁 (429 Too Many Requests)");
-                    
+
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
                     if let Some(retry_after) = resp.headers().get(reqwest::header::RETRY_AFTER) {
                         if let Ok(retry_str) = retry_after.to_str() {
@@ -47,7 +47,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
                     }
                     continue;
                 }
-                
+
                 if resp.status().is_server_error() {
                     last_err = anyhow::anyhow!("伺服器錯誤 ({})", resp.status());
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
@@ -84,7 +84,10 @@ impl McAction<Unauthenticated> {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .user_agent(format!("VoxelRulerLauncher/{} (https://github.com/Derrick-Program/VoxelRuler)", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!(
+                    "VoxelRulerLauncher/{} (https://github.com/Derrick-Program/VoxelRuler)",
+                    env!("CARGO_PKG_VERSION")
+                ))
                 .build()
                 .expect("Failed to build client"),
             _state: PhantomData,
@@ -337,11 +340,7 @@ impl McAction<Authenticated> {
         let form = reqwest::multipart::Form::new()
             .text("variant", variant.to_string())
             .part("file", part);
-        let resp = self.client
-            .post(&endpoint)
-            .multipart(form)
-            .send()
-            .await?;
+        let resp = self.client.post(&endpoint).multipart(form).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
@@ -368,11 +367,7 @@ impl McAction<Authenticated> {
         let form = reqwest::multipart::Form::new()
             .text("variant", variant.to_string())
             .part("file", part);
-        let resp = self.client
-            .post(&endpoint)
-            .multipart(form)
-            .send()
-            .await?;
+        let resp = self.client.post(&endpoint).multipart(form).send().await?;
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
@@ -406,7 +401,10 @@ impl McAction<Authenticated> {
         Ok(owns_games)
     }
 
-    pub async fn set_active_cape(&self, cape_id: &str) -> anyhow::Result<crate::mc_types::McProfile> {
+    pub async fn set_active_cape(
+        &self,
+        cape_id: &str,
+    ) -> anyhow::Result<crate::mc_types::McProfile> {
         let endpoint = format!("{}/minecraft/profile/capes/active", NEW_MC_SERVER);
         let body = serde_json::json!({ "capeId": cape_id });
         let resp = self.client.put(&endpoint).json(&body).send().await?;

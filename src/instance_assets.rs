@@ -14,12 +14,7 @@ pub const DISABLED_SUFFIX: &str = ".disabled";
 
 /// 防止 UI 傳入的檔名跳脫目標資料夾
 fn validate_file_name(name: &str) -> anyhow::Result<()> {
-    if name.is_empty()
-        || name.contains('/')
-        || name.contains('\\')
-        || name == "."
-        || name == ".."
-    {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
         bail!("非法檔名：{name}");
     }
     Ok(())
@@ -383,7 +378,11 @@ pub fn list_worlds(saves_dir: &Path) -> Vec<WorldEntry> {
             })
         })
         .collect();
-    out.sort_by(|a, b| a.level_name.to_lowercase().cmp(&b.level_name.to_lowercase()));
+    out.sort_by(|a, b| {
+        a.level_name
+            .to_lowercase()
+            .cmp(&b.level_name.to_lowercase())
+    });
     out
 }
 
@@ -441,7 +440,11 @@ pub fn list_log_files(logs_dir: &Path) -> Vec<String> {
 }
 
 /// 讀取單一 log 檔內容（自動處理 .gz），只保留最後 `max_lines` 行
-pub fn read_log_lines(logs_dir: &Path, name: &str, max_lines: usize) -> anyhow::Result<Vec<String>> {
+pub fn read_log_lines(
+    logs_dir: &Path,
+    name: &str,
+    max_lines: usize,
+) -> anyhow::Result<Vec<String>> {
     validate_file_name(name)?;
     let path = logs_dir.join(name);
     let content = if name.ends_with(".gz") {
@@ -591,9 +594,15 @@ mod tests {
 
         let entries = list_entries(dir.path(), &[".jar"], false);
         assert_eq!(entries.len(), 2);
-        let lithium = entries.iter().find(|e| e.file_name.starts_with("lithium")).unwrap();
+        let lithium = entries
+            .iter()
+            .find(|e| e.file_name.starts_with("lithium"))
+            .unwrap();
         assert!(!lithium.enabled);
-        let sodium = entries.iter().find(|e| e.file_name == "sodium.jar").unwrap();
+        let sodium = entries
+            .iter()
+            .find(|e| e.file_name == "sodium.jar")
+            .unwrap();
         assert!(sodium.enabled);
 
         // 停用 → 啟用 roundtrip

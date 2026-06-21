@@ -7,8 +7,7 @@ use sha1::{Digest, Sha1};
 use tracing::warn;
 
 use crate::mc_parser::{
-    evaluate_rules, jna_compat_rel_path, jna_needs_bump, maven_coord_to_path,
-    native_classifier_key,
+    evaluate_rules, jna_compat_rel_path, jna_needs_bump, maven_coord_to_path, native_classifier_key,
 };
 use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
@@ -157,8 +156,7 @@ pub async fn install_libraries(
     compat: Option<&'static crate::mc_compat::MacosArm64Override>,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    let excluded =
-        |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
+    let excluded = |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
 
     let mut applicable: Vec<(PathBuf, String, u64, String)> = version
         .libraries
@@ -205,8 +203,7 @@ pub async fn install_libraries(
             .as_deref()
             .map(|p| libraries_dir.join(p))
             .or_else(|| {
-                maven_coord_to_path(&format!("{}:{}", lib.name, key))
-                    .map(|p| libraries_dir.join(p))
+                maven_coord_to_path(&format!("{}:{}", lib.name, key)).map(|p| libraries_dir.join(p))
             });
         if let Some(dest) = dest {
             applicable.push((
@@ -300,8 +297,7 @@ pub async fn extract_natives(
     natives_dir: &Path,
     compat: Option<&'static crate::mc_compat::MacosArm64Override>,
 ) -> anyhow::Result<()> {
-    let excluded =
-        |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
+    let excluded = |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
 
     let mut jobs: Vec<(PathBuf, Vec<String>)> = Vec::new();
     for lib in version
@@ -321,8 +317,7 @@ pub async fn extract_natives(
             .and_then(|a| a.path.as_deref())
             .map(|p| libraries_dir.join(p))
             .or_else(|| {
-                maven_coord_to_path(&format!("{}:{}", lib.name, key))
-                    .map(|p| libraries_dir.join(p))
+                maven_coord_to_path(&format!("{}:{}", lib.name, key)).map(|p| libraries_dir.join(p))
             });
         let Some(jar) = jar else { continue };
         let excludes = lib
@@ -370,10 +365,7 @@ pub async fn extract_natives(
                 };
                 let dest = natives_dir.join(rel);
                 // 已解壓且大小一致 → 跳過（同版本實例執行中時，Windows 會鎖住 DLL）
-                if dest
-                    .metadata()
-                    .is_ok_and(|m| m.len() == entry.size())
-                {
+                if dest.metadata().is_ok_and(|m| m.len() == entry.size()) {
                     continue;
                 }
                 if let Some(parent) = dest.parent() {
