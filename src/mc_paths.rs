@@ -14,6 +14,10 @@ impl McPaths {
         Ok(Self { base })
     }
 
+    pub fn base_dir(&self) -> PathBuf {
+        self.base.clone()
+    }
+
     pub fn versions_dir(&self) -> PathBuf {
         let d = self.base.join("versions");
         if !d.exists() {

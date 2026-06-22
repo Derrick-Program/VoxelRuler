@@ -19,6 +19,8 @@ mod mc_parser;
 mod mc_paths;
 mod mc_token;
 mod mc_types;
+mod mc_legacy_fml;
+mod mc_modloader;
 mod settings;
 mod skin_history;
 mod skin_renderer;

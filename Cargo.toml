@@ -14,6 +14,7 @@ oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 reqwest = { version = "0.12", features = ["stream", "multipart"] }
 serde_json = "1.0.149"
+quick-xml = { version = "0.36.2", features = ["serialize"] }
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha1 = "0.11.0"

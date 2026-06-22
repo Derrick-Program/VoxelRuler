@@ -16,6 +16,27 @@ const LIBRARY_CONCURRENCY: usize = 64;
 const MAX_RETRIES: u32 = 5;
 const RETRY_BASE_DELAY_MS: u64 = 1000;
 
+/// 無 sha1/size 驗證的簡易下載（用於 Forge 等第三方函式庫）
+pub(crate) async fn download_best_effort(url: &str, dest: &Path) -> anyhow::Result<()> {
+    if dest.exists() {
+        return Ok(());
+    }
+    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+    anyhow::ensure!(!bytes.is_empty(), "空回應：{url}");
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(dest, &bytes).await?;
+    Ok(())
+}
+
+/// Forge / 模組化版本 JSON 中常見的函式庫倉庫，按優先序嘗試
+const FALLBACK_REPOS: &[&str] = &[
+    "https://maven.minecraftforge.net/",
+    "https://libraries.minecraft.net/",
+    "https://repo1.maven.org/maven2/",
+];
+
 fn sha1_hex(data: &[u8]) -> String {
     Sha1::digest(data)
         .iter()
@@ -136,11 +157,11 @@ pub async fn install_client(
     versions_dir: &Path,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    let info = version
-        .downloads
-        .as_ref()
-        .and_then(|d| d.client.as_ref())
-        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 client 下載資訊", version.id))?;
+    let Some(info) = version.downloads.as_ref().and_then(|d| d.client.as_ref()) else {
+        // client.zip 安裝路徑已預先放置 JAR（如早期 Forge 1.0–1.3.x），直接跳過下載
+        on_progress(1.0);
+        return Ok(());
+    };
 
     let dest = versions_dir
         .join(&version.id)
@@ -280,6 +301,82 @@ pub async fn install_libraries(
         result?;
         completed += 1;
         on_progress(completed as f32 / total as f32);
+    }
+
+    // Pass A：Forge / modded 版本 JSON 中無 downloads 資訊的一般函式庫（非 natives-only）
+    // 依序嘗試各個已知倉庫下載。
+    let fallback_libs: Vec<(PathBuf, String)> = version
+        .libraries
+        .iter()
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+        .filter(|lib| !excluded(&lib.name))
+        .filter(|lib| lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()).is_none())
+        .filter(|lib| lib.natives.is_none()) // natives-only 的 lib 由 Pass B 處理
+        .filter_map(|lib| {
+            let rel = maven_coord_to_path(&lib.name)?;
+            let dest = libraries_dir.join(&rel);
+            if dest.exists() {
+                return None;
+            }
+            Some((dest, rel.to_string_lossy().into_owned()))
+        })
+        .collect();
+
+    if !fallback_libs.is_empty() {
+        warn!(
+            count = fallback_libs.len(),
+            "偵測到無下載 URL 的函式庫，嘗試從已知 Maven 倉庫下載"
+        );
+        let mut fallback_stream = stream::iter(fallback_libs)
+            .map(|(dest, rel)| async move {
+                for repo in FALLBACK_REPOS {
+                    let url = format!("{}{}", repo, rel);
+                    if download_best_effort(&url, &dest).await.is_ok() {
+                        return;
+                    }
+                }
+                warn!(%rel, "所有 fallback 倉庫均無法下載此函式庫");
+            })
+            .buffer_unordered(16);
+        while fallback_stream.next().await.is_some() {}
+    }
+
+    // Pass B：舊版格式 natives-only（downloads: None, natives: Some）
+    // base jar 不存在，改下載平台對應的 classifier jar 供 extract_natives 使用。
+    let old_native_libs: Vec<(PathBuf, String)> = version
+        .libraries
+        .iter()
+        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
+        .filter(|lib| !excluded(&lib.name))
+        .filter(|lib| lib.downloads.is_none() && lib.natives.is_some())
+        .filter_map(|lib| {
+            let key = native_classifier_key(lib)?;
+            let rel = maven_coord_to_path(&format!("{}:{}", lib.name, key))?;
+            let dest = libraries_dir.join(&rel);
+            if dest.exists() {
+                return None;
+            }
+            Some((dest, rel.to_string_lossy().into_owned()))
+        })
+        .collect();
+
+    if !old_native_libs.is_empty() {
+        warn!(
+            count = old_native_libs.len(),
+            "下載舊版格式 natives classifier jar"
+        );
+        let mut native_stream = stream::iter(old_native_libs)
+            .map(|(dest, rel)| async move {
+                for repo in FALLBACK_REPOS {
+                    let url = format!("{}{}", repo, rel);
+                    if download_best_effort(&url, &dest).await.is_ok() {
+                        return;
+                    }
+                }
+                warn!(%rel, "所有 fallback 倉庫均無法下載 natives classifier");
+            })
+            .buffer_unordered(8);
+        while native_stream.next().await.is_some() {}
     }
 
     Ok(())
@@ -423,6 +520,54 @@ pub async fn install_assets(
         completed += 1;
         on_progress(completed as f32 / total as f32);
     }
+    Ok(())
+}
+
+/// Forge (launchwrapper) 需剝除 JAR 中的 META-INF 簽名檔（*.SF / *.RSA / *.DSA），
+/// 否則 ASM bytecode 轉換時 JVM 會因 package seal 驗證失敗拋出 SecurityException。
+/// 原始 src 維持不動；stripped copy 寫入 dst。
+/// 若 dst 已存在則跳過（冪等）。
+pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    if dst.exists() {
+        return Ok(());
+    }
+    let src = src.to_path_buf();
+    let dst = dst.to_path_buf();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        use std::io::{Read, Write};
+        let file = std::fs::File::open(&src)
+            .with_context(|| format!("開啟 JAR 失敗：{}", src.display()))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .with_context(|| format!("讀取 JAR 失敗：{}", src.display()))?;
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let out_file = std::fs::File::create(&dst)
+            .with_context(|| format!("建立無簽名 JAR 失敗：{}", dst.display()))?;
+        let mut writer = zip::ZipWriter::new(out_file);
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i)?;
+            let name = entry.name().to_string();
+            if name.starts_with("META-INF/")
+                && (name.ends_with(".SF")
+                    || name.ends_with(".RSA")
+                    || name.ends_with(".DSA")
+                    || name.ends_with(".EC"))
+            {
+                continue;
+            }
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(entry.compression());
+            writer.start_file(&name, opts)?;
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data)?;
+            writer.write_all(&data)?;
+        }
+        writer.finish()?;
+        Ok(())
+    })
+    .await
+    .context("JAR 簽名剝除 task 失敗")??;
     Ok(())
 }
 
@@ -574,11 +719,13 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_install_client_errors_if_no_downloads() {
+    async fn test_install_client_skips_when_no_downloads() {
+        // downloads.client = None 代表 JAR 已由 client.zip 預先放置（1.0–1.2.5 Forge 安裝路徑），
+        // 應直接回傳 Ok 而非報錯。
         let dir = TempDir::new().unwrap();
         let version = empty_version();
         let result = install_client(&version, dir.path(), |_| {}).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[tokio::test]

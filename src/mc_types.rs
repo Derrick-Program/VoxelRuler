@@ -87,6 +87,47 @@ pub struct McSpecificVersionDetail {
     pub minecraft_arguments: Option<String>,
 }
 
+impl McSpecificVersionDetail {
+    pub fn merge(mut self, modded: Self) -> Self {
+        self.id = modded.id;
+        self.r#type = modded.r#type;
+        self.time = modded.time;
+        self.release_time = modded.release_time;
+        self.main_class = modded.main_class;
+        
+        if let Some(jv) = modded.java_version { self.java_version = Some(jv); }
+        if let Some(dl) = modded.downloads { self.downloads = Some(dl); }
+        if let Some(ai) = modded.asset_index { self.asset_index = Some(ai); }
+        if let Some(ass) = modded.assets { self.assets = Some(ass); }
+        if let Some(log) = modded.logging { self.logging = Some(log); }
+        
+        // 優先讀取 ModLoader 的 libraries，原版墊後
+        let mut new_libs = modded.libraries;
+        new_libs.extend(self.libraries);
+        self.libraries = new_libs;
+
+        // 合併 arguments
+        match (self.arguments.as_mut(), modded.arguments) {
+            (Some(vanilla_args), Some(modded_args)) => {
+                vanilla_args.game.extend(modded_args.game);
+                vanilla_args.jvm.extend(modded_args.jvm);
+                // 這裡我們簡單把 modded args 放在後面
+                // 通常 modloader 會把必要的參數放到 jvm args，所以直接 append 是沒問題的
+            }
+            (None, Some(modded_args)) => {
+                self.arguments = Some(modded_args);
+            }
+            _ => {}
+        }
+        
+        if let Some(mc_args) = modded.minecraft_arguments {
+            self.minecraft_arguments = Some(mc_args);
+        }
+
+        self
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McJavaVersion {

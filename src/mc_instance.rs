@@ -14,6 +14,8 @@ pub struct InstanceConfig {
     pub name: String,
     pub version: String,
     pub mod_loader: String,
+    #[serde(default)]
+    pub mod_loader_version: String,
     pub xmx: String,
     pub xms: String,
     pub logs_enabled: bool,
@@ -38,6 +40,7 @@ impl Default for InstanceConfig {
             name: String::new(),
             version: String::new(),
             mod_loader: "None".into(),
+            mod_loader_version: String::new(),
             xmx: "2G".into(),
             xms: "512M".into(),
             logs_enabled: true,
@@ -189,6 +192,7 @@ mod tests {
             name: "Full Test".into(),
             version: "1.20.4".into(),
             mod_loader: "Fabric".into(),
+            mod_loader_version: "0.15.7".into(),
             xmx: "4G".into(),
             xms: "1G".into(),
             logs_enabled: false,
@@ -204,6 +208,7 @@ mod tests {
         let loaded = store.load().unwrap();
         let c = &loaded[0];
         assert_eq!(c.mod_loader, "Fabric");
+        assert_eq!(c.mod_loader_version, "0.15.7");
         assert_eq!(c.xmx, "4G");
         assert_eq!(c.xms, "1G");
         assert!(!c.logs_enabled);
@@ -221,6 +226,7 @@ mod tests {
             name = "Old Instance"
             version = "1.20.4"
             mod_loader = "None"
+            mod_loader_version = ""
             xmx = "2G"
             xms = "512M"
             logs_enabled = true

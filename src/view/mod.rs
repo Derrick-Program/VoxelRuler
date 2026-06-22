@@ -1,4 +1,12 @@
 slint::include_modules!();
+pub mod skin;
+pub mod launch;
+pub mod instance_detail;
+
+use skin::*;
+use launch::*;
+use instance_detail::*;
+
 thread_local! {
     static SKIN_TIMER: std::cell::RefCell<Option<slint::Timer>> = std::cell::RefCell::new(None);
 }
@@ -24,28 +32,6 @@ use std::{
     },
 };
 use tracing::{debug, error, info, warn};
-
-fn create_cape_preview_raw(img: &image::DynamicImage) -> (Vec<u8>, u32, u32) {
-    use image::GenericImageView;
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    if w == 64 && h == 32 {
-        let mut preview = image::RgbaImage::new(22, 16);
-        for y in 0..16 {
-            for x in 0..10 {
-                preview.put_pixel(x, y, *rgba.get_pixel(1 + x, 1 + y));
-            }
-        }
-        for y in 0..16 {
-            for x in 0..10 {
-                preview.put_pixel(12 + x, y, *rgba.get_pixel(12 + x, 1 + y));
-            }
-        }
-        (preview.into_raw(), 22, 16)
-    } else {
-        (rgba.into_raw(), w, h)
-    }
-}
 
 /// 下拉選單顯示文字（同時也是 Rust 端比對用的哨兵值）
 const JAVA_MODE_LABEL_GLOBAL: &str = "Use Global Settings";
@@ -101,250 +87,6 @@ fn resolve_java_source(instance: &InstanceConfig, settings: &AppSettings) -> Jav
         }
         _ => JavaSource::VersionDefault,
     }
-}
-
-fn generate_2d_front(skin_img: &image::DynamicImage, is_slim: bool) -> image::DynamicImage {
-    use image::{GenericImage, imageops};
-
-    let mut out = image::DynamicImage::new_rgba8(16, 32);
-    let is_64x64 = skin_img.height() == 64;
-
-    let mut head = skin_img.crop_imm(8, 8, 8, 8);
-    let hat = skin_img.crop_imm(40, 8, 8, 8);
-    imageops::overlay(&mut head, &hat, 0, 0);
-    imageops::overlay(&mut out, &head, 4, 0);
-
-    let mut body = skin_img.crop_imm(20, 20, 8, 12);
-    if is_64x64 {
-        let jacket = skin_img.crop_imm(20, 36, 8, 12);
-        imageops::overlay(&mut body, &jacket, 0, 0);
-    }
-    imageops::overlay(&mut out, &body, 4, 8);
-
-    let arm_w = if is_slim { 3 } else { 4 };
-
-    let mut r_arm = skin_img.crop_imm(44, 20, arm_w, 12);
-    if is_64x64 {
-        let r_sleeve = skin_img.crop_imm(44, 36, arm_w, 12);
-        imageops::overlay(&mut r_arm, &r_sleeve, 0, 0);
-    }
-    let r_arm_x = if is_slim { 1 } else { 0 };
-    imageops::overlay(&mut out, &r_arm, r_arm_x, 8);
-
-    let mut r_leg = skin_img.crop_imm(4, 20, 4, 12);
-    if is_64x64 {
-        let r_pants = skin_img.crop_imm(4, 36, 4, 12);
-        imageops::overlay(&mut r_leg, &r_pants, 0, 0);
-    }
-    imageops::overlay(&mut out, &r_leg, 4, 20);
-
-    let mut l_arm = if is_64x64 {
-        skin_img.crop_imm(36, 52, arm_w, 12)
-    } else {
-        let mut arm = skin_img.crop_imm(44, 20, arm_w, 12);
-        imageops::flip_horizontal_in_place(&mut arm);
-        arm
-    };
-    if is_64x64 {
-        let l_sleeve = skin_img.crop_imm(52, 52, arm_w, 12);
-        imageops::overlay(&mut l_arm, &l_sleeve, 0, 0);
-    }
-    imageops::overlay(&mut out, &l_arm, 12, 8);
-
-    let mut l_leg = if is_64x64 {
-        skin_img.crop_imm(20, 52, 4, 12)
-    } else {
-        let mut leg = skin_img.crop_imm(4, 20, 4, 12);
-        imageops::flip_horizontal_in_place(&mut leg);
-        leg
-    };
-    if is_64x64 {
-        let l_pants = skin_img.crop_imm(4, 52, 4, 12);
-        imageops::overlay(&mut l_leg, &l_pants, 0, 0);
-    }
-    imageops::overlay(&mut out, &l_leg, 8, 20);
-
-    out.resize(16 * 10, 32 * 10, image::imageops::FilterType::Nearest)
-}
-
-fn detect_is_slim(img: &image::DynamicImage) -> bool {
-    if img.height() == 32 {
-        return false;
-    }
-    use image::GenericImageView;
-    if img.width() >= 64 && img.height() >= 64 {
-        let pixel = img.get_pixel(54, 20);
-        pixel.0[3] == 0
-    } else {
-        false
-    }
-}
-
-fn get_ui_skins(
-    paths: &crate::mc_paths::McPaths,
-    history: &crate::skin_history::SkinHistory,
-) -> Vec<SkinData> {
-    let mut ui_skins = Vec::new();
-    for skin in &history.skins {
-        let hash = skin
-            .url
-            .split('/')
-            .last()
-            .unwrap_or(&skin.name)
-            .trim_end_matches(".png");
-        let render_path = paths.skins_dir().join(format!("{}_render.png", hash));
-        let skin_path = paths.skins_dir().join(format!("{}.png", hash));
-
-        if !render_path.exists() && skin_path.exists() {
-            if let Ok(img) = image::open(&skin_path) {
-                let is_slim = skin.model == "slim";
-                let render_img = generate_2d_front(&img, is_slim);
-                let _ = render_img.save(&render_path);
-            }
-        }
-
-        let has_preview = render_path.exists() || skin_path.exists();
-        let preview_image = if render_path.exists() {
-            slint::Image::load_from_path(&render_path).unwrap_or_default()
-        } else if skin_path.exists() {
-            slint::Image::load_from_path(&skin_path).unwrap_or_default()
-        } else {
-            slint::Image::default()
-        };
-
-        ui_skins.push(SkinData {
-            id: skin.name.clone().into(),
-            name: skin.name.clone().into(),
-            variant: skin.model.clone().into(),
-            url: skin.url.clone().into(),
-            preview_image,
-            has_preview,
-        });
-    }
-    ui_skins
-}
-
-async fn fetch_avatar_from_mojang(
-    token: &str,
-    username: &str,
-    add_to_library: bool,
-) -> Option<(std::path::PathBuf, String)> {
-    let api = crate::mc_api::McAction::new().authenticate(token);
-    let profile = api.get_user_profile().await.ok()?;
-    let active_skin = profile
-        .skins
-        .iter()
-        .find(|s| s.state == crate::mc_types::McState::Active)?;
-
-    let skin_bytes = reqwest::get(&active_skin.url)
-        .await
-        .ok()?
-        .bytes()
-        .await
-        .ok()?;
-
-    let variant = if active_skin.variant == crate::mc_types::McSkinVariant::Slim {
-        "slim".to_string()
-    } else {
-        "classic".to_string()
-    };
-
-    // Save to local skins folder and update history
-    if let Ok(paths) = crate::mc_paths::McPaths::new() {
-        let history_file = paths.skins_history_file();
-        let mut history = crate::skin_history::SkinHistory::load(&history_file);
-
-        use sha1::Digest;
-        let mut pixel_hash = String::new();
-        if let Ok(img) = image::load_from_memory(&skin_bytes) {
-            let mut hasher = sha1::Sha1::new();
-            hasher.update(img.to_rgba8().into_raw());
-            pixel_hash = hasher
-                .finalize()
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>();
-        } else {
-            let mut hasher = sha1::Sha1::new();
-            hasher.update(&skin_bytes);
-            pixel_hash = hasher
-                .finalize()
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>();
-        }
-
-        let url = active_skin.url.clone();
-        let mojang_hash = url.split('/').last().unwrap_or(&active_skin.id).to_string();
-
-        let skin_path = paths.skins_dir().join(format!("{}.png", mojang_hash));
-        let render_path = paths
-            .skins_dir()
-            .join(format!("{}_render.png", mojang_hash));
-        let _ = std::fs::write(&skin_path, &skin_bytes);
-
-        if let Ok(img) = image::load_from_memory(&skin_bytes) {
-            let is_slim = variant == "slim";
-            let render_img = generate_2d_front(&img, is_slim);
-            let _ = render_img.save(&render_path);
-        }
-
-        if add_to_library {
-            // Avoid adding duplicate if it already exists (check SHA-1 of pixels or exact URL)
-            let already_exists = history.skins.iter().any(|s| {
-                s.url == url
-                    || s.url.ends_with(&format!("{}.png", pixel_hash))
-                    || s.url
-                        .split('/')
-                        .last()
-                        .unwrap_or("")
-                        .trim_end_matches(".png")
-                        == pixel_hash
-            });
-
-            if !already_exists {
-                history.add_skin(crate::skin_history::SkinEntry {
-                    cape_id: "".to_string(),
-                    model: variant,
-                    name: username.to_string(),
-                    url, // Store the Mojang URL
-                });
-                let _ = history.save(&history_file);
-            }
-        }
-    }
-
-    let img = image::load_from_memory(&skin_bytes).ok()?;
-    let mut face = img.crop_imm(8, 8, 8, 8);
-    let overlay = img.crop_imm(40, 8, 8, 8);
-    image::imageops::overlay(&mut face, &overlay, 0, 0);
-
-    let scaled = image::imageops::resize(&face, 100, 100, image::imageops::FilterType::Nearest);
-    let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
-    std::fs::create_dir_all(&cache_dir).ok()?;
-
-    let path = cache_dir.join(format!("{}_mojang.png", username));
-    scaled.save(&path).ok()?;
-    Some((path, active_skin.url.clone()))
-}
-
-async fn fetch_avatar_path(username: &str) -> Option<std::path::PathBuf> {
-    let cache_dir = std::env::temp_dir().join("voxelruler_avatars");
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let avatar_path = cache_dir.join(format!("{}.png", username));
-
-    if avatar_path.exists() {
-        return Some(avatar_path);
-    }
-
-    let url = format!("https://minotar.net/helm/{}/100.png", username);
-    if let Ok(resp) = reqwest::get(url).await
-        && let Ok(bytes) = resp.bytes().await
-        && std::fs::write(&avatar_path, bytes).is_ok()
-    {
-        return Some(avatar_path);
-    }
-    None
 }
 
 fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
@@ -447,41 +189,91 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
+    let mc_versions_cache = Arc::new(std::sync::Mutex::new(Vec::<crate::mc_types::McVersion>::new()));
+
     let ui_weak_for_versions = ui.as_weak();
     {
         if let Some(ui) = ui_weak_for_versions.upgrade() {
             ui.global::<InstanceCreateLogic>().set_is_loading(true);
         }
     }
+    
+    let cache_for_fetch = Arc::clone(&mc_versions_cache);
+    let ui_weak_for_fetch = ui.as_weak();
     tokio::spawn(async move {
         let api = crate::mc_api::McAction::new();
         match api.get_all_mc_versions().await {
             Ok(versions) => {
-                let list: Vec<String> = versions.iter().map(|v| v.id.clone()).collect();
+                *cache_for_fetch.lock().unwrap() = versions;
                 slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_weak_for_versions.upgrade() {
+                    if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         let create = ui.global::<InstanceCreateLogic>();
-                        let shared: Vec<slint::SharedString> =
-                            list.iter().map(|s| s.as_str().into()).collect();
-                        let first = shared.first().cloned().unwrap_or_default();
-                        create.set_version_list(ModelRc::from(Rc::new(VecModel::from(shared))));
-                        create.set_selected_version(first);
                         create.set_is_loading(false);
+                        create.invoke_filter_versions();
                     }
-                })
-                .ok();
+                }).ok();
             }
             Err(e) => {
                 eprintln!("Failed to fetch MC versions: {e}");
                 slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_weak_for_versions.upgrade() {
+                    if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         ui.global::<InstanceCreateLogic>().set_is_loading(false);
                     }
-                })
-                .ok();
+                }).ok();
             }
         }
     });
+
+    let cache_for_filter = Arc::clone(&mc_versions_cache);
+    let ui_weak_for_filter = ui.as_weak();
+    ui.global::<InstanceCreateLogic>().on_filter_versions(move || {
+        let Some(ui) = ui_weak_for_filter.upgrade() else { return; };
+        let logic = ui.global::<InstanceCreateLogic>();
+        
+        let versions = cache_for_filter.lock().unwrap();
+        let search_text = logic.get_version_search_text().to_string().to_lowercase();
+        let show_release = logic.get_show_release();
+        let show_snapshot = logic.get_show_snapshot();
+        let show_beta = logic.get_show_beta();
+        let show_alpha = logic.get_show_alpha();
+        let show_experimental = logic.get_show_experimental();
+
+        let filtered: Vec<slint::SharedString> = versions.iter()
+            .filter(|v| {
+                if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
+                    return false;
+                }
+                
+                match v.r#type.as_str() {
+                    "release" => show_release,
+                    "snapshot" => show_snapshot,
+                    "old_beta" => show_beta,
+                    "old_alpha" => show_alpha,
+                    "experimental" | "pending" => show_experimental,
+                    _ => show_experimental,
+                }
+            })
+            .map(|v| v.id.clone().into())
+            .collect();
+            
+        let current_selected = logic.get_selected_version().to_string();
+        let mut found = false;
+        for f in &filtered {
+            if f.as_str() == current_selected {
+                found = true;
+                break;
+            }
+        }
+        
+        if !found {
+            let first = filtered.first().cloned().unwrap_or_default();
+            logic.set_selected_version(first);
+        }
+        
+        logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
+        logic.invoke_loader_changed();
+    });
+
 
     // ── 網路狀態偵測（footer status）────────────────────────────────────
     // 每 15 秒 HEAD 一次 Mojang 端點：對 launcher 而言「連得上 Mojang」才算 online
@@ -1147,6 +939,67 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
+    let ui_weak_for_loader = ui.as_weak();
+    create_logic.on_loader_changed(move || {
+        let Some(ui) = ui_weak_for_loader.upgrade() else {
+            return;
+        };
+        let logic = ui.global::<InstanceCreateLogic>();
+        
+        let mc_version = logic.get_selected_version().to_string();
+        let mod_loader_str = logic.get_mod_loader().to_string();
+        
+        if mod_loader_str == "None" || mc_version.is_empty() {
+            logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
+            logic.set_selected_mod_loader_version("".into());
+            return;
+        }
+        
+        let loader_type = match mod_loader_str.as_str() {
+            "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
+            "Forge" => crate::mc_modloader::ModLoaderType::Forge,
+            "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
+            _ => return,
+        };
+        
+        logic.set_is_loading(true);
+        let ui_handle_async = ui.as_weak();
+        
+        tokio::spawn(async move {
+            match crate::mc_modloader::ModLoaderApi::get_loader_versions(loader_type, &mc_version).await {
+                Ok(versions) => {
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_handle_async.upgrade() {
+                            let logic = ui.global::<InstanceCreateLogic>();
+                            let slint_versions: Vec<slint::SharedString> = 
+                                versions.into_iter().map(slint::SharedString::from).collect();
+                            let model = ModelRc::from(Rc::new(VecModel::from(slint_versions.clone())));
+                            logic.set_mod_loader_versions(model);
+                            
+                            if let Some(first) = slint_versions.first() {
+                                logic.set_selected_mod_loader_version(first.clone());
+                            } else {
+                                logic.set_selected_mod_loader_version("沒有可用版本".into());
+                            }
+                            logic.set_is_loading(false);
+                        }
+                    });
+                }
+                Err(e) => {
+                    println!("抓取 Mod Loader 版本失敗: {}", e);
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_handle_async.upgrade() {
+                            let logic = ui.global::<InstanceCreateLogic>();
+                            logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
+                            logic.set_selected_mod_loader_version("讀取失敗".into());
+                            logic.set_is_loading(false);
+                        }
+                    });
+                }
+            }
+        });
+    });
+
     let store_for_create = Arc::clone(&store);
     let master_for_create = Arc::clone(&master_configs);
     let ui_weak_for_confirm = ui.as_weak();
@@ -1173,6 +1026,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             name: name.trim().to_string(),
             version,
             mod_loader: create.get_mod_loader().to_string(),
+            mod_loader_version: create.get_selected_mod_loader_version().to_string(),
             xmx: create.get_xmx().to_string(),
             xms: create.get_xms().to_string(),
             logs_enabled: create.get_logs_enabled(),
@@ -2561,578 +2415,6 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
                 }
                 break;
             }
-        }
-    });
-}
-
-/// 下載並安裝指定的 Mojang Java runtime component，
-/// 回傳 (java 執行檔路徑, 實際使用的平台字串)。
-/// `os_arch` 可覆寫平台（如 Apple Silicon 上強制 `mac-os` 抓 x64 Java 經 Rosetta 執行），
-/// 覆寫時安裝目錄加上平台後綴避免與原生版本混放。
-/// 注意：官方 arm64 目錄缺 component 時會自動 fallback 至 x64，
-/// 呼叫端須檢查回傳的平台字串以維持 natives 架構一致。
-async fn install_java_runtime(
-    api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
-    paths: &McPaths,
-    component: &str,
-    os_arch: &str,
-    ui_weak: &slint::Weak<MainApp>,
-) -> anyhow::Result<(PathBuf, String)> {
-    let native_arch = crate::mc_parser::get_mojang_os_arch();
-    let mut os_arch = os_arch.to_string();
-    let mut manifest = api
-        .get_java_runtime_manifest_for_platform(component, &os_arch)
-        .await;
-
-    // 官方目錄缺漏保險：Apple Silicon 目錄沒有該 component（如 java-runtime-beta
-    // 只有 x64 版）→ 自動改抓 x64 經 Rosetta 執行
-    if manifest.is_err() && os_arch == "mac-os-arm64" {
-        warn!(
-            component,
-            "官方無 arm64 版本，自動 fallback 至 x86_64（Rosetta）"
-        );
-        os_arch = "mac-os".to_string();
-        manifest = api
-            .get_java_runtime_manifest_for_platform(component, &os_arch)
-            .await;
-    }
-    let manifest = manifest
-        .with_context(|| format!("取得 Java runtime '{component}'（{os_arch}）資訊失敗"))?;
-
-    let dir_name = if os_arch == native_arch {
-        component.to_string()
-    } else {
-        format!("{component}-{os_arch}")
-    };
-    info!(java_dir = ?paths.java_dir(&dir_name), component, %os_arch, "開始安裝 Java");
-    mc_install::install_java(&manifest, &paths.java_dir(&dir_name), {
-        let ui_weak = ui_weak.clone();
-        move |p| {
-            let status = format!("下載 Java 執行環境... {:.0}%", p * 100.0);
-            set_install_state(&ui_weak, true, 0.1 + p * 0.3, &status, false);
-        }
-    })
-    .await
-    .context("安裝 Java 失敗")?;
-    Ok((paths.java_bin(&dir_name), os_arch))
-}
-
-async fn do_launch(
-    config: InstanceConfig,
-    ui_weak: slint::Weak<MainApp>,
-    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-) -> anyhow::Result<Child> {
-    let version_id = config.version.clone();
-    let instance_id = config.id.clone();
-
-    set_install_state(&ui_weak, true, 0.0, "正在取得版本資料...", false);
-
-    let api = crate::mc_api::McAction::new();
-    let version = api.get_specific_mc_version_detail(&version_id).await?;
-    let paths = McPaths::new()?;
-
-    // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
-    let app_settings = AppSettings::load();
-    let java_source = resolve_java_source(&config, &app_settings);
-    info!(?java_source, instance = %config.name, "Java 來源解析結果");
-
-    let required_java_major = version.java_version.as_ref().map(|j| j.major_version);
-    let mut actual_java_major: Option<i32> = None;
-
-    // Apple Silicon：1.19 之前的版本只有 x86_64 natives。
-    // 若實際使用 arm64 Java，改用 Prism 式函式庫替換（compat）原生執行；
-    // 若使用 x86_64 Java（Rosetta），維持原版函式庫。
-    let is_arm_mac = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
-    let supports_arm64 = crate::mc_parser::version_supports_macos_arm64(&version);
-    let mut compat: Option<&'static crate::mc_compat::MacosArm64Override> = None;
-
-    let java_path: PathBuf = match java_source {
-        JavaSource::CustomPath(p) => {
-            if !p.is_file() {
-                anyhow::bail!("自訂 Java 路徑不存在或不是檔案：{}", p.display());
-            }
-            set_install_state(&ui_weak, true, 0.4, "使用自訂 Java...", false);
-
-            #[cfg(target_os = "macos")]
-            if is_arm_mac && !supports_arm64 {
-                let probe = p.clone();
-                let archs = tokio::task::spawn_blocking(move || {
-                    crate::mc_parser::detect_java_archs(&probe)
-                })
-                .await
-                .unwrap_or_default();
-                info!(?archs, "自訂 Java 架構偵測");
-                let java_is_arm64 = archs.is_empty() || archs.iter().any(|a| a == "arm64");
-                if java_is_arm64 {
-                    compat = crate::mc_compat::arm64_override_for(&version);
-                    match compat {
-                        Some(ov) => {
-                            info!(name = ov.name, "啟用 Apple Silicon 原生模式（函式庫替換）")
-                        }
-                        None if !archs.iter().any(|a| a == "x86_64") => {
-                            anyhow::bail!(
-                                "此 Minecraft 版本沒有 Apple Silicon 原生函式庫且無可用替換，\n需要 x86_64 Java 經 Rosetta 執行，但所選 Java 架構為 {}。",
-                                archs.join("/")
-                            );
-                        }
-                        None => {}
-                    }
-                }
-            }
-
-            // 偵測實際 Java 版本：compat flags 依此決定，過舊則提前給明確錯誤
-            let probe = p.clone();
-            actual_java_major = tokio::task::spawn_blocking(move || {
-                crate::mc_parser::detect_java_major_version(&probe)
-            })
-            .await
-            .ok()
-            .flatten();
-            info!(
-                ?actual_java_major,
-                ?required_java_major,
-                "自訂 Java 版本偵測"
-            );
-
-            if let (Some(actual), Some(required)) = (actual_java_major, required_java_major)
-                && actual < required
-            {
-                anyhow::bail!(
-                    "此 Minecraft 版本需要 Java {required} 以上，但所選 Java 為 {actual}（{}）。\n請到實例設定或全域設定更換 Java。",
-                    p.display()
-                );
-            }
-            p
-        }
-        JavaSource::VersionDefault => {
-            let component = version
-                .java_version
-                .as_ref()
-                .map(|j| j.component.clone())
-                .unwrap_or_else(|| "jre-legacy".into());
-
-            if is_arm_mac && !supports_arm64 {
-                compat = crate::mc_compat::arm64_override_for(&version);
-            }
-
-            // Mojang 只有 Java 17+（gamma/delta）的 arm64 版；
-            // 版本需求 >= 16（1.17–1.18）才能走原生模式，否則退回 Rosetta
-            if compat.is_some() && required_java_major.is_some_and(|m| m >= 16) {
-                info!(
-                    name = compat.map(|o| o.name),
-                    "Apple Silicon 原生模式：使用 arm64 java-runtime-gamma"
-                );
-                actual_java_major = Some(17);
-                let requested_arch = crate::mc_parser::get_mojang_os_arch();
-                let (path, used_arch) = install_java_runtime(
-                    &api,
-                    &paths,
-                    "java-runtime-gamma",
-                    requested_arch,
-                    &ui_weak,
-                )
-                .await?;
-                // 官方 arm64 目錄缺貨而 fallback 至 x64 時，
-                // 必須同步取消替換（x64 Java 配 arm64 natives 會炸）→ 改走 Rosetta + 原版函式庫
-                if used_arch != requested_arch {
-                    warn!(
-                        "arm64 Java 不可用，已 fallback 至 x86_64，取消函式庫替換（Rosetta 模式）"
-                    );
-                    compat = None;
-                }
-                path
-            } else {
-                let os_arch = if is_arm_mac && !supports_arm64 {
-                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta + 原版函式庫
-                    compat = None;
-                    info!("此版本無 arm64 natives 且無 arm64 Java，改抓 x86_64 Java（Rosetta）");
-                    "mac-os"
-                } else {
-                    crate::mc_parser::get_mojang_os_arch()
-                };
-                actual_java_major = required_java_major;
-                let (path, _) =
-                    install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
-                path
-            }
-        }
-    };
-
-    info!(versions_dir = ?paths.versions_dir(), "開始安裝 Minecraft 主程式");
-    mc_install::install_client(&version, &paths.versions_dir(), {
-        let ui_weak = ui_weak.clone();
-        move |p| {
-            let status = format!("下載 Minecraft 主程式... {:.0}%", p * 100.0);
-            set_install_state(&ui_weak, true, 0.4 + p * 0.2, &status, false);
-        }
-    })
-    .await
-    .context("安裝 Minecraft 主程式失敗")?;
-
-    info!(libraries_dir = ?paths.libraries_dir(), "開始安裝函式庫");
-    mc_install::install_libraries(&version, &paths.libraries_dir(), compat, {
-        let ui_weak = ui_weak.clone();
-        move |p| {
-            let status = format!("下載函式庫... {:.0}%", p * 100.0);
-            set_install_state(&ui_weak, true, 0.6 + p * 0.2, &status, false);
-        }
-    })
-    .await
-    .context("安裝函式庫失敗")?;
-
-    info!(natives_dir = ?paths.natives_dir(&version_id), "解壓原生函式庫");
-    set_install_state(&ui_weak, true, 0.8, "解壓原生函式庫...", false);
-    mc_install::extract_natives(
-        &version,
-        &paths.libraries_dir(),
-        &paths.natives_dir(&version_id),
-        compat,
-    )
-    .await
-    .context("解壓原生函式庫失敗")?;
-
-    info!(assets_dir = ?paths.assets_dir(), "開始安裝遊戲資源");
-    mc_install::install_assets(&version, &paths.assets_dir(), {
-        let ui_weak = ui_weak.clone();
-        move |p| {
-            let status = format!("下載遊戲資源... {:.0}%", p * 100.0);
-            set_install_state(&ui_weak, true, 0.8 + p * 0.2, &status, false);
-        }
-    })
-    .await
-    .context("安裝遊戲資源失敗")?;
-
-    set_install_state(&ui_weak, true, 1.0, "啟動遊戲中...", false);
-
-    let token = crate::GLOBAL_CACHE
-        .get("mc_ac_key")
-        .map(|v| v.clone())
-        .unwrap_or_default();
-
-    let (player_name, player_uuid) = if !token.is_empty() {
-        match crate::mc_api::McAction::new()
-            .authenticate(&token)
-            .get_user_profile()
-            .await
-        {
-            Ok(profile) => (profile.name, profile.id),
-            Err(_) => (
-                "Player".into(),
-                "00000000-0000-0000-0000-000000000000".into(),
-            ),
-        }
-    } else {
-        (
-            "Player".into(),
-            "00000000-0000-0000-0000-000000000000".into(),
-        )
-    };
-
-    let ctx = LaunchContext {
-        version,
-        java_path,
-        game_dir: paths.instance_dir(&instance_id),
-        libraries_dir: paths.libraries_dir(),
-        assets_dir: paths.assets_dir(),
-        natives_dir: paths.natives_dir(&version_id),
-        versions_dir: paths.versions_dir(),
-        auth_player_name: player_name,
-        auth_uuid: player_uuid,
-        auth_access_token: token,
-        client_id: String::new(),
-        xuid: String::new(),
-        xmx: config.xmx.clone(),
-        xms: config.xms.clone(),
-        java_major_version: actual_java_major,
-        compat_override: compat,
-    };
-    // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
-    let missing = ctx.missing_classpath_files();
-    if !missing.is_empty() {
-        let list = missing
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        error!(count = missing.len(), "classpath 缺少函式庫檔案:\n{list}");
-        anyhow::bail!(
-            "啟動前檢查失敗，缺少 {} 個函式庫檔案（詳見 log）。請重試以重新下載。",
-            missing.len()
-        );
-    }
-
-    let mut cmd = ctx.build_command();
-    debug!(cmd = ?cmd, java = ?ctx.java_path, game_dir = ?ctx.game_dir, "啟動指令");
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().with_context(|| {
-        format!(
-            "spawn 失敗，java={:?} game_dir={:?}",
-            ctx.java_path, ctx.game_dir
-        )
-    })?;
-    set_install_state(&ui_weak, false, 0.0, "", false);
-
-    instance_logs
-        .lock()
-        .unwrap()
-        .insert(instance_id.clone(), VecDeque::with_capacity(500));
-
-    if let Some(stdout) = child.stdout.take() {
-        spawn_log_reader(
-            stdout,
-            instance_id.clone(),
-            Arc::clone(&instance_logs),
-            ui_weak.clone(),
-        );
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(
-            stderr,
-            instance_id.clone(),
-            Arc::clone(&instance_logs),
-            ui_weak.clone(),
-        );
-    }
-
-    Ok(child)
-}
-
-/// 把一行 log 附加到模型：VecModel 直接原地 push（O(1)，ListView 增量更新）；
-/// 其他模型型別 fallback 重建並回傳新模型由呼叫端重設。
-fn append_log_line(
-    model: &ModelRc<slint::SharedString>,
-    line: slint::SharedString,
-) -> Option<ModelRc<slint::SharedString>> {
-    if let Some(vec_model) = model
-        .as_any()
-        .downcast_ref::<VecModel<slint::SharedString>>()
-    {
-        vec_model.push(line);
-        None
-    } else {
-        let mut lines: Vec<slint::SharedString> = (0..model.row_count())
-            .filter_map(|i| model.row_data(i))
-            .collect();
-        lines.push(line);
-        Some(ModelRc::from(Rc::new(VecModel::from(lines))))
-    }
-}
-
-/// 詳細視窗 category key → 實際資料夾
-fn detail_category_dir(paths: &McPaths, instance_id: &str, category: &str) -> PathBuf {
-    let root = paths.instance_dir(instance_id);
-    match category {
-        "root" => root,
-        "worlds" => root.join("saves"),
-        other => root.join(other),
-    }
-}
-
-/// category key → 所屬分頁索引（操作後重新整理用）
-fn detail_category_tab(category: &str) -> i32 {
-    match category {
-        "mods" => 2,
-        "resourcepacks" => 3,
-        "shaderpacks" => 4,
-        "saves" | "worlds" => 6,
-        "screenshots" => 8,
-        _ => -1,
-    }
-}
-
-fn shared_model(items: Vec<slint::SharedString>) -> ModelRc<slint::SharedString> {
-    ModelRc::from(Rc::new(VecModel::from(items)))
-}
-
-fn file_entries_model(dir: &Path, exts: &[&str], allow_dirs: bool) -> ModelRc<InstanceFileEntry> {
-    let items: Vec<InstanceFileEntry> = crate::instance_assets::list_entries(dir, exts, allow_dirs)
-        .into_iter()
-        .map(|e| InstanceFileEntry {
-            file_name: e.file_name.as_str().into(),
-            info: e.info.as_str().into(),
-            enabled: e.enabled,
-        })
-        .collect();
-    ModelRc::from(Rc::new(VecModel::from(items)))
-}
-
-/// 載入詳細視窗指定分頁的資料（必須在 UI 執行緒呼叫）
-fn load_detail_tab(
-    ui: &MainApp,
-    instance_id: &str,
-    tab: i32,
-    instance_logs: &Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-) {
-    let Ok(paths) = McPaths::new() else { return };
-    let dir = paths.instance_dir(instance_id);
-    let detail = ui.global::<InstanceDetailLogic>();
-    detail.set_pending_delete_key("".into());
-    match tab {
-        // Minecraft 紀錄檔（live，先帶入目前 buffer，後續由 log reader 增量 push）
-        0 => {
-            let lines: Vec<slint::SharedString> = instance_logs
-                .lock()
-                .unwrap()
-                .get(instance_id)
-                .map(|d| d.iter().map(|s| s.as_str().into()).collect())
-                .unwrap_or_default();
-            detail.set_live_log_lines(shared_model(lines));
-        }
-        2 => detail.set_mods(file_entries_model(&dir.join("mods"), &[".jar"], false)),
-        3 => detail.set_resource_packs(file_entries_model(
-            &dir.join("resourcepacks"),
-            &[".zip"],
-            true,
-        )),
-        4 => detail.set_shader_packs(file_entries_model(
-            &dir.join("shaderpacks"),
-            &[".zip"],
-            true,
-        )),
-        5 => {
-            detail.set_notes(crate::instance_assets::read_notes(&dir).as_str().into());
-            detail.set_notes_status("".into());
-        }
-        6 => {
-            let rows: Vec<WorldRow> = crate::instance_assets::list_worlds(&dir.join("saves"))
-                .into_iter()
-                .map(|w| WorldRow {
-                    dir_name: w.dir_name.as_str().into(),
-                    level_name: w.level_name.as_str().into(),
-                    info: w.info.as_str().into(),
-                })
-                .collect();
-            detail.set_worlds(ModelRc::from(Rc::new(VecModel::from(rows))));
-        }
-        7 => {
-            let rows: Vec<ServerRow> =
-                crate::instance_assets::read_servers(&dir.join("servers.dat"))
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|s| ServerRow {
-                        name: s.name.as_str().into(),
-                        ip: s.ip.as_str().into(),
-                    })
-                    .collect();
-            detail.set_servers(ModelRc::from(Rc::new(VecModel::from(rows))));
-        }
-        8 => {
-            let rows: Vec<ScreenshotRow> =
-                crate::instance_assets::list_screenshots(&dir.join("screenshots"), 24)
-                    .into_iter()
-                    .map(|p| ScreenshotRow {
-                        file_name: p
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                            .as_str()
-                            .into(),
-                        thumb: slint::Image::load_from_path(&p).unwrap_or_default(),
-                    })
-                    .collect();
-            detail.set_screenshots(ModelRc::from(Rc::new(VecModel::from(rows))));
-        }
-        10 => {
-            let names: Vec<slint::SharedString> =
-                crate::instance_assets::list_log_files(&dir.join("logs"))
-                    .iter()
-                    .map(|s| s.as_str().into())
-                    .collect();
-            detail.set_other_logs(shared_model(names));
-            detail.set_viewing_log_name("".into());
-            detail.set_other_log_content(shared_model(Vec::new()));
-        }
-        _ => {}
-    }
-}
-
-/// 開啟詳細視窗：填基本資料 + 設定分頁（InstanceEditLogic）+ 載入指定分頁
-fn open_instance_detail(
-    ui: &MainApp,
-    master_configs: &Arc<Mutex<Vec<InstanceConfig>>>,
-    running_procs: &Arc<Mutex<HashMap<String, Child>>>,
-    instance_logs: &Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-    id: &str,
-    tab: i32,
-) {
-    let config = {
-        let configs = master_configs.lock().unwrap();
-        configs.iter().find(|c| c.id == id).cloned()
-    };
-    let Some(c) = config else { return };
-
-    // 設定分頁沿用 InstanceEditLogic（記憶體 / Java）
-    let edit = ui.global::<InstanceEditLogic>();
-    edit.set_instance_id(c.id.as_str().into());
-    edit.set_instance_name(c.name.as_str().into());
-    edit.set_xmx(c.xmx.as_str().into());
-    edit.set_xms(c.xms.as_str().into());
-    edit.set_java_path(c.java_path.as_str().into());
-    edit.set_selected_java_mode(java_mode_to_label(&c.java_mode, true).into());
-    edit.set_error_msg("".into());
-
-    let detail = ui.global::<InstanceDetailLogic>();
-    detail.set_instance_id(c.id.as_str().into());
-    detail.set_instance_name(c.name.as_str().into());
-    detail.set_version(c.version.as_str().into());
-    detail.set_mod_loader(c.mod_loader.as_str().into());
-    detail.set_selected_version(c.version.as_str().into());
-    // 版本清單與「建立實例」對話框共用（啟動時已從 Mojang 取得）
-    detail.set_version_list(ui.global::<InstanceCreateLogic>().get_version_list());
-    detail.set_instance_running(running_procs.lock().unwrap().contains_key(id));
-    detail.set_status_msg("".into());
-    detail.set_active_tab(tab);
-    load_detail_tab(ui, id, tab, instance_logs);
-    detail.set_show_dialog(true);
-}
-
-fn spawn_log_reader<R: std::io::Read + Send + 'static>(
-    reader: R,
-    instance_id: String,
-    instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
-    ui_weak: slint::Weak<MainApp>,
-) {
-    tokio::task::spawn_blocking(move || {
-        use std::io::BufRead;
-        let buf = std::io::BufReader::new(reader);
-        for line in buf.lines().map_while(Result::ok) {
-            debug!(instance = %instance_id, "[Java] {}", line);
-            {
-                let mut logs = instance_logs.lock().unwrap();
-                if let Some(deque) = logs.get_mut(&instance_id) {
-                    if deque.len() >= 500 {
-                        deque.pop_front();
-                    }
-                    deque.push_back(line.clone());
-                }
-            }
-            let id = instance_id.clone();
-            let line_shared: slint::SharedString = line.into();
-            let ui = ui_weak.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                let Some(ui_handle) = ui.upgrade() else {
-                    return;
-                };
-                let logic = ui_handle.global::<InstanceLogic>();
-                if logic.get_show_log()
-                    && logic.get_log_instance_id().as_str() == id
-                    && let Some(new_model) =
-                        append_log_line(&logic.get_log_lines(), line_shared.clone())
-                {
-                    logic.set_log_lines(new_model);
-                }
-                // 詳細視窗的「Minecraft 紀錄檔」分頁（live）
-                let detail = ui_handle.global::<InstanceDetailLogic>();
-                if detail.get_show_dialog()
-                    && detail.get_active_tab() == 0
-                    && detail.get_instance_id().as_str() == id
-                    && let Some(new_model) =
-                        append_log_line(&detail.get_live_log_lines(), line_shared)
-                {
-                    detail.set_live_log_lines(new_model);
-                }
-            });
         }
     });
 }

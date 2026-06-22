@@ -123,6 +123,9 @@ impl LaunchContext {
 
             all_jvm.push(format!("-Xmx{}", self.xmx));
             all_jvm.push(format!("-Xms{}", self.xms));
+            all_jvm.push(format!("-Dminecraft.applet.TargetDirectory={}", self.game_dir.display()));
+            all_jvm.push("-Dfml.ignorePatchDiscrepancies=true".to_string());
+            all_jvm.push("-Dfml.ignoreInvalidMinecraftCertificates=true".to_string());
 
             // 去除互斥 flag 的衝突，保留最後（最高優先）那一筆
             let mut all_jvm = dedup_jvm_args(all_jvm);
@@ -155,6 +158,9 @@ impl LaunchContext {
             // 舊版格式（無 arguments 欄位）：直接加，不會有重複問題
             cmd.arg(format!("-Xmx{}", self.xmx));
             cmd.arg(format!("-Xms{}", self.xms));
+            cmd.arg(format!("-Dminecraft.applet.TargetDirectory={}", self.game_dir.display()));
+            cmd.arg("-Dfml.ignorePatchDiscrepancies=true");
+            cmd.arg("-Dfml.ignoreInvalidMinecraftCertificates=true");
             cmd.arg(format!(
                 "-Djava.library.path={}",
                 self.natives_dir.display()
@@ -211,7 +217,14 @@ impl LaunchContext {
                     None => None,
                 },
                 // 無 downloads 資訊（如第三方 loader 的 lib）：以 maven 座標推路徑
-                None => maven_coord_to_path(&lib.name),
+                // 但若有 natives 欄位，這是舊版格式的 natives-only 函式庫，不上 classpath
+                None => {
+                    if lib.natives.is_some() {
+                        None
+                    } else {
+                        maven_coord_to_path(&lib.name)
+                    }
+                }
             };
             if let Some(r) = rel {
                 parts.push(self.libraries_dir.join(r));
@@ -225,11 +238,15 @@ impl LaunchContext {
             }
         }
 
-        parts.push(
-            self.versions_dir
-                .join(&self.version.id)
-                .join(format!("{}.jar", self.version.id)),
-        );
+        let version_jar = self
+            .versions_dir
+            .join(&self.version.id)
+            .join(format!("{}.jar", self.version.id));
+        let nosig_jar = self
+            .versions_dir
+            .join(&self.version.id)
+            .join(format!("{}-nosig.jar", self.version.id));
+        parts.push(if nosig_jar.exists() { nosig_jar } else { version_jar });
 
         // 同名 lib 可能因規則重複通過（如 1.18.x 的 lwjgl）→ 去重保留首見順序
         let mut seen = std::collections::HashSet::new();
@@ -271,7 +288,7 @@ impl LaunchContext {
             args.push("--add-modules=jdk.incubator.vector".into());
             args.push("--enable-native-access=ALL-UNNAMED".into());
         }
-        if major >= 21 {
+        if major >= 22 {
             args.push("--sun-misc-unsafe-memory-access=allow".into());
         }
         args
@@ -728,8 +745,8 @@ mod test {
     }
 
     #[test]
-    fn test_java21_compat_args_injected_before_cp() {
-        let cmd = make_ctx_with_java(load_version("data/1.21.json"), 21).build_command();
+    fn test_java22_compat_args_injected_before_cp() {
+        let cmd = make_ctx_with_java(load_version("data/1.21.json"), 22).build_command();
         let args = cmd_args(&cmd);
 
         let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
@@ -777,7 +794,7 @@ mod test {
         );
         assert!(
             !args.contains(&"--sun-misc-unsafe-memory-access=allow".into()),
-            "Java 17 不應有 unsafe-memory-access（需要 >= 21）"
+            "Java 17 不應有 unsafe-memory-access（需要 >= 22）"
         );
 
         let native_pos = args
@@ -1006,8 +1023,8 @@ mod test {
             "實際 Java 8 不應有 native-access"
         );
 
-        // 實際 Java 21 → 應有完整 compat flags
-        ctx.java_major_version = Some(21);
+        // 實際 Java 22 → 應有完整 compat flags (含 sun-misc)
+        ctx.java_major_version = Some(22);
         let args = cmd_args(&ctx.build_command());
         assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()));
         assert!(args.contains(&"--sun-misc-unsafe-memory-access=allow".into()));

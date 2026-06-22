@@ -558,6 +558,15 @@ export global InstanceCreateLogic {
     in-out property <string>   selected-version: "";
     in-out property <string>   mod-loader: "None";
 
+    // Version filtering
+    in-out property <string>   version-search-text: "";
+    in-out property <bool>     show-release: true;
+    in-out property <bool>     show-snapshot: false;
+    in-out property <bool>     show-beta: false;
+    in-out property <bool>     show-alpha: false;
+    in-out property <bool>     show-experimental: false;
+    callback filter-versions();
+
     // Advanced Tab
     in-out property <string>   xmx: "2G";
     in-out property <string>   xms: "512M";
@@ -571,6 +580,11 @@ export global InstanceCreateLogic {
     // State
     in-out property <string>   error-msg: "";
     in-out property <bool>     is-loading: false;
+
+    // Mod Loader Versions
+    in-out property <[string]> mod-loader-versions: [];
+    in-out property <string>   selected-mod-loader-version: "";
+    callback loader-changed();
 
     callback confirm-create();
     callback cancel-create();
