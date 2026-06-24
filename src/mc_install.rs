@@ -785,6 +785,7 @@ mod test {
             }]),
             natives: None,
             extract: None,
+            url: None,
         }];
 
         install_libraries(&version, dir.path(), None, |_| {})
@@ -804,6 +805,7 @@ mod test {
             rules: None,
             natives: None,
             extract: None,
+            url: None,
         }];
 
         install_libraries(&version, dir.path(), None, |_| {})
@@ -873,6 +875,7 @@ mod test {
             extract: Some(McExtract {
                 exclude: vec!["excluded/".into()],
             }),
+            url: None,
         }];
 
         extract_natives(&version, &libs, &natives, None)

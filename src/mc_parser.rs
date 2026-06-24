@@ -1188,6 +1188,7 @@ mod test {
                 format!("natives-{os_key}-${{arch}}"),
             )])),
             extract: None,
+            url: None,
         };
         let key = native_classifier_key(&lib).expect("Should have natives key");
         assert!(
