@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use image::{DynamicImage, GenericImageView, Rgba};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::f32::consts::PI;
@@ -317,56 +318,17 @@ impl SkinRenderer {
             64.0,
             64.0,
             0.0,
-            r_arm_tx.clone(),
+            r_arm_tx,
         ); // Right Arm
         self.add_box(
-            &mut tris,
-            0,
-            4.0,
-            -4.0,
-            -2.0,
-            arm_w,
-            12.0,
-            4.0,
-            32.0,
-            48.0,
-            64.0,
-            64.0,
-            0.0,
-            l_arm_tx.clone(),
+            &mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 32.0, 48.0, 64.0, 64.0, 0.0, l_arm_tx,
         ); // Left Arm
 
         self.add_box(
-            &mut tris,
-            0,
-            -4.0,
-            8.0,
-            -2.0,
-            4.0,
-            12.0,
-            4.0,
-            0.0,
-            16.0,
-            64.0,
-            64.0,
-            0.0,
-            r_leg_tx.clone(),
+            &mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 16.0, 64.0, 64.0, 0.0, r_leg_tx,
         ); // Right Leg
         self.add_box(
-            &mut tris,
-            0,
-            0.0,
-            8.0,
-            -2.0,
-            4.0,
-            12.0,
-            4.0,
-            16.0,
-            48.0,
-            64.0,
-            64.0,
-            0.0,
-            l_leg_tx.clone(),
+            &mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 16.0, 48.0, 64.0, 64.0, 0.0, l_leg_tx,
         ); // Left Leg
 
         let inf = 0.25;

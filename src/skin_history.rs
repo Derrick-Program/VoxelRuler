@@ -17,10 +17,10 @@ pub struct SkinHistory {
 
 impl SkinHistory {
     pub fn load(path: &PathBuf) -> Self {
-        if let Ok(data) = std::fs::read_to_string(path) {
-            if let Ok(h) = serde_json::from_str(&data) {
-                return h;
-            }
+        if let Ok(data) = std::fs::read_to_string(path)
+            && let Ok(h) = serde_json::from_str(&data)
+        {
+            return h;
         }
         let history = Self::default();
         let _ = history.save(path);

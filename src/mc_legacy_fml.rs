@@ -73,64 +73,6 @@ pub fn get_fmllib_filenames(version_id: &str) -> &'static [&'static str] {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_1_4_x_returns_four_libs() {
-        let libs = get_fmllib_filenames("1.4.7-Forge6.6.2.534");
-        assert_eq!(libs.len(), 4);
-        assert!(libs.contains(&"bcprov-jdk15on-147.jar"));
-        assert!(libs.contains(&"asm-all-4.0.jar"));
-    }
-
-    #[test]
-    fn test_1_5_returns_correct_deobf_zip() {
-        let libs = get_fmllib_filenames("1.5-Forge7.8.1.737");
-        assert!(libs.iter().any(|&f| f == "deobfuscation_data_1.5.zip"));
-        assert!(libs.iter().any(|&f| f == "argo-small-3.2.jar"));
-    }
-
-    #[test]
-    fn test_1_5_1_returns_correct_deobf_zip() {
-        let libs = get_fmllib_filenames("1.5.1-Forge7.8.1.738");
-        assert!(libs.iter().any(|&f| f == "deobfuscation_data_1.5.1.zip"));
-    }
-
-    #[test]
-    fn test_1_5_2_returns_correct_deobf_zip() {
-        let libs = get_fmllib_filenames("1.5.2-Forge7.10.18.965");
-        assert!(libs.iter().any(|&f| f == "deobfuscation_data_1.5.2.zip"));
-    }
-
-    #[test]
-    fn test_1_6_x_returns_lzma() {
-        for ver in ["1.6.1", "1.6.2", "1.6.3", "1.6.4"] {
-            let id = format!("{}-Forge9.11.1.965", ver);
-            let libs = get_fmllib_filenames(&id);
-            assert!(
-                libs.iter().any(|&f| f == "lzma-0.0.1.jar"),
-                "{ver} should include lzma"
-            );
-            assert!(libs.iter().any(|&f| f == "bcprov-jdk15on-148.jar"));
-        }
-    }
-
-    #[test]
-    fn test_modern_version_returns_empty() {
-        assert!(get_fmllib_filenames("1.21.1-forge-51.0.0").is_empty());
-        assert!(get_fmllib_filenames("1.12.2-forge-14.23.5.2860").is_empty());
-        assert!(get_fmllib_filenames("1.7.10-Forge10.13.4.1614").is_empty());
-    }
-
-    #[test]
-    fn test_plain_version_id_without_dash_is_handled() {
-        // If no dash present, the whole string is treated as the mc version
-        assert!(get_fmllib_filenames("1.99").is_empty());
-    }
-}
-
 /// Downloads all required FML libs for the given Forge version into `libraries_dir/fmllibs/`.
 /// Uses best-effort download (no SHA1 verification); skips files that already exist.
 pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::Result<()> {
@@ -174,4 +116,62 @@ pub async fn copy_fmllibs_to_game_dir(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_1_4_x_returns_four_libs() {
+        let libs = get_fmllib_filenames("1.4.7-Forge6.6.2.534");
+        assert_eq!(libs.len(), 4);
+        assert!(libs.contains(&"bcprov-jdk15on-147.jar"));
+        assert!(libs.contains(&"asm-all-4.0.jar"));
+    }
+
+    #[test]
+    fn test_1_5_returns_correct_deobf_zip() {
+        let libs = get_fmllib_filenames("1.5-Forge7.8.1.737");
+        assert!(libs.contains(&"deobfuscation_data_1.5.zip"));
+        assert!(libs.contains(&"argo-small-3.2.jar"));
+    }
+
+    #[test]
+    fn test_1_5_1_returns_correct_deobf_zip() {
+        let libs = get_fmllib_filenames("1.5.1-Forge7.8.1.738");
+        assert!(libs.contains(&"deobfuscation_data_1.5.1.zip"));
+    }
+
+    #[test]
+    fn test_1_5_2_returns_correct_deobf_zip() {
+        let libs = get_fmllib_filenames("1.5.2-Forge7.10.18.965");
+        assert!(libs.contains(&"deobfuscation_data_1.5.2.zip"));
+    }
+
+    #[test]
+    fn test_1_6_x_returns_lzma() {
+        for ver in ["1.6.1", "1.6.2", "1.6.3", "1.6.4"] {
+            let id = format!("{}-Forge9.11.1.965", ver);
+            let libs = get_fmllib_filenames(&id);
+            assert!(
+                libs.contains(&"lzma-0.0.1.jar"),
+                "{ver} should include lzma"
+            );
+            assert!(libs.contains(&"bcprov-jdk15on-148.jar"));
+        }
+    }
+
+    #[test]
+    fn test_modern_version_returns_empty() {
+        assert!(get_fmllib_filenames("1.21.1-forge-51.0.0").is_empty());
+        assert!(get_fmllib_filenames("1.12.2-forge-14.23.5.2860").is_empty());
+        assert!(get_fmllib_filenames("1.7.10-Forge10.13.4.1614").is_empty());
+    }
+
+    #[test]
+    fn test_plain_version_id_without_dash_is_handled() {
+        // If no dash present, the whole string is treated as the mc version
+        assert!(get_fmllib_filenames("1.99").is_empty());
+    }
 }

@@ -114,18 +114,19 @@ pub(crate) fn get_ui_skins(
         let hash = skin
             .url
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or(&skin.name)
             .trim_end_matches(".png");
         let render_path = paths.skins_dir().join(format!("{}_render.png", hash));
         let skin_path = paths.skins_dir().join(format!("{}.png", hash));
 
-        if !render_path.exists() && skin_path.exists() {
-            if let Ok(img) = image::open(&skin_path) {
-                let is_slim = skin.model == "slim";
-                let render_img = generate_2d_front(&img, is_slim);
-                let _ = render_img.save(&render_path);
-            }
+        if !render_path.exists()
+            && skin_path.exists()
+            && let Ok(img) = image::open(&skin_path)
+        {
+            let is_slim = skin.model == "slim";
+            let render_img = generate_2d_front(&img, is_slim);
+            let _ = render_img.save(&render_path);
         }
 
         let has_preview = render_path.exists() || skin_path.exists();
@@ -200,7 +201,11 @@ pub(crate) async fn fetch_avatar_from_mojang(
         }
 
         let url = active_skin.url.clone();
-        let mojang_hash = url.split('/').last().unwrap_or(&active_skin.id).to_string();
+        let mojang_hash = url
+            .split('/')
+            .next_back()
+            .unwrap_or(&active_skin.id)
+            .to_string();
 
         let skin_path = paths.skins_dir().join(format!("{}.png", mojang_hash));
         let render_path = paths
@@ -221,7 +226,7 @@ pub(crate) async fn fetch_avatar_from_mojang(
                     || s.url.ends_with(&format!("{}.png", pixel_hash))
                     || s.url
                         .split('/')
-                        .last()
+                        .next_back()
                         .unwrap_or("")
                         .trim_end_matches(".png")
                         == pixel_hash

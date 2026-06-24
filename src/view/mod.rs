@@ -11,7 +11,7 @@ use launch::*;
 use skin::*;
 
 thread_local! {
-    static SKIN_TIMER: std::cell::RefCell<Option<slint::Timer>> = std::cell::RefCell::new(None);
+    static SKIN_TIMER: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
 }
 use crate::{
     mc_install,

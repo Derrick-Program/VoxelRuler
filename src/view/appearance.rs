@@ -14,8 +14,8 @@ pub fn setup_appearance_window(ui: &MainApp) {
     ui.global::<PageAccountLogic>()
             .on_manage_appearance(move || {
                 let mut ap_ref = ap_rc_manage.borrow_mut();
-                if ap_ref.is_none() {
-                    if let Ok(ap) = AppearanceWindow::new() {
+                if ap_ref.is_none()
+                    && let Ok(ap) = AppearanceWindow::new() {
                         let ap_weak = ap.as_weak();
                         ap.window().on_close_requested(move || {
                             if let Some(ap) = ap_weak.upgrade() {
@@ -34,7 +34,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             #[cfg(target_os = "macos")]
                             if crate::GLOBAL_CACHE.get("mac_natural_scroll").is_none() {
                                 let val = std::process::Command::new("defaults")
-                                    .args(&["read", "-g", "com.apple.swipescrolldirection"])
+                                    .args(["read", "-g", "com.apple.swipescrolldirection"])
                                     .output()
                                     .ok()
                                     .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -77,8 +77,8 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             let time = apl.get_preview_time() + 0.033;
                             apl.set_preview_time(time);
 
-                            if let Ok(guard) = active_renderer_timer.try_lock() {
-                                if let Some(renderer) = &*guard {
+                            if let Ok(guard) = active_renderer_timer.try_lock()
+                                && let Some(renderer) = &*guard {
                                     let yaw = apl.get_preview_yaw();
                                     let pitch = apl.get_preview_pitch();
                                     let slim = apl.get_skin_variant() == "slim";
@@ -86,7 +86,6 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     apl.set_preview_image(slint::Image::from_rgba8(buffer));
                                     apl.set_has_preview(true);
                                 }
-                            }
                         });
                         SKIN_TIMER.with(|t| *t.borrow_mut() = Some(timer));
 
@@ -280,8 +279,8 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     }
                                 }
 
-                                if !is_error && !skin_bytes.is_empty() {
-                                    if let Ok(paths) = crate::mc_paths::McPaths::new() {
+                                if !is_error && !skin_bytes.is_empty()
+                                    && let Ok(paths) = crate::mc_paths::McPaths::new() {
                                         let history_file = paths.skins_history_file();
                                         let mut history = crate::skin_history::SkinHistory::load(&history_file);
 
@@ -310,7 +309,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         let final_url = format!("file://{}", target_path.display());
 
                                         history.skins.retain(|s| {
-                                            let s_hash = s.url.split('/').last().unwrap_or("").trim_end_matches(".png");
+                                            let s_hash = s.url.split('/').next_back().unwrap_or("").trim_end_matches(".png");
                                             s_hash != hash
                                         });
 
@@ -322,7 +321,6 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         });
                                         let _ = history.save(&history_file);
                                     }
-                                }
 
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(ap) = ap_weak_async.upgrade() {
@@ -527,7 +525,6 @@ pub fn setup_appearance_window(ui: &MainApp) {
 
                         *ap_ref = Some(ap);
                     }
-                }
 
                 if let Some(ap) = ap_ref.as_ref() {
                     let apl = ap.global::<AppearanceLogic>();
@@ -590,7 +587,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         TempCape {
                                             id: cape.id.clone(),
                                             alias: cape.alias.clone(),
-                                            state: cape.state.clone(),
+                                            state: cape.state,
                                             url: cape.url.clone(),
                                             buffer,
                                         }
@@ -795,10 +792,10 @@ fn handle_select_cape(
         apl.set_selected_cape_id(cape_id.clone().into());
 
         if cape_id.is_empty() {
-            if let Ok(mut guard) = renderer_lock.lock() {
-                if let Some(r) = guard.as_mut() {
-                    r.set_cape(None);
-                }
+            if let Ok(mut guard) = renderer_lock.lock()
+                && let Some(r) = guard.as_mut()
+            {
+                r.set_cape(None);
             }
             apl.set_selected_cape_name("No Cape".into());
             apl.set_selected_cape_preview(Default::default());
@@ -837,10 +834,10 @@ fn handle_select_cape(
             let (raw_pixels, w, h) = create_cape_preview_raw(&img);
 
             let _ = slint::invoke_from_event_loop(move || {
-                if let Ok(mut guard) = renderer_lock2.lock() {
-                    if let Some(r) = guard.as_mut() {
-                        r.set_cape(Some(img));
-                    }
+                if let Ok(mut guard) = renderer_lock2.lock()
+                    && let Some(r) = guard.as_mut()
+                {
+                    r.set_cape(Some(img));
                 }
                 if let Some(ap) = ap_weak2.upgrade() {
                     let slint_img = slint::Image::from_rgba8(

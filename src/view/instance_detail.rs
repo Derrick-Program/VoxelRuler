@@ -31,7 +31,7 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"\x1B\[([0-9;]*)[mK]").unwrap());
 
-    let mut color = slint::Color::from_rgb_u8(197, 200, 198).into();
+    let mut color = slint::Color::from_rgb_u8(197, 200, 198);
     let mut has_ansi = false;
 
     if let Some(caps) = re.captures(line) {
@@ -39,12 +39,12 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
         let codes = caps.get(1).map_or("", |m| m.as_str());
         for code in codes.split(';') {
             match code {
-                "31" | "91" => color = slint::Color::from_rgb_u8(231, 76, 60).into(),
-                "33" | "93" => color = slint::Color::from_rgb_u8(241, 196, 15).into(),
-                "32" | "92" => color = slint::Color::from_rgb_u8(46, 204, 113).into(),
-                "36" | "96" => color = slint::Color::from_rgb_u8(26, 188, 156).into(),
-                "35" | "95" => color = slint::Color::from_rgb_u8(155, 89, 182).into(),
-                "34" | "94" => color = slint::Color::from_rgb_u8(52, 152, 219).into(),
+                "31" | "91" => color = slint::Color::from_rgb_u8(231, 76, 60),
+                "33" | "93" => color = slint::Color::from_rgb_u8(241, 196, 15),
+                "32" | "92" => color = slint::Color::from_rgb_u8(46, 204, 113),
+                "36" | "96" => color = slint::Color::from_rgb_u8(26, 188, 156),
+                "35" | "95" => color = slint::Color::from_rgb_u8(155, 89, 182),
+                "34" | "94" => color = slint::Color::from_rgb_u8(52, 152, 219),
                 _ => {}
             }
         }
@@ -58,13 +58,13 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
             || line.contains("Exception:")
             || line.starts_with("\tat ")
         {
-            color = slint::Color::from_rgb_u8(231, 76, 60).into(); // Red
+            color = slint::Color::from_rgb_u8(231, 76, 60); // Red
         } else if line.contains("/WARN]") || line.contains(" WARN ") {
-            color = slint::Color::from_rgb_u8(241, 196, 15).into(); // Yellow
+            color = slint::Color::from_rgb_u8(241, 196, 15); // Yellow
         } else if line.contains("/DEBUG]") || line.contains(" DEBUG ") {
-            color = slint::Color::from_rgb_u8(127, 140, 141).into(); // Gray
+            color = slint::Color::from_rgb_u8(127, 140, 141); // Gray
         } else if line.contains("/FATAL]") || line.contains(" FATAL ") {
-            color = slint::Color::from_rgb_u8(192, 57, 43).into(); // Dark Red
+            color = slint::Color::from_rgb_u8(192, 57, 43); // Dark Red
         }
     }
 

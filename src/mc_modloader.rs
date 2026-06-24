@@ -109,8 +109,8 @@ impl ModLoaderApi {
                 .send()
                 .await?;
             res.json::<serde_json::Value>().await
-        }.await {
-            if let Some(promos) = json.get("promos").and_then(|p| p.as_object()) {
+        }.await
+            && let Some(promos) = json.get("promos").and_then(|p| p.as_object()) {
                 if let Some(l) = promos
                     .get(&format!("{}-latest", mc_version))
                     .and_then(|v| v.as_str())
@@ -124,7 +124,6 @@ impl ModLoaderApi {
                     recommended_suffix = r.to_string();
                 }
             }
-        }
 
         Ok(versions
             .into_iter()
@@ -427,18 +426,18 @@ impl ModLoaderApi {
             let maven_coords = inst.get("path").and_then(|v| v.as_str())?;
             Some((file_path, maven_coords))
         });
-        if let Some((file_path, maven_coords)) = embedded_jar {
-            if let Ok(mut entry) = zip.by_name(file_path) {
-                let lib_path = mc_dir
-                    .join("libraries")
-                    .join(Self::maven_coords_to_path(maven_coords));
-                if let Some(parent) = lib_path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut jar_bytes = Vec::new();
-                entry.read_to_end(&mut jar_bytes)?;
-                std::fs::write(&lib_path, jar_bytes)?;
+        if let Some((file_path, maven_coords)) = embedded_jar
+            && let Ok(mut entry) = zip.by_name(file_path)
+        {
+            let lib_path = mc_dir
+                .join("libraries")
+                .join(Self::maven_coords_to_path(maven_coords));
+            if let Some(parent) = lib_path.parent() {
+                std::fs::create_dir_all(parent)?;
             }
+            let mut jar_bytes = Vec::new();
+            entry.read_to_end(&mut jar_bytes)?;
+            std::fs::write(&lib_path, jar_bytes)?;
         }
 
         Ok(version_id.to_owned())
