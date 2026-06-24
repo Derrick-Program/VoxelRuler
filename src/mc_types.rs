@@ -169,6 +169,7 @@ pub struct McLogFile {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McLibrary {
     pub name: String,
+    pub url: Option<String>,
     pub downloads: Option<McLibraryDownloads>,
     pub rules: Option<Vec<McRule>>,
     /// 舊版格式（約 ≤1.18）：OS 名稱 → classifier key（可能含 `${arch}`），

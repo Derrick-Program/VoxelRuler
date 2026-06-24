@@ -5,7 +5,7 @@ use tracing::warn;
 /// 全域應用程式設定，存於 `<data_dir>/settings.toml`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
-    /// Java 來源模式：`"minecraft"`（跟隨 Minecraft 提供，預設）/ `"custom"`（自訂路徑）
+    /// Java 來源模式：`"minecraft"` (Follow Minecraft provided, default) / `"custom"`（自訂路徑）
     /// 空字串視同 `"minecraft"`（向下相容）
     #[serde(default)]
     pub java_mode: String,
@@ -18,7 +18,7 @@ impl AppSettings {
     fn settings_path() -> anyhow::Result<PathBuf> {
         Ok(crate::PROJECT_DIR
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("無法取得系統應用程式目錄"))?
+            .ok_or_else(|| anyhow::anyhow!("Failed to get system app directory"))?
             .data_dir()
             .join("settings.toml"))
     }
@@ -32,7 +32,7 @@ impl AppSettings {
             return Self::default();
         };
         toml::from_str(&content).unwrap_or_else(|e| {
-            warn!(path = %path.display(), error = %e, "settings.toml 解析失敗，使用預設值");
+            warn!(path = %path.display(), error = %e, "Failed to parse settings.toml, using defaults");
             Self::default()
         })
     }

@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use tracing::{debug, info};
 use url::Url;
 
+mod ipc;
 mod instance_assets;
 mod java_scan;
 mod mc_api;
@@ -84,58 +85,55 @@ static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // ── Deep Link 處理 ────────────────────────────────────────────────────
-    //
-    // macOS：URL scheme 透過 Apple Events 傳遞，不走 argv。
-    //        在 Slint event loop 啟動前向 NSAppleEventManager 註冊 handler，
-    //        收到 URL 後透過 channel 傳至此 async task。
-    //
-    // Windows / Linux：cargo-packager 會將 URL 以 argv[1] 傳入，
-    //                  直接從 args 解析即可。
-    #[cfg(target_os = "macos")]
-    let mut deep_link_rx = url_handler::register();
+    // ── Deep Link 處理與單一實例 (Single Instance) IPC ────────────────────
+    let (deep_link_tx, mut deep_link_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let is_main = ipc::setup_ipc(deep_link_tx.clone()).await;
+    if !is_main {
+        // 如果是第二個執行個體，已經把 deeplink 傳遞給第一個了，直接關閉即可
+        std::process::exit(0);
+    }
 
     #[cfg(target_os = "macos")]
+    {
+        // macOS：URL scheme 透過 Apple Events 傳遞。
+        let mut mac_rx = url_handler::register();
+        let tx_clone = deep_link_tx.clone();
+        tokio::spawn(async move {
+            while let Some(url) = mac_rx.recv().await {
+                let _ = tx_clone.send(url);
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Windows / Linux：cargo-packager 會將 URL 以 argv[1] 傳入
+        let args: Vec<String> = std::env::args().collect();
+        if args.len() > 1 && args[1].starts_with("voxelruler://") {
+            let _ = deep_link_tx.send(args[1].clone());
+        }
+    }
+
+    // 集中處理所有來源的 Deep Link
     tokio::spawn(async move {
         while let Some(url) = deep_link_rx.recv().await {
-            debug!(url = %url, "deep link channel 收到 URL");
+            debug!(url = %url, "deep link channel received URL");
             match DeepLinkAction::parse_string(&url) {
                 DeepLinkAction::MicrosoftAuth(auth_data) => {
                     debug!(
                         code = %auth_data.code,
                         state = ?auth_data.state,
-                        "收到 Microsoft OAuth deep link（Apple Events）"
+                        "Received Microsoft OAuth deep link"
                     );
                     // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
                 }
                 DeepLinkAction::Unknown => {
-                    debug!("收到未知的 VoxelRuler deep link，略過");
+                    debug!("Received unknown VoxelRuler deep link, skipping");
                 }
             }
         }
     });
-
-    // Windows / Linux：URL scheme 以 argv[1] 傳入
-    #[cfg(not(target_os = "macos"))]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        if args.len() > 1 {
-            debug!("收到啟動參數：{:#?}", args);
-            match DeepLinkAction::parse_string(&args[1]) {
-                DeepLinkAction::MicrosoftAuth(auth_data) => {
-                    debug!(
-                        code = %auth_data.code,
-                        state = ?auth_data.state,
-                        "收到 Microsoft OAuth deep link（argv）"
-                    );
-                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
-                }
-                DeepLinkAction::Unknown => {
-                    debug!("收到未知的 VoxelRuler 指令");
-                }
-            }
-        }
-    }
     // ── Logging 模式 ──────────────────────────────────────────
     //
     //  【預設（不設 RUST_LOG）】
@@ -211,6 +209,11 @@ async fn main() -> anyhow::Result<()> {
     let has_token = GLOBAL_CACHE.get("mc_ac_key").is_some();
     info!(authenticated = has_token, "token 狀態載入完成");
     open_view().await?;
+
+    // Clean up the IPC socket so the next launch doesn't hit a stale file.
+    #[cfg(unix)]
+    ipc::cleanup();
+
     Ok(())
 }
 

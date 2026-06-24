@@ -24,7 +24,7 @@ pub struct InstanceConfig {
     pub shader_pack: String,
     pub last_played: String,
     pub play_time_secs: u64,
-    /// Java 來源模式：`"global"`（跟隨全域，預設）/ `"minecraft"`（跟隨 Minecraft 提供）/ `"custom"`（自訂路徑）
+    /// Java 來源模式：`"global"` (Follow global, default) / `"minecraft"` (Follow Minecraft provided) / `"custom"`（自訂路徑）
     /// 空字串視同 `"global"`（向下相容）
     #[serde(default)]
     pub java_mode: String,
@@ -68,26 +68,15 @@ impl InstanceStore {
         if !self.base_dir.exists() {
             return Ok(Vec::new());
         }
-        let mut instances = Vec::new();
-        for entry in std::fs::read_dir(&self.base_dir)? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-            let instance_toml = entry.path().join("instance.toml");
-            if !instance_toml.is_file() {
-                continue;
-            }
-            let content = match std::fs::read_to_string(&instance_toml) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let cfg: InstanceConfig = match toml::from_str(&content) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            instances.push(cfg);
-        }
+        let instances = std::fs::read_dir(&self.base_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let p = e.path().join("instance.toml");
+                p.is_file().then_some(p)
+            })
+            .filter_map(|p| std::fs::read_to_string(p).ok())
+            .filter_map(|c| toml::from_str(&c).ok())
+            .collect();
         Ok(instances)
     }
 
@@ -136,7 +125,7 @@ impl InstanceStore {
                     }
                 }
                 Err(errors) => {
-                    error!(?errors, "notify watcher 錯誤");
+                    error!(?errors, "notify watcher error");
                 }
             },
         )?;

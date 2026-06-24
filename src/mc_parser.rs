@@ -18,7 +18,7 @@ use crate::mc_types::{
 pub const JNA_COMPAT_VERSION: &str = "5.13.0";
 
 /// 若該 library 在 macOS 上需要把 jna 升到 [`JNA_COMPAT_VERSION`]，
-/// 回傳 artifact 名稱（`"jna"` 或 `"jna-platform"`）。
+/// 回傳 artifact 名稱（`"jna"` or `"jna-platform"`）。
 pub fn jna_needs_bump(name: &str) -> Option<&'static str> {
     let mut parts = name.split(':');
     if parts.next()? != "net.java.dev.jna" {
@@ -371,10 +371,8 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
         if GC_FLAGS.contains(&arg.as_str()) {
             last_gc = Some(i);
         }
-        for (pi, prefix) in UNIQUE_PREFIXES.iter().enumerate() {
-            if arg.starts_with(prefix) {
-                last_prefix[pi] = Some(i);
-            }
+        if let Some((pi, _)) = UNIQUE_PREFIXES.iter().enumerate().find(|(_, p)| arg.starts_with(*p)) {
+            last_prefix[pi] = Some(i);
         }
     }
 
@@ -384,19 +382,17 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
         .filter_map(|(i, arg)| {
             if GC_FLAGS.contains(&arg.as_str()) {
                 if Some(i) != last_gc {
-                    warn!("移除衝突 GC 參數: {arg}");
+                    warn!("Removed conflicting GC argument: {arg}");
                     return None;
                 }
                 return Some(arg);
             }
-            for (pi, prefix) in UNIQUE_PREFIXES.iter().enumerate() {
-                if arg.starts_with(prefix) {
-                    if Some(i) != last_prefix[pi] {
-                        warn!("移除重複 JVM 參數: {arg}");
-                        return None;
-                    }
-                    return Some(arg);
+            if let Some((pi, _)) = UNIQUE_PREFIXES.iter().enumerate().find(|(_, p)| arg.starts_with(*p)) {
+                if Some(i) != last_prefix[pi] {
+                    warn!("Removing duplicate JVM argument: {arg}");
+                    return None;
                 }
+                return Some(arg);
             }
             Some(arg)
         })
@@ -504,36 +500,30 @@ fn feature_rule_matches(feat: &McFeatureRule) -> bool {
 }
 
 fn collect_args(items: &[McArgumentItem], vars: &HashMap<&'static str, String>) -> Vec<String> {
-    let mut out = Vec::new();
-    for item in items {
-        match item {
-            McArgumentItem::Simple(s) => out.push(resolve_argument(s, vars)),
-            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => match &cond.value {
-                McArgumentValue::Single(s) => out.push(resolve_argument(s, vars)),
-                McArgumentValue::Many(args) => {
-                    out.extend(args.iter().map(|a| resolve_argument(a, vars)));
-                }
-            },
-            _ => {}
-        }
-    }
-    out
+    items
+        .iter()
+        .filter_map(|item| match item {
+            McArgumentItem::Simple(s) => Some(vec![resolve_argument(s, vars)]),
+            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => Some(match &cond.value {
+                McArgumentValue::Single(s) => vec![resolve_argument(s, vars)],
+                McArgumentValue::Many(args) => args.iter().map(|a| resolve_argument(a, vars)).collect(),
+            }),
+            _ => None,
+        })
+        .flatten()
+        .collect()
 }
 
 pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
-    let parts: Vec<&str> = coord.split(':').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-    let mut path = PathBuf::new();
-    for component in parts[0].split('.') {
-        path.push(component);
-    }
-    let artifact = parts[1];
-    let version = parts[2];
+    let mut parts = coord.splitn(4, ':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts.next()?;
+    let classifier = parts.next();
+    let mut path: PathBuf = group.split('.').collect();
     path.push(artifact);
     path.push(version);
-    let filename = match parts.get(3) {
+    let filename = match classifier {
         Some(cls) => format!("{artifact}-{version}-{cls}.jar"),
         None => format!("{artifact}-{version}.jar"),
     };
@@ -585,7 +575,7 @@ pub fn detect_java_major_version(java_path: &std::path::Path) -> Option<i32> {
     parse_java_major_version(&text)
 }
 
-/// 解析 `version "..."` 字串：`"1.8.0_392"` → 8、`"17.0.2"` → 17、`"21"` → 21
+/// 解析 `version "..."` string: `"1.8.0_392"` → 8、`"17.0.2"` → 17、`"21"` → 21
 fn parse_java_major_version(text: &str) -> Option<i32> {
     let start = text.find("version \"")? + "version \"".len();
     let quoted = text[start..].split('"').next()?;
@@ -612,7 +602,7 @@ pub fn get_mojang_os_arch() -> &'static str {
         ("linux", "x86") => "linux-i386",
 
         _ => {
-            warn!(os = OS, arch = ARCH, "未知的系統或架構組合");
+            warn!(os = OS, arch = ARCH, "Unknown OS or architecture combination");
             "unknown"
         }
     }
@@ -648,8 +638,8 @@ mod test {
     }
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
-        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("找不到 {path}"));
-        serde_json::from_str(&data).unwrap_or_else(|_| panic!("解析 {path} 失敗"))
+        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
+        serde_json::from_str(&data).unwrap_or_else(|_| panic!("Failed to parse {path}"))
     }
 
     #[test]
@@ -664,7 +654,7 @@ mod test {
     #[tokio::test]
     async fn test_parse_mc_specific_version_detail() {
         let v = load_version("data/26.1.2.json");
-        println!("完整結構體: {:#?}", v.arguments.unwrap().jvm);
+        println!("Complete struct: {:#?}", v.arguments.unwrap().jvm);
     }
 
     #[tokio::test]
@@ -672,23 +662,23 @@ mod test {
         let data = tokio::fs::read_to_string("data/java-all.json")
             .await
             .expect("can't read file");
-        let java_all: McJavaAll = serde_json::from_str(&data).expect("解析失敗");
-        println!("解析成功！");
-        println!("完整結構體: {:#?}", java_all);
+        let java_all: McJavaAll = serde_json::from_str(&data).expect("Parse failed");
+        println!("Parse successful!");
+        println!("Complete struct: {:#?}", java_all);
         let os_arch = get_mojang_os_arch();
-        println!("當前系統架構對應的 Mojang 字串: {}", os_arch);
+        println!("Mojang string for current OS arch: {}", os_arch);
         let mac_java = java_all.get(os_arch).unwrap();
-        println!("{} Java 版本: {:#?}", os_arch, mac_java);
+        println!("{} Java version: {:#?}", os_arch, mac_java);
     }
 
     #[tokio::test]
     async fn test_java_parse() {
         let os_arch = get_mojang_os_arch();
-        println!("當前系統架構對應的 Mojang 字串: {}", os_arch);
+        println!("Mojang string for current OS arch: {}", os_arch);
         let data = tokio::fs::read_to_string("data/java-all.json")
             .await
             .expect("can't read file");
-        let java_all: McJavaAll = serde_json::from_str(&data).expect("解析失敗");
+        let java_all: McJavaAll = serde_json::from_str(&data).expect("Parse failed");
         let java_version = java_all
             .get(os_arch)
             .unwrap()
@@ -697,22 +687,22 @@ mod test {
         let java_manifest = &java_version.first().unwrap().manifest;
         println!("Minecraft Java Manifest: {:#?}", java_manifest);
         let url = java_manifest.url.clone();
-        println!("Minecraft Java 下載 URL: {}", url);
+        println!("Minecraft Java download URL: {}", url);
         let response: crate::mc_types::McJavaManifest = reqwest::get(&url)
             .await
-            .expect("下載失敗")
+            .expect("Download failed")
             .error_for_status()
-            .expect("HTTP 錯誤")
+            .expect("HTTP error")
             .json()
             .await
-            .expect("解析 JSON 失敗");
-        println!("Minecraft Java Manifest 內容: {:#?}", response);
+            .expect("Failed to parse JSON");
+        println!("Minecraft Java Manifest content: {:#?}", response);
     }
 
     #[test]
     fn test_get_mojang_os_arch() {
         let os_arch = get_mojang_os_arch();
-        println!("當前系統架構對應的 Mojang 字串: {}", os_arch);
+        println!("Mojang string for current OS arch: {}", os_arch);
     }
 
     fn make_ctx(version: McSpecificVersionDetail) -> LaunchContext {
@@ -749,18 +739,18 @@ mod test {
         let cmd = make_ctx_with_java(load_version("data/1.21.json"), 22).build_command();
         let args = cmd_args(&cmd);
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
         assert!(
             args.contains(&"--add-modules=jdk.incubator.vector".into()),
-            "缺少 incubator.vector"
+            "Missing incubator.vector"
         );
         assert!(
             args.contains(&"--enable-native-access=ALL-UNNAMED".into()),
-            "缺少 native-access"
+            "Missing native-access"
         );
         assert!(
             args.contains(&"--sun-misc-unsafe-memory-access=allow".into()),
-            "缺少 unsafe-memory-access"
+            "Missing unsafe-memory-access"
         );
 
         let native_pos = args
@@ -771,10 +761,10 @@ mod test {
             .iter()
             .position(|a| a == "--sun-misc-unsafe-memory-access=allow")
             .unwrap();
-        assert!(native_pos < cp_pos, "--enable-native-access 應在 -cp 之前");
+        assert!(native_pos < cp_pos, "--enable-native-access should be before -cp");
         assert!(
             unsafe_pos < cp_pos,
-            "--sun-misc-unsafe-memory-access 應在 -cp 之前"
+            "--sun-misc-unsafe-memory-access should be before -cp"
         );
     }
 
@@ -783,25 +773,25 @@ mod test {
         let cmd = make_ctx_with_java(load_version("data/1.21.json"), 17).build_command();
         let args = cmd_args(&cmd);
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
         assert!(
             args.contains(&"--add-modules=jdk.incubator.vector".into()),
-            "Java 17 應有 incubator.vector"
+            "Java 17 should have incubator.vector"
         );
         assert!(
             args.contains(&"--enable-native-access=ALL-UNNAMED".into()),
-            "Java 17 應有 native-access"
+            "Java 17 should have native-access"
         );
         assert!(
             !args.contains(&"--sun-misc-unsafe-memory-access=allow".into()),
-            "Java 17 不應有 unsafe-memory-access（需要 >= 22）"
+            "Java 17 should not have unsafe-memory-access (requires >= 22)"
         );
 
         let native_pos = args
             .iter()
             .position(|a| a == "--enable-native-access=ALL-UNNAMED")
             .unwrap();
-        assert!(native_pos < cp_pos, "--enable-native-access 應在 -cp 之前");
+        assert!(native_pos < cp_pos, "--enable-native-access should be before -cp");
     }
 
     #[test]
@@ -811,15 +801,15 @@ mod test {
 
         assert!(
             !args.contains(&"--add-modules=jdk.incubator.vector".into()),
-            "Java 8 不應有 compat args"
+            "Java 8 should not have compat args"
         );
         assert!(
             !args.contains(&"--enable-native-access=ALL-UNNAMED".into()),
-            "Java 8 不應有 compat args"
+            "Java 8 should not have compat args"
         );
         assert!(
             !args.contains(&"--sun-misc-unsafe-memory-access=allow".into()),
-            "Java 8 不應有 compat args"
+            "Java 8 should not have compat args"
         );
     }
 
@@ -828,102 +818,102 @@ mod test {
         let cmd = make_ctx(load_version("data/1.21.json")).build_command();
         let args = cmd_args(&cmd);
 
-        assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
-        assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
+        assert!(args.contains(&"-Xmx2G".into()), "Missing -Xmx");
+        assert!(args.contains(&"-Xms512M".into()), "Missing -Xms");
         assert!(
             args.contains(&"-Djava.library.path=/natives".into()),
-            "natives_directory 未替換"
+            "natives_directory not replaced"
         );
         assert!(
             args.contains(&"-Djna.tmpdir=/natives".into()),
-            "natives_directory 未替換（jna）"
+            "natives_directory not replaced (jna)"
         );
-        assert!(args.contains(&"-cp".into()), "缺少 -cp");
+        assert!(args.contains(&"-cp".into()), "Missing -cp");
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
         let classpath = &args[cp_pos + 1];
         assert!(
             classpath.ends_with("1.21/1.21.jar"),
-            "classpath 應以版本 JAR 結尾"
+            "classpath should end with version JAR"
         );
 
         #[cfg(target_os = "macos")]
         {
             assert!(
                 classpath.contains("java-objc-bridge"),
-                "macOS classpath 應包含 java-objc-bridge"
+                "macOS classpath should contain java-objc-bridge"
             );
             assert!(
                 !classpath.contains("natives-linux"),
-                "macOS classpath 不應有 linux natives"
+                "macOS classpath should not contain linux natives"
             );
             assert!(
                 !classpath.contains("natives-windows"),
-                "macOS classpath 不應有 windows natives"
+                "macOS classpath should not contain windows natives"
             );
         }
         #[cfg(target_os = "linux")]
         {
             assert!(
                 classpath.contains("natives-linux"),
-                "Linux classpath 應包含 linux natives"
+                "Linux classpath should contain linux natives"
             );
             assert!(
                 !classpath.contains("natives-macos"),
-                "Linux classpath 不應有 macos natives"
+                "Linux classpath should not contain macos natives"
             );
         }
         #[cfg(target_os = "windows")]
         {
             assert!(
                 classpath.contains("natives-windows"),
-                "Windows classpath 應包含 windows natives"
+                "Windows classpath should contain windows natives"
             );
             assert!(
                 !classpath.contains("natives-linux"),
-                "Windows classpath 不應有 linux natives"
+                "Windows classpath should not contain linux natives"
             );
         }
 
         assert!(
             args.contains(&"net.minecraft.client.main.Main".into()),
-            "缺少 main class"
+            "Missing main class"
         );
 
         assert!(args.contains(&"--username".into()));
-        assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
-        assert!(args.contains(&"1.21".into()), "version_name 未替換");
+        assert!(args.contains(&"Steve".into()), "auth_player_name not replaced");
+        assert!(args.contains(&"1.21".into()), "version_name not replaced");
         assert!(args.contains(&"--gameDir".into()));
-        assert!(args.contains(&"/game".into()), "game_directory 未替換");
-        assert!(args.contains(&"msa".into()), "user_type 應為 msa");
+        assert!(args.contains(&"/game".into()), "game_directory not replaced");
+        assert!(args.contains(&"msa".into()), "user_type should be msa");
 
         assert!(
             !args.contains(&"--demo".into()),
-            "--demo 不應出現（非 demo 模式）"
+            "--demo should not appear (not demo mode)"
         );
         assert!(
             !args.contains(&"--width".into()),
-            "--width 不應出現（無自訂解析度）"
+            "--width should not appear (no custom resolution)"
         );
         assert!(
             !args.contains(&"--quickPlayPath".into()),
-            "--quickPlayPath 不應出現"
+            "--quickPlayPath should not appear"
         );
 
         #[cfg(target_os = "macos")]
         assert!(
             args.contains(&"-XstartOnFirstThread".into()),
-            "macOS 應有 -XstartOnFirstThread"
+            "macOS should have -XstartOnFirstThread"
         );
         #[cfg(not(target_os = "macos"))]
         assert!(
             !args.contains(&"-XstartOnFirstThread".into()),
-            "非 macOS 不應有 -XstartOnFirstThread"
+            "Non-macOS should not have -XstartOnFirstThread"
         );
         #[cfg(not(target_os = "windows"))]
         assert!(
             !args.iter().any(|a| a.contains("HeapDumpPath")),
-            "非 Windows 不應有 HeapDumpPath"
+            "Non-Windows should not have HeapDumpPath"
         );
     }
 
@@ -932,59 +922,59 @@ mod test {
         let cmd = make_ctx(load_version("data/1.12.2.json")).build_command();
         let args = cmd_args(&cmd);
 
-        assert!(args.contains(&"-Xmx2G".into()), "缺少 -Xmx");
-        assert!(args.contains(&"-Xms512M".into()), "缺少 -Xms");
+        assert!(args.contains(&"-Xmx2G".into()), "Missing -Xmx");
+        assert!(args.contains(&"-Xms512M".into()), "Missing -Xms");
 
         assert!(
             args.contains(&"-Djava.library.path=/natives".into()),
-            "缺少 natives_directory"
+            "Missing natives_directory"
         );
-        assert!(args.contains(&"-cp".into()), "缺少 -cp");
+        assert!(args.contains(&"-cp".into()), "Missing -cp");
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("找不到 -cp");
+        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
         let classpath = &args[cp_pos + 1];
         assert!(
             classpath.ends_with("1.12.2/1.12.2.jar"),
-            "classpath 應以版本 JAR 結尾"
+            "classpath should end with version JAR"
         );
 
         #[cfg(target_os = "macos")]
         {
             assert!(
                 !classpath.contains("lwjgl-2.9.4"),
-                "macOS: lwjgl 2.9.4 應被 disallow 排除"
+                "macOS: lwjgl 2.9.4 should be excluded by disallow"
             );
             assert!(
                 classpath.contains("lwjgl-2.9.2"),
-                "macOS: lwjgl 2.9.2 應被 allow 包含"
+                "macOS: lwjgl 2.9.2 should be included by allow"
             );
         }
         #[cfg(not(target_os = "macos"))]
         {
             assert!(
                 classpath.contains("lwjgl-2.9.4"),
-                "非 macOS: lwjgl 2.9.4 應被包含"
+                "Non-macOS: lwjgl 2.9.4 should be included"
             );
             assert!(
                 !classpath.contains("lwjgl-2.9.2"),
-                "非 macOS: lwjgl 2.9.2（macOS 專用）應被排除"
+                "Non-macOS: lwjgl 2.9.2 (macOS only) should be excluded"
             );
         }
 
         assert!(
             args.contains(&"net.minecraft.client.main.Main".into()),
-            "缺少 main class"
+            "Missing main class"
         );
 
         assert!(args.contains(&"--username".into()));
-        assert!(args.contains(&"Steve".into()), "auth_player_name 未替換");
-        assert!(args.contains(&"1.12.2".into()), "version_name 未替換");
+        assert!(args.contains(&"Steve".into()), "auth_player_name not replaced");
+        assert!(args.contains(&"1.12.2".into()), "version_name not replaced");
         assert!(args.contains(&"--gameDir".into()));
-        assert!(args.contains(&"/game".into()), "game_directory 未替換");
+        assert!(args.contains(&"/game".into()), "game_directory not replaced");
         assert!(args.contains(&"--userType".into()));
-        assert!(args.contains(&"msa".into()), "user_type 應為 msa");
+        assert!(args.contains(&"msa".into()), "user_type should be msa");
         assert!(args.contains(&"--uuid".into()));
-        assert!(args.contains(&"uuid-1234".into()), "auth_uuid 未替換");
+        assert!(args.contains(&"uuid-1234".into()), "auth_uuid not replaced");
     }
 
     #[test]
@@ -1016,11 +1006,11 @@ mod test {
         let args = cmd_args(&ctx.build_command());
         assert!(
             !args.contains(&"--add-modules=jdk.incubator.vector".into()),
-            "實際 Java 8 不應有 incubator.vector"
+            "Actual Java 8 should not have incubator.vector"
         );
         assert!(
             !args.contains(&"--enable-native-access=ALL-UNNAMED".into()),
-            "實際 Java 8 不應有 native-access"
+            "Actual Java 8 should not have native-access"
         );
 
         // 實際 Java 22 → 應有完整 compat flags (含 sun-misc)
@@ -1037,11 +1027,11 @@ mod test {
         let pos = args
             .iter()
             .position(|a| a == "--userProperties")
-            .expect("1.7.10 應有 --userProperties");
+            .expect("1.7.10 should have --userProperties");
         assert_eq!(
             args[pos + 1],
             "{}",
-            "--userProperties 必須是空 JSON 物件，空字串會讓舊版 Main NPE"
+            "--userProperties must be empty JSON object, empty string causes NPE in old Main"
         );
     }
 
@@ -1049,7 +1039,7 @@ mod test {
     fn test_compat_override_replaces_lwjgl_in_classpath() {
         let mut ctx = make_ctx(load_version("data/1.18.1.json"));
         ctx.compat_override = crate::mc_compat::arm64_override_for(&ctx.version);
-        assert!(ctx.compat_override.is_some(), "1.18.1 應有替換表");
+        assert!(ctx.compat_override.is_some(), "1.18.1 should have override table");
 
         let cp = ctx
             .classpath_paths()
@@ -1057,19 +1047,19 @@ mod test {
             .map(|p| p.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(cp.contains("lwjgl-3.3.1.jar"), "應有 lwjgl 3.3.1");
+        assert!(cp.contains("lwjgl-3.3.1.jar"), "Should have lwjgl 3.3.1");
         assert!(
             cp.contains("lwjgl-glfw-3.3.1-natives-macos-arm64.jar"),
-            "應有 arm64 natives"
+            "Should have arm64 natives"
         );
-        assert!(!cp.contains("3.2.1"), "原 lwjgl 3.2.1 應被排除");
+        assert!(!cp.contains("3.2.1"), "Original lwjgl 3.2.1 should be excluded");
         assert!(
             cp.contains("java-objc-bridge-1.1"),
-            "應換成 java-objc-bridge 1.1"
+            "Should be replaced with java-objc-bridge 1.1"
         );
         assert!(
             !cp.contains("java-objc-bridge-1.0.0"),
-            "java-objc-bridge 1.0.0 應被排除"
+            "java-objc-bridge 1.0.0 should be excluded"
         );
     }
 
@@ -1077,19 +1067,19 @@ mod test {
     fn test_version_supports_macos_arm64() {
         assert!(
             version_supports_macos_arm64(&load_version("data/1.21.json")),
-            "1.21 應支援 Apple Silicon"
+            "1.21 should support Apple Silicon"
         );
         assert!(
             version_supports_macos_arm64(&load_version("data/1.19.2.json")),
-            "1.19.2 應支援 Apple Silicon"
+            "1.19.2 should support Apple Silicon"
         );
         assert!(
             !version_supports_macos_arm64(&load_version("data/1.18.1.json")),
-            "1.18.1 不支援 Apple Silicon（僅 x86_64 natives）"
+            "1.18.1 does not support Apple Silicon (x86_64 natives only)"
         );
         assert!(
             !version_supports_macos_arm64(&load_version("data/1.12.2.json")),
-            "1.12.2 不支援 Apple Silicon"
+            "1.12.2 does not support Apple Silicon"
         );
     }
 
@@ -1136,10 +1126,10 @@ mod test {
             )])),
             extract: None,
         };
-        let key = native_classifier_key(&lib).expect("應有 natives key");
+        let key = native_classifier_key(&lib).expect("Should have natives key");
         assert!(
             key == format!("natives-{os_key}-64") || key == format!("natives-{os_key}-32"),
-            "arch 未替換：{key}"
+            "arch not replaced: {key}"
         );
     }
 
@@ -1157,7 +1147,7 @@ mod test {
             with_natives
                 .iter()
                 .any(|n| n.contains("lwjgl-platform") || n.contains("jinput-platform")),
-            "1.12.2 應偵測到 natives classifier，實際：{with_natives:?}"
+            "1.12.2 should detect natives classifier, actual: {with_natives:?}"
         );
     }
 
@@ -1169,7 +1159,7 @@ mod test {
             v.libraries
                 .iter()
                 .all(|l| native_classifier_key(l).is_none()),
-            "新版格式不應有 classifier natives"
+            "New format should not have classifier natives"
         );
     }
 }

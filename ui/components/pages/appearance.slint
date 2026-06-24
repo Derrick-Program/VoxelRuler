@@ -3,7 +3,7 @@ import { AppearanceLogic } from "@global";
 import { LineEdit, Button } from "std-widgets.slint";
 
 export component AppearanceWindow inherits Window {
-    title: @tr("外觀管理");
+    title: @tr("Appearance");
     width: 860px;
     height: 580px;
     background: AppTheme.colors.background;
@@ -23,7 +23,7 @@ export component AppearanceWindow inherits Window {
             alignment: start;
 
             Text {
-                text: @tr("預覽外觀");
+                text: @tr("Preview Appearance");
                 font-size: 11px;
                 font-weight: 700;
                 color: AppTheme.colors.muted-foreground;
@@ -47,7 +47,7 @@ export component AppearanceWindow inherits Window {
                         horizontal-alignment: center;
                     }
                     Text {
-                        text: @tr("無預覽");
+                        text: @tr("No Preview");
                         color: AppTheme.colors.muted-foreground;
                         font-size: 13px;
                         horizontal-alignment: center;
@@ -92,8 +92,8 @@ export component AppearanceWindow inherits Window {
                         background: AppTheme.colors.secondary;
                         cur-variant-text := Text {
                             text: AppearanceLogic.skin-variant == "slim"
-                                ? @tr("Alex (苗條)")
-                                : @tr("Steve (經典)");
+                                ? @tr("Alex (Slim)")
+                                : @tr("Steve (Classic)");
                             color: AppTheme.colors.muted-foreground;
                             font-size: 12px;
                             horizontal-alignment: center;
@@ -102,7 +102,7 @@ export component AppearanceWindow inherits Window {
                     }
                 }
                 Text {
-                    text: @tr("拖曳旋轉預覽");
+                    text: @tr("Drag to rotate");
                     color: AppTheme.colors.muted-foreground;
                     font-size: 11px;
                     horizontal-alignment: center;
@@ -111,7 +111,7 @@ export component AppearanceWindow inherits Window {
                 if AppearanceLogic.has-capes: VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: @tr("披風設定");
+                        text: @tr("Cape Settings");
                         color: AppTheme.colors.muted-foreground;
                         font-size: 11px;
                         font-weight: 600;
@@ -198,7 +198,7 @@ export component AppearanceWindow inherits Window {
                                                 alignment: start;
                                                 Rectangle { width: 24px; }
                                                 Text {
-                                                    text: "無披風";
+                                                    text: @tr("No Cape");
                                                     color: AppearanceLogic.selected-cape-id == "" ? AppTheme.mc-green : AppTheme.colors.foreground;
                                                     font-size: 13px;
                                                     vertical-alignment: center;
@@ -252,7 +252,7 @@ export component AppearanceWindow inherits Window {
                 Rectangle { height: 16px; }
                 Button {
                     primary: true;
-                    text: AppearanceLogic.is-uploading ? @tr("套用中...") : @tr("套用外觀變更");
+                    text: AppearanceLogic.is-uploading ? @tr("Applying...") : @tr("Apply Appearance Changes");
                     enabled: !AppearanceLogic.is-uploading && ((AppearanceLogic.selected-library-skin-url != "" && AppearanceLogic.selected-library-skin-url != AppearanceLogic.active-skin-url) || AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id);
                     clicked => {
                         AppearanceLogic.apply-appearance();
@@ -276,7 +276,7 @@ export component AppearanceWindow inherits Window {
 
             HorizontalLayout {
                 Text {
-                    text: @tr("皮膚庫");
+                    text: @tr("Skin Library");
                     font-size: 11px;
                     font-weight: 700;
                     color: AppTheme.colors.muted-foreground;
@@ -294,7 +294,7 @@ export component AppearanceWindow inherits Window {
                         clicked => { root.show-add-skin = true; }
                     }
                     add-btn-label := Text {
-                        text: @tr("+ 新增外觀");
+                        text: @tr("+ Add Appearance");
                         font-size: 13px;
                         font-weight: 600;
                         color: add-btn-ta.has-hover
@@ -328,7 +328,7 @@ export component AppearanceWindow inherits Window {
                         alignment: start;
 
                         Text {
-                            text: skin.name != "" ? skin.name : @tr("未命名外觀");
+                            text: skin.name != "" ? skin.name : @tr("Unnamed Appearance");
                             font-size: 13px;
                             font-weight: 600;
                             color: AppTheme.colors.foreground;
@@ -455,7 +455,7 @@ export component AppearanceWindow inherits Window {
             }
 
             Text {
-                text: @tr("新增外觀");
+                text: @tr("Add Appearance");
                 font-size: 20px;
                 font-weight: 700;
                 color: AppTheme.colors.foreground;
@@ -473,13 +473,13 @@ export component AppearanceWindow inherits Window {
                 VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: @tr("名稱");
+                        text: @tr("Name");
                         color: AppTheme.colors.muted-foreground;
                         font-size: 12px;
                         font-weight: 600;
                     }
                     LineEdit {
-                        placeholder-text: @tr("幫這個外觀取個名字...");
+                        placeholder-text: @tr("Name this appearance...");
                         text <=> AppearanceLogic.new-skin-name;
                     }
                 }
@@ -487,7 +487,7 @@ export component AppearanceWindow inherits Window {
                 VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: @tr("玩家模型");
+                        text: @tr("Player Model");
                         color: AppTheme.colors.muted-foreground;
                         font-size: 12px;
                         font-weight: 600;
@@ -526,7 +526,7 @@ export component AppearanceWindow inherits Window {
                                     }
                                 }
                                 Text {
-                                    text: @tr("經典 (Steve)");
+                                    text: @tr("Classic (Steve)");
                                     color: AppearanceLogic.skin-variant == "classic"
                                         ? AppTheme.mc-green : AppTheme.colors.foreground;
                                     font-size: 13px;
@@ -565,7 +565,7 @@ export component AppearanceWindow inherits Window {
                                     }
                                 }
                                 Text {
-                                    text: @tr("苗條 (Alex)");
+                                    text: @tr("Slim (Alex)");
                                     color: AppearanceLogic.skin-variant == "slim"
                                         ? AppTheme.mc-green : AppTheme.colors.foreground;
                                     font-size: 13px;
@@ -579,7 +579,7 @@ export component AppearanceWindow inherits Window {
                 VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: @tr("皮膚檔案");
+                        text: @tr("Skin File");
                         color: AppTheme.colors.muted-foreground;
                         font-size: 12px;
                         font-weight: 600;
@@ -609,7 +609,7 @@ export component AppearanceWindow inherits Window {
                                 horizontal-alignment: center;
                             }
                             Text {
-                                text: @tr("點擊選擇 PNG 皮膚檔案");
+                                text: @tr("Click to select a PNG skin file");
                                 font-size: 13px;
                                 color: upload-zone-ta.has-hover
                                     ? AppTheme.colors.primary : AppTheme.colors.muted-foreground;
@@ -626,7 +626,7 @@ export component AppearanceWindow inherits Window {
                                 horizontal-alignment: center;
                             }
                             Text {
-                                text: @tr("已選取皮膚檔案");
+                                text: @tr("Skin file selected");
                                 font-size: 13px;
                                 color: AppTheme.mc-green;
                                 horizontal-alignment: center;
@@ -649,7 +649,7 @@ export component AppearanceWindow inherits Window {
                                 clicked => { url-popup.show(); }
                             }
                             url-opt-label := Text {
-                                text: @tr("或從網址匯入");
+                                text: @tr("Or import from URL");
                                 font-size: 12px;
                                 color: url-opt-ta.has-hover
                                     ? AppTheme.colors.foreground : AppTheme.colors.muted-foreground;
@@ -665,7 +665,7 @@ export component AppearanceWindow inherits Window {
                 alignment: start;
 
                 Text {
-                    text: @tr("預覽");
+                    text: @tr("Preview");
                     color: AppTheme.colors.muted-foreground;
                     font-size: 12px;
                     font-weight: 600;
@@ -690,7 +690,7 @@ export component AppearanceWindow inherits Window {
                             horizontal-alignment: center;
                         }
                         Text {
-                            text: @tr("無預覽");
+                            text: @tr("No Preview");
                             color: AppTheme.colors.muted-foreground;
                             font-size: 13px;
                             horizontal-alignment: center;
@@ -725,7 +725,7 @@ export component AppearanceWindow inherits Window {
                 }
 
                 Text {
-                    text: @tr("拖曳旋轉預覽");
+                    text: @tr("Drag to rotate");
                     color: AppTheme.colors.muted-foreground;
                     font-size: 11px;
                     horizontal-alignment: center;
@@ -740,12 +740,12 @@ export component AppearanceWindow inherits Window {
                 alignment: end;
                 spacing: 12px;
                 Button {
-                    text: @tr("取消");
+                    text: @tr("Cancel");
                     clicked => { root.show-add-skin = false; }
                 }
                 Button {
                     primary: true;
-                    text: @tr("加入皮膚庫");
+                    text: @tr("Add to Skin Library");
                     enabled: !AppearanceLogic.is-uploading
                         && (AppearanceLogic.selected-skin-path != "" || AppearanceLogic.skin-url != "");
                     clicked => {
@@ -772,7 +772,7 @@ export component AppearanceWindow inherits Window {
                 padding: 20px;
                 spacing: 12px;
                 Text {
-                    text: @tr("請輸入皮膚網址");
+                    text: @tr("Please enter skin URL");
                     color: AppTheme.colors.foreground;
                     font-size: 14px;
                     font-weight: 600;
@@ -784,12 +784,12 @@ export component AppearanceWindow inherits Window {
                     alignment: end;
                     spacing: 8px;
                     Button {
-                        text: @tr("取消");
+                        text: @tr("Cancel");
                         clicked => { url-popup.close(); }
                     }
                     Button {
                         primary: true;
-                        text: @tr("匯入");
+                        text: @tr("Import");
                         clicked => {
                             AppearanceLogic.skin-url = url-input.text;
                             AppearanceLogic.upload-from-url(url-input.text);
@@ -824,7 +824,7 @@ export component AppearanceWindow inherits Window {
                 alignment: space-between;
 
                 Text {
-                    text: AppearanceLogic.upload-is-error ? @tr("上傳失敗") : @tr("上傳成功");
+                    text: AppearanceLogic.upload-is-error ? @tr("Upload failed") : @tr("Upload successful");
                     color: AppearanceLogic.upload-is-error
                         ? AppTheme.colors.destructive : AppTheme.mc-green;
                     font-size: 16px;
@@ -843,7 +843,7 @@ export component AppearanceWindow inherits Window {
                 HorizontalLayout {
                     alignment: center;
                     Button {
-                        text: @tr("確定");
+                        text: @tr("OK");
                         clicked => {
                             AppearanceLogic.close-result-dialog();
                             if !AppearanceLogic.upload-is-error {

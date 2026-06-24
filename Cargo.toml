@@ -27,6 +27,8 @@ tokio = { version = "1.52.3", default-features = false, features = [
   "rt-multi-thread",
   "tracing",
   "windows-sys",
+  "net",
+  "io-util"
 ] }
 url = "2"
 keyring = "4.0.1"

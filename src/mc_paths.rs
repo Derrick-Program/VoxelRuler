@@ -8,7 +8,7 @@ impl McPaths {
     pub fn new() -> anyhow::Result<Self> {
         let base = crate::PROJECT_DIR
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("無法取得系統應用程式目錄"))?
+            .ok_or_else(|| anyhow::anyhow!("Failed to get system app directory"))?
             .data_dir()
             .to_path_buf();
         Ok(Self { base })

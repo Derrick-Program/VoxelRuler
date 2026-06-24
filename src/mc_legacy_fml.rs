@@ -85,7 +85,7 @@ pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::
     for filename in filenames {
         let url = format!("{}{}", PRISM_FMLLIBS_BASE, filename);
         let dest = fmllib_dir.join(filename);
-        tracing::info!(filename, "下載舊版 FML 依賴");
+        tracing::info!(filename, "Downloading legacy FML dependencies");
         crate::mc_install::download_best_effort(&url, &dest).await?;
     }
     Ok(())
@@ -108,7 +108,7 @@ pub async fn copy_fmllibs_to_game_dir(
         let source = libraries_dir.join("fmllibs").join(filename);
         let dest = lib_dir.join(filename);
         if source.exists() {
-            tracing::info!(filename, "複製舊版 FML 依賴至實例目錄");
+            tracing::info!(filename, "Copying legacy FML dependencies to instance directory");
             tokio::fs::copy(&source, &dest).await?;
         }
     }

@@ -29,6 +29,11 @@ export struct InstanceData {
     status: string,
 }
 
+export struct LogLine {
+    text: string,
+    color: color,
+}
+
 export global AppData {
     in property <string> version: @tr("version not found");
     // 網路狀態（footer status）：checking = 尚未完成第一次偵測
@@ -163,7 +168,7 @@ export global InstanceLogic {
 
     in-out property <bool> show-log: false;
     in-out property <string> log-instance-id: "";
-    in-out property <[string]> log-lines: [];
+    in-out property <[LogLine]> log-lines: [];
     callback open-log(string);
     callback close-log();
 
@@ -186,6 +191,7 @@ export global InstanceLogic {
 }
 
 // ── 實例詳細視窗（Prism 式側欄分頁）────────────────────────────────
+
 // 分頁索引：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
 //          5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
 
@@ -219,7 +225,7 @@ export global InstanceDetailLogic {
     in-out property <string> status-msg: "";
 
     // 0：Minecraft 紀錄檔（live）
-    in-out property <[string]> live-log-lines: [];
+    in-out property <[LogLine]> live-log-lines: [];
     in-out property <bool> instance-running: false;
 
     // 1：版本
@@ -282,7 +288,7 @@ export global ModLogic {
             name: "Sodium",
             mod_loader: "Fabric",
             author: "CaffeineMC",
-            description: "Sodium 是一款針對 Minecraft 客戶端的現代渲染引擎，可大幅提升幀率並修復圖形問題。透過重寫大量渲染代碼，在大多數硬體上都能顯著改善遊戲表現。",
+            description: @tr("Sodium is a modern rendering engine for the Minecraft client that greatly improves frame rates and fixes graphical issues."),
             image: Assets.cube,
         },
         {
@@ -290,7 +296,7 @@ export global ModLogic {
             name: "Lithium",
             mod_loader: "Fabric",
             author: "CaffeineMC",
-            description: "Lithium 是一款免費開源的 Minecraft 模組，可最佳化伺服器端的多個系統，包括物理引擎、AI 邏輯和資料結構，從而減少伺服器負擔並提高 TPS。",
+            description: @tr("Lithium is a free and open-source Minecraft optimization mod that improves server logic including physics, AI, and block ticking."),
             image: Assets.cube,
         },
         {
@@ -298,7 +304,7 @@ export global ModLogic {
             name: "Iris Shaders",
             mod_loader: "Fabric",
             author: "coderbot",
-            description: "Iris 是一款與 Sodium 相容的著色器模組，讓玩家可以使用 OptiFine 著色器包，同時保有 Sodium 帶來的效能優勢。支援絕大多數主流著色器包。",
+            description: @tr("Iris is a shaders mod compatible with Sodium, allowing players to use OptiFine shader packs while keeping the performance benefits of Sodium."),
             image: Assets.cube,
         },
         {
@@ -306,7 +312,7 @@ export global ModLogic {
             name: "JEI",
             mod_loader: "Forge",
             author: "mezz",
-            description: "Just Enough Items（JEI）是一款物品與合成表查詢工具。在遊戲物品欄介面中，你可以快速瀏覽所有可用物品及其合成方式，是模組包中的必備工具。",
+            description: @tr("Just Enough Items (JEI) is an item and recipe viewing mod."),
             image: Assets.cube,
         },
         {
@@ -314,7 +320,7 @@ export global ModLogic {
             name: "Waystones",
             mod_loader: "Forge",
             author: "BlayTheNinth",
-            description: "Waystones 新增可放置於世界中的路徑石，讓玩家和同服玩家能夠快速在已啟動的路徑石之間傳送，也可在村莊中自然生成。",
+            description: @tr("Waystones adds placeable stones that players can use to teleport between locations."),
             image: Assets.cube,
         },
         {
@@ -322,7 +328,7 @@ export global ModLogic {
             name: "AppleSkin",
             mod_loader: "Fabric",
             author: "squeek502",
-            description: "AppleSkin 為飢餓值介面增加了各種視覺改進，包括在物品欄中顯示食物的飢餓度和飽食度恢復量，以及當前飽食度的視覺提示。",
+            description: @tr("AppleSkin adds various visual improvements to the hunger HUD."),
             image: Assets.cube,
         },
         {
@@ -330,7 +336,7 @@ export global ModLogic {
             name: "JourneyMap",
             mod_loader: "Forge",
             author: "techbrew",
-            description: "JourneyMap 是一款即時地圖模組，可以在遊戲內或瀏覽器中查看。它會隨著你的探索自動繪製地圖，支援標記點、生物顯示和自動繪圖功能。",
+            description: @tr("JourneyMap is a real-time mapping mod that maps your Minecraft world as you explore."),
             image: Assets.cube,
         },
         {
@@ -338,7 +344,7 @@ export global ModLogic {
             name: "Create",
             mod_loader: "Forge",
             author: "simibubi",
-            description: "Create 模組提供了一套完整的工具和方塊，用於自動化、裝飾和機械化。圍繞著旋轉動力（Rotational Force）系統，讓玩家能建造精巧的機械裝置。",
+            description: @tr("Create offers a variety of tools and blocks for building, decoration and aesthetic automation."),
             image: Assets.cube,
         },
         {
@@ -346,7 +352,7 @@ export global ModLogic {
             name: "Mouse Tweaks",
             mod_loader: "Fabric",
             author: "YaLTeR",
-            description: "Mouse Tweaks 替換了標準的按住右鍵拖拽機制，增加了按住左鍵拖拽快速拿起物品的功能，極大地方便了物品欄的管理。",
+            description: @tr("Mouse Tweaks replaces the standard RMB dragging mechanic, adds two new LMB dragging mechanics and an ability to quickly move items with the scroll wheel."),
             image: Assets.cube,
         },
         {
@@ -354,7 +360,7 @@ export global ModLogic {
             name: "Sophisticated Backpacks",
             mod_loader: "Forge",
             author: "P3pp3rF1sh",
-            description: "這款背包模組不僅增加了可穿戴的背包，還提供了豐富的升級系統，如自動餵食、自動壓縮、過濾拾取等功能，還可以更換背包的外觀。",
+            description: @tr("This backpack mod adds wearable backpacks with upgrade systems like auto-feeding and auto-compression."),
             image: Assets.cube,
         },
         {
@@ -362,7 +368,7 @@ export global ModLogic {
             name: "Storage Drawers",
             mod_loader: "Forge",
             author: "Texelsaur",
-            description: "儲物抽屜提供了一種高度視覺化的物品儲存方案。你可以直接從抽屜正面看到存放的物品及其數量，非常適合整理大量單一種類的資源。",
+            description: @tr("Storage Drawers provides a highly visual storage solution."),
             image: Assets.cube,
         },
         {
@@ -370,7 +376,7 @@ export global ModLogic {
             name: "Biomes O' Plenty",
             mod_loader: "Forge",
             author: "Forstride",
-            description: "一個龐大的生物群系模組，為 Minecraft 世界增加了許多獨特且美麗的生物群系，並附帶相應的新植物、花卉、樹木和其他方塊。",
+            description: @tr("A massive biome mod that adds many unique and beautiful biomes."),
             image: Assets.cube,
         },
         {
@@ -378,7 +384,7 @@ export global ModLogic {
             name: "Quark",
             mod_loader: "Forge",
             author: "Vazkii",
-            description: "Quark 是一個旨在改進原版遊戲體驗的模組。它由許多小功能組成，涵蓋了建築、裝飾、工具和遊戲機制等多個方面，所有功能都可自由開啟或關閉。",
+            description: @tr("Quark is a mod for Minecraft aiming to improve the vanilla experience with small additions."),
             image: Assets.cube,
         },
         {
@@ -386,7 +392,7 @@ export global ModLogic {
             name: "Botania",
             mod_loader: "Forge",
             author: "Vazkii",
-            description: "這是一款以自然魔法為主題的技術模組。核心機制是利用各種花卉產生的「法力」（Mana）來驅動各種魔法設備，具有獨特的自動化邏輯和精美的視覺效果。",
+            description: @tr("A tech mod themed around natural magic. The core mechanic is using Mana generated by flowers."),
             image: Assets.cube,
         }
     ];
@@ -399,7 +405,7 @@ export global ModLogic {
 export global PageAccountLogic {
     in-out property <bool> is_logging_in: false;
     in-out property <string> login_url: "";
-    in-out property <string> login_status_text: "正在初始化驗證程序...";
+    in-out property <string> login_status_text: @tr("Initializing authentication...");
     in-out property <bool> is_error: false;
     in-out property <bool> show_offline_dialog: false;
     in-out property <string> offline_username: "";
@@ -509,7 +515,7 @@ export global AppearanceLogic {
     in-out property <bool>   has-capes: false;
     in-out property <string>   active-cape-id: "";
     in-out property <string>   selected-cape-id: "";
-    in-out property <string>   selected-cape-name: "無披風";
+    in-out property <string>   selected-cape-name: @tr("No Cape");
     in-out property <image>    selected-cape-preview;
 
     in-out property <[SkinData]> skin-history: [];

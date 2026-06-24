@@ -224,8 +224,8 @@ mod tests {
     use super::*;
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
-        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("找不到 {path}"));
-        serde_json::from_str(&data).unwrap_or_else(|e| panic!("解析 {path} 失敗：{e}"))
+        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
+        serde_json::from_str(&data).unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
     }
 
     #[test]

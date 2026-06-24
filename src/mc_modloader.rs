@@ -86,15 +86,26 @@ impl ModLoaderApi {
         let mut latest_suffix = String::new();
         let mut recommended_suffix = String::new();
         let client = reqwest::Client::new();
-        if let Ok(res) = client.get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json").send().await {
-            if let Ok(json) = res.json::<serde_json::Value>().await {
-                if let Some(promos) = json.get("promos").and_then(|p| p.as_object()) {
-                    if let Some(l) = promos.get(&format!("{}-latest", mc_version)).and_then(|v| v.as_str()) {
-                        latest_suffix = l.to_string();
-                    }
-                    if let Some(r) = promos.get(&format!("{}-recommended", mc_version)).and_then(|v| v.as_str()) {
-                        recommended_suffix = r.to_string();
-                    }
+        // 嘗試取得 Forge promotions，失敗則靜默略過
+        if let Ok(json) = async {
+            let res = client
+                .get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
+                .send()
+                .await?;
+            res.json::<serde_json::Value>().await
+        }.await {
+            if let Some(promos) = json.get("promos").and_then(|p| p.as_object()) {
+                if let Some(l) = promos
+                    .get(&format!("{}-latest", mc_version))
+                    .and_then(|v| v.as_str())
+                {
+                    latest_suffix = l.to_string();
+                }
+                if let Some(r) = promos
+                    .get(&format!("{}-recommended", mc_version))
+                    .and_then(|v| v.as_str())
+                {
+                    recommended_suffix = r.to_string();
                 }
             }
         }
@@ -149,11 +160,11 @@ impl ModLoaderApi {
 
     /// 計算 NeoForge 對應 MC 版本的前綴字串
     fn get_neoforge_prefix(mc_version: &str) -> String {
-        let parts: Vec<&str> = mc_version.split('.').collect();
-        // 舊版 Minecraft (1.x.y)
-        if mc_version.starts_with("1.") && parts.len() >= 2 {
-            let minor = parts[1];
-            let patch = if parts.len() == 3 { parts[2] } else { "0" };
+        if mc_version.starts_with("1.") {
+            let mut parts = mc_version.splitn(4, '.');
+            let _ = parts.next(); // skip "1"
+            let minor = parts.next().unwrap_or("0");
+            let patch = parts.next().unwrap_or("0");
             format!("{}.{}.", minor, patch)
         } else {
             // 未來的 26.1 格式
@@ -162,7 +173,7 @@ impl ModLoaderApi {
     }
 
     /// 執行 Mod Loader 安裝流程
-    /// 回傳安裝完成後的 profile version_id（例如 "1.20.4-forge-49.0.50" 或 "fabric-loader-0.15.7-1.20.4"）
+    /// 回傳安裝完成後的 profile version_id（例如 "1.20.4-forge-49.0.50" or "fabric-loader-0.15.7-1.20.4"）
     pub async fn install_modloader(
         loader_type: ModLoaderType,
         mc_version: &str,
@@ -212,7 +223,7 @@ impl ModLoaderApi {
         let resp = match client.get(&url).send().await {
             Ok(r) => {
                 if r.status() == reqwest::StatusCode::NOT_FOUND {
-                    tracing::warn!("Forge installer 404 Not Found. 嘗試作為沒有 installer 的早期版本 (如 1.4.x) 處理...");
+                    tracing::warn!("Forge installer 404 Not Found. Attempting to process as early version without installer (e.g. 1.4.x)...");
                     return Self::install_legacy_forge_without_installer(mc_version, loader_version, mc_dir).await;
                 }
                 r.error_for_status()?
@@ -295,7 +306,7 @@ impl ModLoaderApi {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                anyhow::bail!("Forge 安裝失敗：{}\n{}", stderr, stdout);
+                anyhow::bail!("Forge installation failed: {}\n{}", stderr, stdout);
             }
             loader_version.replacen("-", "-forge-", 1)
         };
@@ -322,12 +333,12 @@ impl ModLoaderApi {
 
         let version_info = profile
             .get("versionInfo")
-            .ok_or_else(|| anyhow::anyhow!("install_profile.json 缺少 versionInfo"))?;
+            .ok_or_else(|| anyhow::anyhow!("install_profile.json missing versionInfo"))?;
 
         let version_id = version_info
             .get("id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("versionInfo 缺少 id"))?;
+            .ok_or_else(|| anyhow::anyhow!("versionInfo missing id"))?;
 
         // 寫入版本 JSON
         let version_dir = mc_dir.join("versions").join(version_id);
@@ -338,22 +349,24 @@ impl ModLoaderApi {
         )?;
 
         // 取出 installer 中內嵌的 Forge JAR（filePath 是 JAR 內部路徑，path 是 Maven 座標）
-        if let Some(install) = profile.get("install") {
-            if let (Some(file_path), Some(maven_coords)) = (
-                install.get("filePath").and_then(|v| v.as_str()),
-                install.get("path").and_then(|v| v.as_str()),
-            ) {
-                if let Ok(mut entry) = zip.by_name(file_path) {
-                    let lib_path = mc_dir
-                        .join("libraries")
-                        .join(Self::maven_coords_to_path(maven_coords));
-                    if let Some(parent) = lib_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let mut jar_bytes = Vec::new();
-                    entry.read_to_end(&mut jar_bytes)?;
-                    std::fs::write(&lib_path, jar_bytes)?;
+        let embedded_jar = profile
+            .get("install")
+            .and_then(|inst| {
+                let file_path = inst.get("filePath").and_then(|v| v.as_str())?;
+                let maven_coords = inst.get("path").and_then(|v| v.as_str())?;
+                Some((file_path, maven_coords))
+            });
+        if let Some((file_path, maven_coords)) = embedded_jar {
+            if let Ok(mut entry) = zip.by_name(file_path) {
+                let lib_path = mc_dir
+                    .join("libraries")
+                    .join(Self::maven_coords_to_path(maven_coords));
+                if let Some(parent) = lib_path.parent() {
+                    std::fs::create_dir_all(parent)?;
                 }
+                let mut jar_bytes = Vec::new();
+                entry.read_to_end(&mut jar_bytes)?;
+                std::fs::write(&lib_path, jar_bytes)?;
             }
         }
 
@@ -382,7 +395,7 @@ impl ModLoaderApi {
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-universal.zip",
             loader_version
         );
-        tracing::info!("嘗試下載 Forge universal.zip: {}", universal_url);
+        tracing::info!("Attempting to download Forge universal.zip: {}", universal_url);
         let resp = http.get(&universal_url).send().await?;
         if resp.status().is_success() {
             let bytes = resp.bytes().await?;
@@ -431,11 +444,11 @@ impl ModLoaderApi {
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-client.zip",
             loader_version
         );
-        tracing::info!("universal.zip 不存在，改嘗試 client.zip: {}", client_url);
+        tracing::info!("universal.zip does not exist, trying client.zip: {}", client_url);
         let resp = http.get(&client_url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!(
-                "Forge {} 無可用安裝包（已嘗試 installer.jar / universal.zip / client.zip）",
+                "Forge {} has no available installation package (tried installer.jar / universal.zip / client.zip)",
                 loader_version
             );
         }
@@ -470,7 +483,7 @@ impl ModLoaderApi {
                     return Ok(buf);
                 }
             }
-            anyhow::bail!("client.zip 中找不到 minecraft.jar")
+            anyhow::bail!("Could not find minecraft.jar in client.zip")
         })
         .await??;
 
@@ -497,19 +510,19 @@ impl ModLoaderApi {
 
     /// Maven 座標（`group:artifact:version[:classifier]`）→ 相對於 libraries/ 的路徑
     fn maven_coords_to_path(coords: &str) -> std::path::PathBuf {
-        let parts: Vec<&str> = coords.split(':').collect();
-        if parts.len() < 3 {
+        let mut parts = coords.splitn(4, ':');
+        let (Some(group), Some(artifact), Some(version)) =
+            (parts.next(), parts.next(), parts.next())
+        else {
             return std::path::PathBuf::from(coords);
-        }
-        let group = parts[0].replace('.', "/");
-        let artifact = parts[1];
-        let version = parts[2];
-        let filename = if let Some(classifier) = parts.get(3) {
-            format!("{}-{}-{}.jar", artifact, version, classifier)
-        } else {
-            format!("{}-{}.jar", artifact, version)
         };
-        std::path::PathBuf::from(format!("{}/{}/{}/{}", group, artifact, version, filename))
+        let classifier = parts.next();
+        let base: std::path::PathBuf = group.split('.').collect();
+        let filename = match classifier {
+            Some(cls) => format!("{artifact}-{version}-{cls}.jar"),
+            None => format!("{artifact}-{version}.jar"),
+        };
+        base.join(artifact).join(version).join(filename)
     }
 
     async fn install_neoforge(_mc_version: &str, loader_version: &str, java_path: &std::path::Path, mc_dir: &std::path::Path) -> anyhow::Result<String> {
@@ -564,7 +577,7 @@ impl ModLoaderApi {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
-            anyhow::bail!("安裝失敗：{}\n{}", stderr, stdout);
+            anyhow::bail!("Installation failed: {}\n{}", stderr, stdout);
         }
 
         Ok(())

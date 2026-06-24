@@ -17,7 +17,7 @@ const API_RETRY_BASE_MS: u64 = 1000;
 
 async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwest::Response> {
     use anyhow::Context;
-    let mut last_err: anyhow::Error = anyhow::anyhow!("尚未嘗試");
+    let mut last_err: anyhow::Error = anyhow::anyhow!("Not attempted yet");
     let mut delay_ms = 0;
 
     for attempt in 0..API_MAX_RETRIES {
@@ -27,7 +27,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
                 max = API_MAX_RETRIES - 1,
                 delay_ms,
                 url,
-                "API 重試中，暫停等待..."
+                "API retrying, waiting..."
             );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
@@ -35,21 +35,22 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
         match client.get(url).send().await {
             Ok(resp) => {
                 if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                    last_err = anyhow::anyhow!("請求過於頻繁 (429 Too Many Requests)");
+                    last_err = anyhow::anyhow!("Too many requests (429)");
 
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
-                    if let Some(retry_after) = resp.headers().get(reqwest::header::RETRY_AFTER) {
-                        if let Ok(retry_str) = retry_after.to_str() {
-                            if let Ok(secs) = retry_str.parse::<u64>() {
-                                delay_ms = secs * 1000;
-                            }
-                        }
+                    if let Some(secs) = resp
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                    {
+                        delay_ms = secs * 1000;
                     }
                     continue;
                 }
 
                 if resp.status().is_server_error() {
-                    last_err = anyhow::anyhow!("伺服器錯誤 ({})", resp.status());
+                    last_err = anyhow::anyhow!("Server error ({})", resp.status());
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
                     continue;
                 }
@@ -62,7 +63,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
             }
         }
     }
-    Err(last_err).with_context(|| format!("API 請求失敗（重試 {} 次）：{}", API_MAX_RETRIES, url))
+    Err(last_err).with_context(|| format!("API request failed (retry {} times): {}", API_MAX_RETRIES, url))
 }
 
 pub struct Unauthenticated;
@@ -326,12 +327,12 @@ impl McAction<Authenticated> {
         // Mojang rejects arbitrary external URLs; download the image first then upload as file
         let img_bytes = reqwest::get(url)
             .await
-            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .map_err(|e| anyhow::anyhow!("Failed to download skin: {e}"))?
             .error_for_status()
-            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .map_err(|e| anyhow::anyhow!("Failed to download skin: {e}"))?
             .bytes()
             .await
-            .map_err(|e| anyhow::anyhow!("讀取皮膚資料失敗：{e}"))?;
+            .map_err(|e| anyhow::anyhow!("Failed to read skin data: {e}"))?;
 
         let endpoint = format!("{}/minecraft/profile/skins", NEW_MC_SERVER);
         let part = reqwest::multipart::Part::bytes(img_bytes.to_vec())
@@ -488,11 +489,11 @@ mod test {
         let session = match crate::mc_token::SessionData::load_session() {
             Ok(Some(s)) => s,
             Ok(None) => {
-                eprintln!("跳過：本機 session 為空，請先登入");
+                eprintln!("Skipping: local session is empty, please login first");
                 return;
             }
             Err(_) => {
-                eprintln!("跳過：找不到本機 session，請先登入");
+                eprintln!("Skipping: local session not found, please login first");
                 return;
             }
         };

@@ -7,23 +7,24 @@ fn java_exe_name() -> &'static str {
 }
 
 fn push_if_java(out: &mut Vec<PathBuf>, candidate: PathBuf) {
-    if candidate.is_file() && !out.contains(&candidate) {
+    if candidate.is_file() {
         out.push(candidate);
     }
 }
 
 /// 掃描 `base/<每個子目錄>/<sub>/bin/java` 形式的安裝
 fn scan_children(out: &mut Vec<PathBuf>, base: &Path, sub: &str) {
-    let Ok(entries) = std::fs::read_dir(base) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let mut p = entry.path();
-        if !sub.is_empty() {
-            p = p.join(sub);
-        }
-        push_if_java(out, p.join("bin").join(java_exe_name()));
-    }
+    let Ok(entries) = std::fs::read_dir(base) else { return };
+    let exe = java_exe_name();
+    out.extend(
+        entries
+            .flatten()
+            .map(|e| {
+                let p = if sub.is_empty() { e.path() } else { e.path().join(sub) };
+                p.join("bin").join(exe)
+            })
+            .filter(|p| p.is_file()),
+    );
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -128,9 +129,9 @@ mod tests {
         let mut sorted = list.clone();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(list.len(), sorted.len(), "結果應已去重");
+        assert_eq!(list.len(), sorted.len(), "Results should be deduplicated");
         for p in &list {
-            assert!(Path::new(p).is_file(), "{p} 應為存在的檔案");
+            assert!(Path::new(p).is_file(), "{p} should be an existing file");
         }
     }
 

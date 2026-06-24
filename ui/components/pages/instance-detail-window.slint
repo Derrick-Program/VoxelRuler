@@ -2,7 +2,7 @@
 // 分頁：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
 //      5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
 import { Assets } from "@assets";
-import { InstanceDetailLogic, InstanceEditLogic, InstanceFileEntry, WorldRow, ServerRow, ScreenshotRow } from "@global";
+import { InstanceDetailLogic, InstanceEditLogic, InstanceFileEntry, WorldRow, ServerRow, ScreenshotRow, LogLine } from "@global";
 import { ComboBox, ListView, CheckBox, TextEdit } from "std-widgets.slint";
 
 // ── 共用小元件 ───────────────────────────────────────────────────────────
@@ -371,9 +371,9 @@ export component InstanceDetailWindow inherits Rectangle {
                                         x: 8px;
                                         width: parent.width - 16px;
                                         height: parent.height;
-                                        text: line;
+                                        text: line.text;
                                         font-size: 11px;
-                                        color: #c5c8c6;
+                                        color: line.color;
                                         vertical-alignment: center;
                                         overflow: elide;
                                     }

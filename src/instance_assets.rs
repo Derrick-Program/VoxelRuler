@@ -15,7 +15,7 @@ pub const DISABLED_SUFFIX: &str = ".disabled";
 /// 防止 UI 傳入的檔名跳脫目標資料夾
 fn validate_file_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
-        bail!("非法檔名：{name}");
+        bail!("Invalid filename: {name}");
     }
     Ok(())
 }
@@ -91,7 +91,7 @@ pub fn list_entries(dir: &Path, exts: &[&str], allow_dirs: bool) -> Vec<FsEntry>
                 }
             }
             let info = if is_dir {
-                format!("資料夾 · {}", modified_string(&path))
+                format!("Folder · {}", modified_string(&path))
             } else {
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 format!("{} · {}", human_size(size), modified_string(&path))
@@ -112,7 +112,7 @@ pub fn toggle_disabled(dir: &Path, file_name: &str) -> anyhow::Result<String> {
     validate_file_name(file_name)?;
     let src = dir.join(file_name);
     if !src.exists() {
-        bail!("找不到檔案：{file_name}");
+        bail!("File not found: {file_name}");
     }
     let new_name = match file_name.strip_suffix(DISABLED_SUFFIX) {
         Some(stripped) => stripped.to_string(),
@@ -120,9 +120,9 @@ pub fn toggle_disabled(dir: &Path, file_name: &str) -> anyhow::Result<String> {
     };
     let dst = dir.join(&new_name);
     if dst.exists() {
-        bail!("目標檔名已存在：{new_name}");
+        bail!("Target filename already exists: {new_name}");
     }
-    std::fs::rename(&src, &dst).with_context(|| format!("重新命名 {file_name} 失敗"))?;
+    std::fs::rename(&src, &dst).with_context(|| format!("Failed to rename {file_name}"))?;
     Ok(new_name)
 }
 
@@ -131,9 +131,9 @@ pub fn delete_entry(dir: &Path, file_name: &str) -> anyhow::Result<()> {
     validate_file_name(file_name)?;
     let target = dir.join(file_name);
     if target.is_dir() {
-        std::fs::remove_dir_all(&target).with_context(|| format!("刪除資料夾 {file_name} 失敗"))?;
+        std::fs::remove_dir_all(&target).with_context(|| format!("Failed to delete directory {file_name}"))?;
     } else if target.exists() {
-        std::fs::remove_file(&target).with_context(|| format!("刪除檔案 {file_name} 失敗"))?;
+        std::fs::remove_file(&target).with_context(|| format!("Failed to delete file {file_name}"))?;
     }
     Ok(())
 }
@@ -143,9 +143,9 @@ pub fn add_file(dir: &Path, src: &Path) -> anyhow::Result<String> {
     let name = src
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .context("來源檔案沒有檔名")?;
+        .context("Source file has no filename")?;
     std::fs::create_dir_all(dir)?;
-    std::fs::copy(src, dir.join(&name)).with_context(|| format!("複製 {name} 失敗"))?;
+    std::fs::copy(src, dir.join(&name)).with_context(|| format!("Failed to copy {name}"))?;
     Ok(name)
 }
 
@@ -211,7 +211,7 @@ read_be!(read_f64, f64, 8);
 fn read_nbt_string(r: &mut impl Read) -> anyhow::Result<String> {
     let len = read_i16(r)? as usize;
     if len > NBT_MAX_LEN {
-        bail!("NBT 字串長度異常：{len}");
+        bail!("NBT string length abnormal: {len}");
     }
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
@@ -221,14 +221,14 @@ fn read_nbt_string(r: &mut impl Read) -> anyhow::Result<String> {
 
 fn checked_len(len: i32) -> anyhow::Result<usize> {
     if len < 0 || len as usize > NBT_MAX_LEN {
-        bail!("NBT 長度異常：{len}");
+        bail!("NBT length abnormal: {len}");
     }
     Ok(len as usize)
 }
 
 fn read_payload(r: &mut impl Read, type_id: u8, depth: u8) -> anyhow::Result<NbtTag> {
     if depth > 64 {
-        bail!("NBT 巢狀過深");
+        bail!("NBT nested too deep");
     }
     Ok(match type_id {
         1 => NbtTag::Byte(read_u8(r)? as i8),
@@ -282,7 +282,7 @@ fn read_payload(r: &mut impl Read, type_id: u8, depth: u8) -> anyhow::Result<Nbt
             }
             NbtTag::LongArray(items)
         }
-        other => bail!("未知 NBT tag type：{other}"),
+        other => bail!("Unknown NBT tag type: {other}"),
     })
 }
 
@@ -290,7 +290,7 @@ fn read_payload(r: &mut impl Read, type_id: u8, depth: u8) -> anyhow::Result<Nbt
 pub fn parse_nbt(r: &mut impl Read) -> anyhow::Result<(String, NbtTag)> {
     let type_id = read_u8(r)?;
     if type_id != 10 {
-        bail!("NBT root 不是 Compound（type={type_id}）");
+        bail!("NBT root is not Compound (type={type_id})");
     }
     let name = read_nbt_string(r)?;
     let tag = read_payload(r, 10, 0)?;
@@ -309,7 +309,7 @@ pub struct ServerEntry {
 
 /// 解析遊戲目錄下的 servers.dat（未壓縮 NBT）
 pub fn read_servers(dat_path: &Path) -> anyhow::Result<Vec<ServerEntry>> {
-    let bytes = std::fs::read(dat_path).context("讀取 servers.dat 失敗")?;
+    let bytes = std::fs::read(dat_path).context("Failed to read servers.dat")?;
     let (_, root) = parse_nbt(&mut bytes.as_slice())?;
     let mut out = Vec::new();
     if let Some(NbtTag::List(servers)) = root.get("servers") {
@@ -317,7 +317,7 @@ pub fn read_servers(dat_path: &Path) -> anyhow::Result<Vec<ServerEntry>> {
             let name = server
                 .get("name")
                 .and_then(|t| t.as_str())
-                .unwrap_or("(未命名)")
+                .unwrap_or("(Unnamed)")
                 .to_string();
             let ip = server
                 .get("ip")
@@ -370,7 +370,7 @@ pub fn list_worlds(saves_dir: &Path) -> Vec<WorldEntry> {
             }
             let dir_name = entry.file_name().to_string_lossy().to_string();
             let level_name = read_level_name(&level_dat).unwrap_or_else(|| dir_name.clone());
-            let info = format!("最後遊玩：{}", modified_string(&level_dat));
+            let info = format!("Last played: {}", modified_string(&level_dat));
             Some(WorldEntry {
                 dir_name,
                 level_name,
@@ -448,14 +448,14 @@ pub fn read_log_lines(
     validate_file_name(name)?;
     let path = logs_dir.join(name);
     let content = if name.ends_with(".gz") {
-        let file = std::fs::File::open(&path).with_context(|| format!("開啟 {name} 失敗"))?;
+        let file = std::fs::File::open(&path).with_context(|| format!("Failed to open {name}"))?;
         let mut gz = flate2::read::GzDecoder::new(file);
         let mut s = String::new();
         gz.read_to_string(&mut s)
-            .with_context(|| format!("解壓 {name} 失敗"))?;
+            .with_context(|| format!("Failed to extract {name}"))?;
         s
     } else {
-        std::fs::read_to_string(&path).with_context(|| format!("讀取 {name} 失敗"))?
+        std::fs::read_to_string(&path).with_context(|| format!("Failed to read {name}"))?
     };
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let start = lines.len().saturating_sub(max_lines);
@@ -472,7 +472,7 @@ pub fn read_notes(instance_dir: &Path) -> String {
 
 pub fn save_notes(instance_dir: &Path, text: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(instance_dir)?;
-    std::fs::write(instance_dir.join("notes.txt"), text).context("儲存筆記失敗")
+    std::fs::write(instance_dir.join("notes.txt"), text).context("Failed to save notes")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -532,14 +532,14 @@ mod tests {
         let dat = dir.path().join("servers.dat");
         std::fs::write(
             &dat,
-            build_servers_dat(&[("Hypixel", "mc.hypixel.net"), ("本機", "localhost:25565")]),
+            build_servers_dat(&[("Hypixel", "mc.hypixel.net"), ("Local", "localhost:25565")]),
         )
         .unwrap();
         let servers = read_servers(&dat).unwrap();
         assert_eq!(servers.len(), 2);
         assert_eq!(servers[0].name, "Hypixel");
         assert_eq!(servers[0].ip, "mc.hypixel.net");
-        assert_eq!(servers[1].name, "本機");
+        assert_eq!(servers[1].name, "Local");
     }
 
     #[test]
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_level_name_from_gzip_nbt() {
-        // root compound { Data: Compound { LevelName: "我的世界" } }
+        // root compound { Data: Compound { LevelName: "Minecraft" } }
         let mut inner: Vec<u8> = Vec::new();
         inner.push(10);
         inner.extend((0i16).to_be_bytes()); // root name ""
@@ -563,7 +563,7 @@ mod tests {
         inner.push(8);
         inner.extend((9i16).to_be_bytes());
         inner.extend(b"LevelName");
-        let name = "我的世界";
+        let name = "Minecraft";
         inner.extend((name.len() as i16).to_be_bytes());
         inner.extend(name.as_bytes());
         inner.push(0); // end Data
@@ -582,7 +582,7 @@ mod tests {
         let worlds = list_worlds(&dir.path().join("saves"));
         assert_eq!(worlds.len(), 1);
         assert_eq!(worlds[0].dir_name, "world1");
-        assert_eq!(worlds[0].level_name, "我的世界");
+        assert_eq!(worlds[0].level_name, "Minecraft");
     }
 
     #[test]

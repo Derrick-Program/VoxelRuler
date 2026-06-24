@@ -177,7 +177,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                         }
                                         TouchArea { clicked => { InstanceCreateLogic.show-release = !InstanceCreateLogic.show-release; InstanceCreateLogic.filter-versions(); } }
                                     }
-                                    Text { text: @tr("正式版"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    Text { text: @tr("Release"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -192,7 +192,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                         }
                                         TouchArea { clicked => { InstanceCreateLogic.show-snapshot = !InstanceCreateLogic.show-snapshot; InstanceCreateLogic.filter-versions(); } }
                                     }
-                                    Text { text: @tr("快照版"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    Text { text: @tr("Snapshot"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -207,7 +207,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                         }
                                         TouchArea { clicked => { InstanceCreateLogic.show-beta = !InstanceCreateLogic.show-beta; InstanceCreateLogic.filter-versions(); } }
                                     }
-                                    Text { text: @tr("Beta 版"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    Text { text: @tr("Beta"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
                             }
                             
@@ -226,7 +226,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                         }
                                         TouchArea { clicked => { InstanceCreateLogic.show-alpha = !InstanceCreateLogic.show-alpha; InstanceCreateLogic.filter-versions(); } }
                                     }
-                                    Text { text: @tr("Alpha 版"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    Text { text: @tr("Alpha"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -241,7 +241,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                         }
                                         TouchArea { clicked => { InstanceCreateLogic.show-experimental = !InstanceCreateLogic.show-experimental; InstanceCreateLogic.filter-versions(); } }
                                     }
-                                    Text { text: @tr("實驗版"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    Text { text: @tr("Experimental"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
                             }
                         }

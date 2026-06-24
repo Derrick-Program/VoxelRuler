@@ -22,7 +22,7 @@ pub(crate) async fn download_best_effort(url: &str, dest: &Path) -> anyhow::Resu
         return Ok(());
     }
     let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    anyhow::ensure!(!bytes.is_empty(), "空回應：{url}");
+    anyhow::ensure!(!bytes.is_empty(), "Empty response: {url}");
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -57,7 +57,7 @@ async fn download_and_verify(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let mut last_err: anyhow::Error = anyhow::anyhow!("下載尚未嘗試");
+    let mut last_err: anyhow::Error = anyhow::anyhow!("Download not attempted yet");
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
             let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
@@ -66,7 +66,7 @@ async fn download_and_verify(
                 max = MAX_RETRIES - 1,
                 delay_ms = delay,
                 url,
-                "下載重試中"
+                "Retrying download"
             );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
@@ -76,7 +76,7 @@ async fn download_and_verify(
             let actual = sha1_hex(&bytes);
             if actual != expected_sha1 {
                 anyhow::bail!(
-                    "SHA1 不符 {}: expected={} actual={}",
+                    "SHA1 mismatch {}: expected={} actual={}",
                     dest.display(),
                     expected_sha1,
                     actual
@@ -91,7 +91,7 @@ async fn download_and_verify(
             Ok(()) => return Ok(()),
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("SHA1 不符") {
+                if msg.contains("SHA1 mismatch") {
                     return Err(e);
                 }
                 last_err = e;
@@ -99,7 +99,7 @@ async fn download_and_verify(
         }
     }
 
-    Err(last_err).with_context(|| format!("下載失敗（重試 {} 次）：{}", MAX_RETRIES, url))
+    Err(last_err).with_context(|| format!("Download failed (retry {} times): {}", MAX_RETRIES, url))
 }
 
 pub async fn install_java(
@@ -179,62 +179,40 @@ pub async fn install_libraries(
 ) -> anyhow::Result<()> {
     let excluded = |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
 
+    // 舊版格式（約 ≤1.18）的原生函式庫以 classifiers 提供，與一般 artifact 合併一次遍歷。
     let mut applicable: Vec<(PathBuf, String, u64, String)> = version
         .libraries
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
         .filter(|lib| !excluded(&lib.name))
-        .filter_map(|lib| {
-            let artifact = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
-            let dest = artifact
-                .path
-                .as_deref()
-                .map(|p| libraries_dir.join(p))
-                .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)))?;
-            Some((
-                dest,
-                artifact.url.clone(),
-                artifact.size,
-                artifact.sha1.clone(),
-            ))
+        .flat_map(|lib| {
+            let regular = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()).and_then(|artifact| {
+                let dest = artifact
+                    .path
+                    .as_deref()
+                    .map(|p| libraries_dir.join(p))
+                    .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)))?;
+                Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
+            });
+            let classifier = native_classifier_key(lib).and_then(|key| {
+                let artifact = lib
+                    .downloads
+                    .as_ref()
+                    .and_then(|d| d.classifiers.as_ref())
+                    .and_then(|c| c.get(&key))?;
+                let dest = artifact
+                    .path
+                    .as_deref()
+                    .map(|p| libraries_dir.join(p))
+                    .or_else(|| {
+                        maven_coord_to_path(&format!("{}:{}", lib.name, key))
+                            .map(|p| libraries_dir.join(p))
+                    })?;
+                Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
+            });
+            regular.into_iter().chain(classifier)
         })
         .collect();
-
-    // 舊版格式（約 ≤1.18）的原生函式庫以 classifiers 提供，
-    // 之前完全沒下載，導致 natives_dir 永遠是空的 → 啟動時 lib 缺失。
-    for lib in version
-        .libraries
-        .iter()
-        .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
-        .filter(|lib| !excluded(&lib.name))
-    {
-        let Some(key) = native_classifier_key(lib) else {
-            continue;
-        };
-        let Some(artifact) = lib
-            .downloads
-            .as_ref()
-            .and_then(|d| d.classifiers.as_ref())
-            .and_then(|c| c.get(&key))
-        else {
-            continue;
-        };
-        let dest = artifact
-            .path
-            .as_deref()
-            .map(|p| libraries_dir.join(p))
-            .or_else(|| {
-                maven_coord_to_path(&format!("{}:{}", lib.name, key)).map(|p| libraries_dir.join(p))
-            });
-        if let Some(dest) = dest {
-            applicable.push((
-                dest,
-                artifact.url.clone(),
-                artifact.size,
-                artifact.sha1.clone(),
-            ));
-        }
-    }
 
     // macOS：classpath 端會把過舊的 jna 5.x 改指向 JNA_COMPAT_VERSION，
     // 這裡必須下載對應檔案，否則 classpath 會指向不存在的 jar。
@@ -265,7 +243,7 @@ pub async fn install_libraries(
             if let Some((_, url, size, sha1)) =
                 JNA_FIXUPS.iter().find(|(name, ..)| *name == artifact)
             {
-                warn!(artifact, "macOS：jna 版本過舊，補下載相容版本");
+                warn!(artifact, "macOS: jna version too old, downloading compatible version");
                 applicable.push((
                     libraries_dir.join(jna_compat_rel_path(artifact)),
                     (*url).to_string(),
@@ -278,7 +256,7 @@ pub async fn install_libraries(
 
     // Apple Silicon 原生模式：下載替換用的 artifacts
     if let Some(ov) = compat {
-        warn!(name = ov.name, "Apple Silicon 原生模式：替換不相容函式庫");
+        warn!(name = ov.name, "Apple Silicon native mode: replacing incompatible libraries");
         for art in ov.artifacts {
             applicable.push((
                 libraries_dir.join(art.rel_path),
@@ -305,7 +283,7 @@ pub async fn install_libraries(
 
     // Pass A：Forge / modded 版本 JSON 中無 downloads 資訊的一般函式庫（非 natives-only）
     // 依序嘗試各個已知倉庫下載。
-    let fallback_libs: Vec<(PathBuf, String)> = version
+    let fallback_libs: Vec<(PathBuf, String, Option<String>)> = version
         .libraries
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
@@ -318,24 +296,32 @@ pub async fn install_libraries(
             if dest.exists() {
                 return None;
             }
-            Some((dest, rel.to_string_lossy().into_owned()))
+            Some((dest, rel.to_string_lossy().into_owned(), lib.url.clone()))
         })
         .collect();
 
     if !fallback_libs.is_empty() {
         warn!(
             count = fallback_libs.len(),
-            "偵測到無下載 URL 的函式庫，嘗試從已知 Maven 倉庫下載"
+            "Detected libraries without download URL, attempting to download from known Maven repositories"
         );
         let mut fallback_stream = stream::iter(fallback_libs)
-            .map(|(dest, rel)| async move {
-                for repo in FALLBACK_REPOS {
+            .map(|(dest, rel, lib_url)| async move {
+                let mut repos: Vec<&str> = Vec::new();
+                let lib_url_str = lib_url.as_deref().unwrap_or("");
+                if !lib_url_str.is_empty() {
+                    repos.push(lib_url_str);
+                }
+                repos.extend(FALLBACK_REPOS);
+
+                for repo in repos {
+                    let repo = if repo.ends_with('/') { repo.to_string() } else { format!("{}/", repo) };
                     let url = format!("{}{}", repo, rel);
                     if download_best_effort(&url, &dest).await.is_ok() {
                         return;
                     }
                 }
-                warn!(%rel, "所有 fallback 倉庫均無法下載此函式庫");
+                warn!(%rel, "All fallback repositories failed to download this library");
             })
             .buffer_unordered(16);
         while fallback_stream.next().await.is_some() {}
@@ -363,7 +349,7 @@ pub async fn install_libraries(
     if !old_native_libs.is_empty() {
         warn!(
             count = old_native_libs.len(),
-            "下載舊版格式 natives classifier jar"
+            "Downloading legacy format natives classifier jar"
         );
         let mut native_stream = stream::iter(old_native_libs)
             .map(|(dest, rel)| async move {
@@ -373,7 +359,7 @@ pub async fn install_libraries(
                         return;
                     }
                 }
-                warn!(%rel, "所有 fallback 倉庫均無法下載 natives classifier");
+                warn!(%rel, "All fallback repositories failed to download natives classifier");
             })
             .buffer_unordered(8);
         while native_stream.next().await.is_some() {}
@@ -443,13 +429,13 @@ pub async fn extract_natives(
             if !jar.exists() {
                 // install_libraries 是下載的權威；這裡只警告，
                 // 避免單一異常資料（natives 指到不存在的 classifier）直接擋下啟動
-                warn!(jar = %jar.display(), "natives jar 不存在，跳過解壓");
+                warn!(jar = %jar.display(), "natives jar does not exist, skipping extraction");
                 continue;
             }
             let file = std::fs::File::open(&jar)
-                .with_context(|| format!("開啟 natives jar 失敗：{}", jar.display()))?;
+                .with_context(|| format!("Failed to open natives jar: {}", jar.display()))?;
             let mut archive = zip::ZipArchive::new(file)
-                .with_context(|| format!("讀取 natives jar 失敗：{}", jar.display()))?;
+                .with_context(|| format!("Failed to read natives jar: {}", jar.display()))?;
             for i in 0..archive.len() {
                 let mut entry = archive.by_index(i)?;
                 if entry.is_dir() || should_skip_native_entry(entry.name(), &excludes) {
@@ -457,7 +443,7 @@ pub async fn extract_natives(
                 }
                 // enclosed_name 可防 zip-slip（路徑跳脫）
                 let Some(rel) = entry.enclosed_name() else {
-                    warn!(entry = entry.name(), "跳過不安全的 zip 路徑");
+                    warn!(entry = entry.name(), "Skipping unsafe zip path");
                     continue;
                 };
                 let dest = natives_dir.join(rel);
@@ -469,14 +455,14 @@ pub async fn extract_natives(
                     std::fs::create_dir_all(parent)?;
                 }
                 let mut out = std::fs::File::create(&dest)
-                    .with_context(|| format!("寫入 natives 失敗：{}", dest.display()))?;
+                    .with_context(|| format!("Failed to write natives: {}", dest.display()))?;
                 std::io::copy(&mut entry, &mut out)?;
             }
         }
         Ok(())
     })
     .await
-    .context("natives 解壓 task 失敗")??;
+    .context("natives extraction task failed")??;
     Ok(())
 }
 
@@ -488,7 +474,7 @@ pub async fn install_assets(
     let index = version
         .asset_index
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("版本 {} 無 asset_index", version.id))?;
+        .ok_or_else(|| anyhow::anyhow!("Version {} has no asset_index", version.id))?;
 
     let objects = crate::mc_api::McAction::new()
         .get_asset_index(&index.url)
@@ -536,14 +522,14 @@ pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         use std::io::{Read, Write};
         let file = std::fs::File::open(&src)
-            .with_context(|| format!("開啟 JAR 失敗：{}", src.display()))?;
+            .with_context(|| format!("Failed to open JAR: {}", src.display()))?;
         let mut archive = zip::ZipArchive::new(file)
-            .with_context(|| format!("讀取 JAR 失敗：{}", src.display()))?;
+            .with_context(|| format!("Failed to read JAR: {}", src.display()))?;
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let out_file = std::fs::File::create(&dst)
-            .with_context(|| format!("建立無簽名 JAR 失敗：{}", dst.display()))?;
+            .with_context(|| format!("Failed to create unsigned JAR: {}", dst.display()))?;
         let mut writer = zip::ZipWriter::new(out_file);
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i)?;
@@ -567,7 +553,7 @@ pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
         Ok(())
     })
     .await
-    .context("JAR 簽名剝除 task 失敗")??;
+    .context("JAR signature stripping task failed")??;
     Ok(())
 }
 
@@ -581,8 +567,8 @@ mod test {
     use crate::mc_types::*;
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
-        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("找不到 {path}"));
-        serde_json::from_str(&data).unwrap_or_else(|e| panic!("解析 {path} 失敗：{e}"))
+        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
+        serde_json::from_str(&data).unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
     }
 
     fn empty_version() -> McSpecificVersionDetail {
@@ -856,14 +842,14 @@ mod test {
             .await
             .unwrap();
 
-        assert!(natives.join("libtest.so").exists(), "應解壓 natives 檔案");
+        assert!(natives.join("libtest.so").exists(), "Should extract natives files");
         assert!(
             !natives.join("META-INF/MANIFEST.MF").exists(),
-            "META-INF 應被排除"
+            "META-INF should be excluded"
         );
         assert!(
             !natives.join("excluded/skip.txt").exists(),
-            "exclude 規則應生效"
+            "exclude rule should take effect"
         );
     }
 
@@ -879,7 +865,7 @@ mod test {
             .await
             .unwrap();
         let count = count_jars(dir.path());
-        assert!(count > 0, "libraries 目錄應有 JAR 檔案，實際：{count}");
+        assert!(count > 0, "libraries directory should have JAR files, actual: {count}");
     }
 
     #[tokio::test]

@@ -131,8 +131,9 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     // running_procs 在 watcher callback 中也需要讀取，因此提前定義。
     // 這樣在重建 instance list 時，可以保留正在執行中的實例狀態，
-    // 避免 watcher 刷新列表時把 "running" 狀態覆蓋成 "ready"。
+    // 避免 watcher 刷新列表時把 "running" status overridden to "ready"。
     let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
+    let launching_procs: Arc<Mutex<std::collections::HashSet<String>>> = Arc::new(Mutex::new(std::collections::HashSet::new()));
 
     let (_debouncer, rx) = store.lock().unwrap().watch_changes()?;
     let ui_weak_for_watch = ui.as_weak();
@@ -141,7 +142,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     let running_procs_for_watch = Arc::clone(&running_procs);
     tokio::spawn(async move {
         while rx.recv().is_ok() {
-            info!("偵測到 instance.toml 變動，正在同步至 UI 列表...");
+            info!("Detected instance.toml change, syncing to UI list...");
             let latest_configs = match store_for_watch.lock() {
                 Ok(s) => s.load().unwrap_or_default(),
                 Err(_) => continue,
@@ -183,7 +184,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     }
 
                     logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
-                    info!("UI 列表已與硬碟安全同步");
+                    info!("UI list securely synced with disk");
                 }
             });
         }
@@ -282,7 +283,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
-            .expect("建立網路偵測 client 失敗");
+            .expect("Failed to create network detection client");
         loop {
             let online = client
                 .head("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json")
@@ -333,7 +334,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let javas = tokio::task::spawn_blocking(crate::java_scan::scan_system_javas)
             .await
             .unwrap_or_default();
-        info!(count = javas.len(), "系統 Java 掃描完成");
+        info!(count = javas.len(), "System Java scan completed");
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = ui_weak_for_scan.upgrade() else {
                 return;
@@ -354,7 +355,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let ui_weak = ui_weak_for_edit_browse.clone();
         let _ = slint::spawn_local(async move {
             if let Some(file) = rfd::AsyncFileDialog::new()
-                .set_title("選擇 Java 執行檔")
+                .set_title("Select Java Executable")
                 .pick_file()
                 .await
                 && let Some(ui) = ui_weak.upgrade()
@@ -370,7 +371,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let ui_weak = ui_weak_for_settings_browse.clone();
         let _ = slint::spawn_local(async move {
             if let Some(file) = rfd::AsyncFileDialog::new()
-                .set_title("選擇 Java 執行檔")
+                .set_title("Select Java Executable")
                 .pick_file()
                 .await
                 && let Some(ui) = ui_weak.upgrade()
@@ -397,14 +398,25 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
 
-    let instance_logs: Arc<Mutex<HashMap<String, VecDeque<String>>>> =
+    let instance_logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
     let master_for_launch = Arc::clone(&master_configs);
     let running_procs_for_launch = Arc::clone(&running_procs);
+    let launching_procs_for_launch = Arc::clone(&launching_procs);
     let instance_logs_for_launch = Arc::clone(&instance_logs);
     let ui_weak_for_launch = ui.as_weak();
     logic.on_launch_instance(move |id| {
+        let (active_account_authenticator, active_account_username) = {
+            let Some(ui) = ui_weak_for_launch.upgrade() else { return; };
+            let acc = ui.global::<PageAccountLogic>().get_active_account();
+            (acc.authenticator.to_string(), acc.username.to_string())
+        };
+        if active_account_authenticator == "No Account" {
+            set_install_state(&ui_weak_for_launch, true, 0.0, "Please login to an account first", true);
+            return;
+        }
+
         let config = {
             let configs = master_for_launch.lock().unwrap();
             configs
@@ -420,13 +432,23 @@ pub async fn open_view() -> anyhow::Result<()> {
         };
         let instance_id = config.id.clone();
         let running_procs = Arc::clone(&running_procs_for_launch);
+        let launching_procs = Arc::clone(&launching_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
-        if running_procs.lock().unwrap().contains_key(&instance_id) {
+        if !running_procs.lock().unwrap().is_empty() {
+            set_install_state(&ui_weak_for_launch, true, 0.0, "Please close the currently running game first", true);
             return;
         }
+        let mut launching_lock = launching_procs.lock().unwrap();
+        if !launching_lock.is_empty() {
+            return; // Already launching some instance
+        }
+        launching_lock.insert(instance_id.clone());
+        drop(launching_lock);
         tokio::spawn(async move {
-            match do_launch(config, ui_weak.clone(), logs).await {
+            let res = do_launch(config, ui_weak.clone(), logs, active_account_authenticator, active_account_username).await;
+            launching_procs.lock().unwrap().remove(&instance_id);
+            match res {
                 Ok(child) => {
                     running_procs
                         .lock()
@@ -456,8 +478,8 @@ pub async fn open_view() -> anyhow::Result<()> {
                     });
                 }
                 Err(e) => {
-                    error!("啟動失敗: {e:#}");
-                    set_install_state(&ui_weak, true, 0.0, &format!("啟動失敗：{e:#}"), true);
+                    error!("Launch failed: {e:#}");
+                    set_install_state(&ui_weak, true, 0.0, &format!("Launch failed: {e:#}"), true);
                 }
             }
         });
@@ -518,11 +540,11 @@ pub async fn open_view() -> anyhow::Result<()> {
 
         if java_mode == JAVA_MODE_CUSTOM {
             if java_path.is_empty() {
-                edit.set_error_msg("選擇自訂 Java 時必須填寫路徑".into());
+                edit.set_error_msg("Path is required when selecting custom Java".into());
                 return;
             }
             if !Path::new(&java_path).is_file() {
-                edit.set_error_msg("自訂 Java 路徑不存在或不是檔案".into());
+                edit.set_error_msg("Custom Java path does not exist or is not a file".into());
                 return;
             }
         }
@@ -530,7 +552,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let updated_config = {
             let mut master = master_for_edit.lock().unwrap();
             let Some(c) = master.iter_mut().find(|c| c.id == id) else {
-                edit.set_error_msg("找不到實例".into());
+                edit.set_error_msg("Instance not found".into());
                 return;
             };
             c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
@@ -546,9 +568,9 @@ pub async fn open_view() -> anyhow::Result<()> {
             Ok(()) => {
                 edit.set_error_msg("".into());
                 ui.global::<InstanceDetailLogic>()
-                    .set_status_msg("✓ 已儲存".into());
+                    .set_status_msg("✓ Saved".into());
             }
-            Err(e) => edit.set_error_msg(format!("儲存失敗：{e}").into()),
+            Err(e) => edit.set_error_msg(format!("Save failed: {e}").into()),
         }
     });
 
@@ -563,11 +585,11 @@ pub async fn open_view() -> anyhow::Result<()> {
 
         if java_mode == JAVA_MODE_CUSTOM {
             if java_path.is_empty() {
-                sl.set_status_msg("⚠ 選擇自訂 Java 時必須填寫路徑".into());
+                sl.set_status_msg("⚠ Path is required when selecting custom Java".into());
                 return;
             }
             if !Path::new(&java_path).is_file() {
-                sl.set_status_msg("⚠ Java 路徑不存在或不是檔案".into());
+                sl.set_status_msg("⚠ Java path does not exist or is not a file".into());
                 return;
             }
         }
@@ -577,8 +599,8 @@ pub async fn open_view() -> anyhow::Result<()> {
             java_path,
         };
         match new_settings.save() {
-            Ok(()) => sl.set_status_msg("✓ 已儲存".into()),
-            Err(e) => sl.set_status_msg(format!("儲存失敗：{e}").into()),
+            Ok(()) => sl.set_status_msg("✓ Saved".into()),
+            Err(e) => sl.set_status_msg(format!("Save failed: {e}").into()),
         }
     });
 
@@ -596,10 +618,10 @@ pub async fn open_view() -> anyhow::Result<()> {
     let ui_weak_for_open = ui.as_weak();
     logic.on_open_log(move |id| {
         let id = id.to_string();
-        let lines: Vec<slint::SharedString> = {
+        let lines: Vec<crate::view::LogLine> = {
             let logs = instance_logs_for_open.lock().unwrap();
             logs.get(&id)
-                .map(|deque| deque.iter().map(|s| s.as_str().into()).collect())
+                .map(|deque| deque.iter().cloned().collect())
                 .unwrap_or_default()
         };
         if let Some(ui) = ui_weak_for_open.upgrade() {
@@ -652,8 +674,8 @@ pub async fn open_view() -> anyhow::Result<()> {
                 Ok(())
             })();
             if let Err(e) = result {
-                error!("複製實例失敗: {e:#}");
-                set_install_state(&ui_weak, true, 0.0, &format!("複製實例失敗：{e:#}"), true);
+                error!("Failed to duplicate instance: {e:#}");
+                set_install_state(&ui_weak, true, 0.0, &format!("Failed to duplicate instance: {e:#}"), true);
             }
         });
     });
@@ -669,13 +691,13 @@ pub async fn open_view() -> anyhow::Result<()> {
         let id = logic.get_rename_id().to_string();
         let new_name = logic.get_rename_text().trim().to_string();
         if new_name.is_empty() {
-            logic.set_rename_error("名稱不可為空".into());
+            logic.set_rename_error("Name cannot be empty".into());
             return;
         }
         let updated = {
             let mut master = master_for_rename.lock().unwrap();
             let Some(c) = master.iter_mut().find(|c| c.id == id) else {
-                logic.set_rename_error("找不到實例".into());
+                logic.set_rename_error("Instance not found".into());
                 return;
             };
             c.name = new_name;
@@ -683,7 +705,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         };
         match store_for_rename.lock().unwrap().save_one(&updated) {
             Ok(()) => logic.set_show_rename(false),
-            Err(e) => logic.set_rename_error(format!("儲存失敗：{e}").into()),
+            Err(e) => logic.set_rename_error(format!("Save failed: {e}").into()),
         }
     });
 
@@ -701,7 +723,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             let _ = child.kill();
         }
         if let Err(e) = store_for_del.lock().unwrap().delete_one(&id) {
-            error!("刪除實例失敗: {e:#}");
+            error!("Failed to delete instance: {e:#}");
         }
         logic.set_show_delete_confirm(false);
         // 詳細視窗若開著同一實例，順手關閉
@@ -818,7 +840,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         let logs = Arc::clone(&logs_for_add);
         let category = category.to_string();
         let _ = slint::spawn_local(async move {
-            let mut dialog = rfd::AsyncFileDialog::new().set_title("選擇要加入的檔案");
+            let mut dialog = rfd::AsyncFileDialog::new().set_title("Select file to add");
             dialog = match category.as_str() {
                 "mods" => dialog.add_filter("Minecraft Mod", &["jar"]),
                 "resourcepacks" | "shaderpacks" => dialog.add_filter("Pack", &["zip"]),
@@ -853,7 +875,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             &paths.instance_dir(&id),
             detail.get_notes().as_str(),
         ) {
-            Ok(()) => detail.set_notes_status("✓ 已儲存".into()),
+            Ok(()) => detail.set_notes_status("✓ Saved".into()),
             Err(e) => detail.set_notes_status(format!("{e}").into()),
         }
     });
@@ -875,7 +897,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                 detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(shared))));
             }
             Err(e) => {
-                let msg: Vec<slint::SharedString> = vec![format!("讀取失敗：{e}").into()];
+                let msg: Vec<slint::SharedString> = vec![format!("Read failed: {e}").into()];
                 detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(msg))));
             }
         }
@@ -905,9 +927,9 @@ pub async fn open_view() -> anyhow::Result<()> {
         match store_for_version.lock().unwrap().save_one(&updated) {
             Ok(()) => {
                 detail.set_version(new_version.as_str().into());
-                detail.set_status_msg("✓ 已儲存".into());
+                detail.set_status_msg("✓ Saved".into());
             }
-            Err(e) => detail.set_status_msg(format!("儲存失敗：{e}").into()),
+            Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),
         }
     });
 
@@ -979,19 +1001,19 @@ pub async fn open_view() -> anyhow::Result<()> {
                             if let Some(first) = slint_versions.first() {
                                 logic.set_selected_mod_loader_version(first.clone());
                             } else {
-                                logic.set_selected_mod_loader_version("沒有可用版本".into());
+                                logic.set_selected_mod_loader_version("No available versions".into());
                             }
                             logic.set_is_loading(false);
                         }
                     });
                 }
                 Err(e) => {
-                    println!("抓取 Mod Loader 版本失敗: {}", e);
+                    println!("Failed to fetch Mod Loader versions: {}", e);
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_handle_async.upgrade() {
                             let logic = ui.global::<InstanceCreateLogic>();
                             logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
-                            logic.set_selected_mod_loader_version("讀取失敗".into());
+                            logic.set_selected_mod_loader_version("Read failed".into());
                             logic.set_is_loading(false);
                         }
                     });
@@ -1013,11 +1035,11 @@ pub async fn open_view() -> anyhow::Result<()> {
         let version = create.get_selected_version().to_string();
 
         if name.trim().is_empty() {
-            create.set_error_msg("實例名稱不可為空".into());
+            create.set_error_msg("Instance name cannot be empty".into());
             return;
         }
         if version.is_empty() {
-            create.set_error_msg("請選擇 Minecraft 版本".into());
+            create.set_error_msg("Please select Minecraft version".into());
             return;
         }
 
@@ -1045,7 +1067,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                 create.set_show_dialog(false);
             }
             Err(e) => {
-                create.set_error_msg(format!("建立失敗：{e}").into());
+                create.set_error_msg(format!("Creation failed: {e}").into());
             }
         }
     });
@@ -1069,7 +1091,7 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     let applogic = ui.global::<AppLogic>();
     applogic.on_sidebar_change(|id| {
-        debug!(tab = ?id, "sidebar 切換");
+        debug!(tab = ?id, "sidebar switch");
     });
 
     if let Ok(Some(session)) = SessionData::load_session()
@@ -1132,7 +1154,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         if let Some(ui) = ui_weak.upgrade() {
             let pal = ui.global::<PageAccountLogic>();
             pal.set_login_url("".into());
-            pal.set_login_status_text("正在產生安全登入連結...".into());
+            pal.set_login_status_text("Generating secure login link...".into());
             pal.set_is_error(false);
             pal.set_is_logging_in(true);
         }
@@ -1143,7 +1165,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     if let Some(ui) = ui_weak_for_url.upgrade() {
                         let pal = ui.global::<PageAccountLogic>();
                         pal.set_login_url(url.into());
-                        pal.set_login_status_text("請在打開的瀏覽器網頁中完成驗證。".into());
+                        pal.set_login_status_text("Please complete verification in your browser.".into());
                     }
                 });
             };
@@ -1191,7 +1213,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                     });
                 }
                 Err(e) => {
-                    let error_msg = format!("登入失敗：{}", e);
+                    let error_msg = format!("Login failed: {}", e);
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak.upgrade() {
                             let pal = ui.global::<PageAccountLogic>();
@@ -1515,7 +1537,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                             if !skin_changed && !cape_changed { return; }
                             
                             apl.set_is_uploading(true);
-                            apl.set_upload_status("套用變更中...".into());
+                            apl.set_upload_status("Applying changes...".into());
                         }
                         
                         let main_ui_weak = main_ui_weak_apply.clone();
@@ -1568,7 +1590,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                     Ok(()) => skin_success = true,
                                     Err(e) => {
                                         has_error = true;
-                                        err_msg.push_str(&format!("皮膚套用失敗：{}\n", e));
+                                        err_msg.push_str(&format!("Failed to apply skin: {}\n", e));
                                     }
                                 }
                             }
@@ -1585,7 +1607,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                     Ok(None) => {},
                                     Err(e) => {
                                         has_error = true;
-                                        err_msg.push_str(&format!("披風套用失敗：{}\n", e));
+                                        err_msg.push_str(&format!("Failed to apply cape: {}\n", e));
                                     }
                                 }
                             }
@@ -1608,7 +1630,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                         apl.set_upload_status(err_msg.trim().into());
                                     } else {
                                         apl.set_upload_is_error(false);
-                                        apl.set_upload_status("外觀已成功套用！\n（遊戲內可能需要重新登入才會生效）".into());
+                                        apl.set_upload_status("Appearance applied successfully!\n(May require relogging in-game)".into());
                                         if skin_changed {
                                             apl.set_active_skin_url(skin_url_to_apply.clone().into());
                                         }
@@ -1675,7 +1697,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                             r.set_cape(None);
                                         }
                                     }
-                                    apl.set_selected_cape_name("無披風".into());
+                                    apl.set_selected_cape_name("No Cape".into());
                                     apl.set_selected_cape_preview(Default::default());
                                 } else {
                                     // Find cape URL and name
@@ -1791,7 +1813,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                             apl.set_skin_variant(if is_slim { "slim".into() } else { "classic".into() });
                                             apl.set_has_preview(true);
                                         } else {
-                                            apl.set_upload_status(format!("無效的皮膚尺寸 ({}x{})，必須是 64x64 或 64x32", w, h).into());
+                                            apl.set_upload_status(format!("Invalid skin size ({}x{}), must be 64x64 or 64x32", w, h).into());
                                             apl.set_upload_is_error(true);
                                             apl.set_show_result_dialog(true);
                                             apl.set_has_preview(false);
@@ -1799,7 +1821,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                         }
                                     }
                                     Err(_) => {
-                                        apl.set_upload_status("無法讀取圖片檔案".into());
+                                        apl.set_upload_status("Failed to read image file".into());
                                         apl.set_upload_is_error(true);
                                         apl.set_show_result_dialog(true);
                                         apl.set_has_preview(false);
@@ -1819,9 +1841,9 @@ pub async fn open_view() -> anyhow::Result<()> {
                         let url_str = apl.get_skin_url().to_string();
                         let variant = apl.get_skin_variant().to_string();
                         
-                        let name = if name.is_empty() { "未命名外觀".to_string() } else { name };
+                        let name = if name.is_empty() { "Unnamed Appearance".to_string() } else { name };
                         
-                        apl.set_upload_status("正在加入皮膚庫...".into());
+                        apl.set_upload_status("Adding to skin library...".into());
                         apl.set_upload_is_error(false);
                         apl.set_is_uploading(true);
 
@@ -1829,14 +1851,14 @@ pub async fn open_view() -> anyhow::Result<()> {
                         tokio::spawn(async move {
                             let mut skin_bytes = Vec::new();
                             let mut is_error = false;
-                            let mut status = "加入成功！".to_string();
+                            let mut status = "Added successfully!".to_string();
 
                             if !path_str.is_empty() {
                                 if let Ok(bytes) = std::fs::read(&path_str) {
                                     skin_bytes = bytes;
                                 } else {
                                     is_error = true;
-                                    status = "無法讀取本地檔案".to_string();
+                                    status = "Failed to read local file".to_string();
                                 }
                             } else if !url_str.is_empty() {
                                 if let Ok(resp) = reqwest::get(&url_str).await {
@@ -1844,15 +1866,15 @@ pub async fn open_view() -> anyhow::Result<()> {
                                         skin_bytes = bytes.to_vec();
                                     } else {
                                         is_error = true;
-                                        status = "下載皮膚失敗".to_string();
+                                        status = "Failed to download skin".to_string();
                                     }
                                 } else {
                                     is_error = true;
-                                    status = "無法連線至網址".to_string();
+                                    status = "Failed to connect to URL".to_string();
                                 }
                             } else {
                                 is_error = true;
-                                status = "沒有選擇檔案或網址".to_string();
+                                status = "No file or URL selected".to_string();
                             }
 
                             if !is_error && !skin_bytes.is_empty() {
@@ -1970,17 +1992,17 @@ pub async fn open_view() -> anyhow::Result<()> {
                         let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
 
                         if path_str.is_empty() {
-                            apl.set_upload_status("請先選擇皮膚檔案".into());
+                            apl.set_upload_status("Please select skin file first".into());
                             apl.set_upload_is_error(true);
                             return;
                         }
                         if token.is_empty() {
-                            apl.set_upload_status("請先登入 Microsoft 帳號".into());
+                            apl.set_upload_status("Please login to Microsoft account first".into());
                             apl.set_upload_is_error(true);
                             return;
                         }
 
-                        apl.set_upload_status("正在上傳...".into());
+                        apl.set_upload_status("Uploading...".into());
                         apl.set_upload_is_error(false);
                         apl.set_is_uploading(true);
 
@@ -1996,8 +2018,8 @@ pub async fn open_view() -> anyhow::Result<()> {
                             let api = crate::mc_api::McAction::new().authenticate(&token);
                             let result = api.upload_skin_from_file(std::path::Path::new(&path_str), &variant).await;
                             let (status, is_error) = match result {
-                                Ok(()) => ("上傳成功！".to_string(), false),
-                                Err(e) => (format!("上傳失敗：{e}"), true),
+                                Ok(()) => ("Upload successful!".to_string(), false),
+                                Err(e) => (format!("Upload failed: {e}"), true),
                             };
                             
                             // Re-fetch avatar directly from Mojang (no CDN delay)
@@ -2059,17 +2081,17 @@ pub async fn open_view() -> anyhow::Result<()> {
                         let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
 
                         if url_str.is_empty() {
-                            apl.set_upload_status("請輸入皮膚 URL".into());
+                            apl.set_upload_status("Please enter skin URL".into());
                             apl.set_upload_is_error(true);
                             return;
                         }
                         if token.is_empty() {
-                            apl.set_upload_status("請先登入 Microsoft 帳號".into());
+                            apl.set_upload_status("Please login to Microsoft account first".into());
                             apl.set_upload_is_error(true);
                             return;
                         }
 
-                        apl.set_upload_status("正在套用...".into());
+                        apl.set_upload_status("Applying...".into());
                         apl.set_upload_is_error(false);
                         apl.set_is_uploading(true);
 
@@ -2113,8 +2135,8 @@ pub async fn open_view() -> anyhow::Result<()> {
                                 api.upload_skin_from_url(&url_str, &auto_variant).await
                             };
                             let (status, is_error) = match result {
-                                Ok(()) => ("套用成功！".to_string(), false),
-                                Err(e) => (format!("套用失敗：{e}"), true),
+                                Ok(()) => ("Applied successfully!".to_string(), false),
+                                Err(e) => (format!("Apply failed: {e}"), true),
                             };
                             
                             // Re-fetch avatar directly from Mojang (no CDN delay)
@@ -2279,7 +2301,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                                     apl.set_active_skin_url(active_url_clone.into());
                                     
                                     let mut capes_ui = Vec::new();
-                                    let mut active_cape_name = String::from("無披風");
+                                    let mut active_cape_name = String::from("No Cape");
                                     let mut active_cape_preview = slint::Image::default();
                                     
                                     for t in capes_temp {
