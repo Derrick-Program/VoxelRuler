@@ -25,53 +25,53 @@ pub fn setup_create_logic(
             create.set_active_tab(0);
             create.set_show_dialog(true);
         });
-    
+
         let create_logic = ui.global::<InstanceCreateLogic>();
-    
+
         let ui_weak_for_cancel = ui.as_weak();
         create_logic.on_cancel_create(move || {
             if let Some(ui) = ui_weak_for_cancel.upgrade() {
                 ui.global::<InstanceCreateLogic>().set_show_dialog(false);
             }
         });
-    
+
         let ui_weak_for_loader = ui.as_weak();
         create_logic.on_loader_changed(move || {
             let Some(ui) = ui_weak_for_loader.upgrade() else {
                 return;
             };
             let logic = ui.global::<InstanceCreateLogic>();
-            
+
             let mc_version = logic.get_selected_version().to_string();
             let mod_loader_str = logic.get_mod_loader().to_string();
-            
+
             if mod_loader_str == "None" || mc_version.is_empty() {
                 logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
                 logic.set_selected_mod_loader_version("".into());
                 return;
             }
-            
+
             let loader_type = match mod_loader_str.as_str() {
                 "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
                 "Forge" => crate::mc_modloader::ModLoaderType::Forge,
                 "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
                 _ => return,
             };
-            
+
             logic.set_is_loading(true);
             let ui_handle_async = ui.as_weak();
-            
+
             tokio::spawn(async move {
                 match crate::mc_modloader::ModLoaderApi::get_loader_versions(loader_type, &mc_version).await {
                     Ok(versions) => {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_handle_async.upgrade() {
                                 let logic = ui.global::<InstanceCreateLogic>();
-                                let slint_versions: Vec<slint::SharedString> = 
+                                let slint_versions: Vec<slint::SharedString> =
                                     versions.into_iter().map(slint::SharedString::from).collect();
                                 let model = ModelRc::from(Rc::new(VecModel::from(slint_versions.clone())));
                                 logic.set_mod_loader_versions(model);
-                                
+
                                 if let Some(first) = slint_versions.first() {
                                     logic.set_selected_mod_loader_version(first.clone());
                                 } else {
@@ -95,7 +95,7 @@ pub fn setup_create_logic(
                 }
             });
         });
-    
+
         let store_for_create = Arc::clone(&store);
         let master_for_create = Arc::clone(&master_configs);
         let ui_weak_for_confirm = ui.as_weak();
@@ -104,10 +104,10 @@ pub fn setup_create_logic(
                 return;
             };
             let create = ui.global::<InstanceCreateLogic>();
-    
+
             let name = create.get_name().to_string();
             let version = create.get_selected_version().to_string();
-    
+
             if name.trim().is_empty() {
                 create.set_error_msg("Instance name cannot be empty".into());
                 return;
@@ -116,7 +116,7 @@ pub fn setup_create_logic(
                 create.set_error_msg("Please select Minecraft version".into());
                 return;
             }
-    
+
             let config = InstanceConfig {
                 id: uuid::Uuid::new_v4().to_string(),
                 name: name.trim().to_string(),
@@ -131,7 +131,7 @@ pub fn setup_create_logic(
                 shader_pack: create.get_shader_pack().to_string(),
                 ..Default::default()
             };
-    
+
             match store_for_create.lock().unwrap().append(config) {
                 Ok(updated) => {
                     *master_for_create.lock().unwrap() = updated.clone();
@@ -145,5 +145,5 @@ pub fn setup_create_logic(
                 }
             }
         });
-    
+
 }

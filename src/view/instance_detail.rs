@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"\x1B\[([0-9;]*)[mK]").unwrap());
-    
+
     let mut color = slint::Color::from_rgb_u8(197, 200, 198).into();
     let mut has_ansi = false;
 
@@ -301,7 +301,7 @@ pub fn setup_instance_detail_logic(
 ) {
         // ── 實例詳細視窗（側欄分頁）──────────────────────────────────────────
         let detail_logic = ui.global::<InstanceDetailLogic>();
-    
+
         let master_for_detail_open = Arc::clone(&master_configs);
         let running_for_detail_open = Arc::clone(&running_procs);
         let logs_for_detail_open = Arc::clone(&instance_logs);
@@ -319,14 +319,14 @@ pub fn setup_instance_detail_logic(
                 tab,
             );
         });
-    
+
         let ui_weak_for_detail_close = ui.as_weak();
         detail_logic.on_close_detail(move || {
             if let Some(ui) = ui_weak_for_detail_close.upgrade() {
                 ui.global::<InstanceDetailLogic>().set_show_dialog(false);
             }
         });
-    
+
         let logs_for_tab = Arc::clone(&instance_logs);
         let ui_weak_for_tab = ui.as_weak();
         detail_logic.on_tab_changed(move |tab| {
@@ -339,7 +339,7 @@ pub fn setup_instance_detail_logic(
                 .to_string();
             load_detail_tab(&ui, &id, tab, &logs_for_tab);
         });
-    
+
         let ui_weak_for_subfolder = ui.as_weak();
         detail_logic.on_open_subfolder(move |category| {
             let Some(ui) = ui_weak_for_subfolder.upgrade() else {
@@ -354,7 +354,7 @@ pub fn setup_instance_detail_logic(
             let _ = std::fs::create_dir_all(&dir);
             let _ = open::that(dir);
         });
-    
+
         let logs_for_toggle = Arc::clone(&instance_logs);
         let ui_weak_for_toggle = ui.as_weak();
         detail_logic.on_toggle_entry(move |category, file_name| {
@@ -376,7 +376,7 @@ pub fn setup_instance_detail_logic(
                 &logs_for_toggle,
             );
         });
-    
+
         let logs_for_delete_entry = Arc::clone(&instance_logs);
         let ui_weak_for_delete_entry = ui.as_weak();
         detail_logic.on_delete_entry(move |category, file_name| {
@@ -398,7 +398,7 @@ pub fn setup_instance_detail_logic(
                 &logs_for_delete_entry,
             );
         });
-    
+
         let logs_for_add = Arc::clone(&instance_logs);
         let ui_weak_for_add = ui.as_weak();
         detail_logic.on_add_entry(move |category| {
@@ -428,7 +428,7 @@ pub fn setup_instance_detail_logic(
                 load_detail_tab(&ui, &id, detail_category_tab(&category), &logs);
             });
         });
-    
+
         let ui_weak_for_notes = ui.as_weak();
         detail_logic.on_save_notes(move || {
             let Some(ui) = ui_weak_for_notes.upgrade() else {
@@ -445,7 +445,7 @@ pub fn setup_instance_detail_logic(
                 Err(e) => detail.set_notes_status(format!("{e}").into()),
             }
         });
-    
+
         let ui_weak_for_view_log = ui.as_weak();
         detail_logic.on_view_log_file(move |name| {
             let Some(ui) = ui_weak_for_view_log.upgrade() else {
@@ -468,7 +468,7 @@ pub fn setup_instance_detail_logic(
                 }
             }
         });
-    
+
         let store_for_version = Arc::clone(&store);
         let master_for_version = Arc::clone(&master_configs);
         let ui_weak_for_version_save = ui.as_weak();
@@ -498,5 +498,5 @@ pub fn setup_instance_detail_logic(
                 Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),
             }
         });
-    
+
 }

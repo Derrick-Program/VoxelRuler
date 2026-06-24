@@ -220,14 +220,14 @@ pub(crate) async fn do_launch(
             &java_path,
             &paths.base_dir(),
         ).await?;
-        
+
         info!(profile_id, "Mod Loader installation complete, reading new profile");
         let profile_json_path = paths.versions_dir().join(&profile_id).join(format!("{}.json", profile_id));
         let profile_json_str = tokio::fs::read_to_string(&profile_json_path)
             .await
             .with_context(|| format!("Failed to read Mod Loader profile: {}", profile_json_path.display()))?;
         let modded_version: crate::mc_types::McSpecificVersionDetail = serde_json::from_str(&profile_json_str)?;
-        
+
         version = version.merge(modded_version);
         version_id = profile_id;
     }
@@ -442,8 +442,8 @@ pub fn setup_launch_logic(
                 .collect();
             logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
         });
-    
-    
+
+
         let master_for_launch = Arc::clone(&master_configs);
         let running_procs_for_launch = Arc::clone(&running_procs);
         let launching_procs_for_launch = Arc::clone(&launching_procs);
@@ -459,7 +459,7 @@ pub fn setup_launch_logic(
                 set_install_state(&ui_weak_for_launch, true, 0.0, "Please login to an account first", true);
                 return;
             }
-    
+
             let config = {
                 let configs = master_for_launch.lock().unwrap();
                 configs
@@ -527,7 +527,7 @@ pub fn setup_launch_logic(
                 }
             });
         });
-    
+
         let running_procs_for_kill = Arc::clone(&running_procs);
         let ui_weak_for_kill = ui.as_weak();
         logic.on_kill_instance(move |id| {
@@ -538,7 +538,7 @@ pub fn setup_launch_logic(
                 set_instance_status(&ui_weak_for_kill, id.as_str(), "ready");
             }
         });
-    
+
         // 「編輯實例」→ 開啟詳細視窗的「設定」分頁（tab 9）
         let master_for_edit_open = Arc::clone(&master_configs);
         let running_for_edit_open = Arc::clone(&running_procs);
@@ -557,16 +557,16 @@ pub fn setup_launch_logic(
                 9,
             );
         });
-    
+
         let edit_logic = ui.global::<InstanceEditLogic>();
-    
+
         let ui_weak_for_edit_cancel = ui.as_weak();
         edit_logic.on_cancel_edit(move || {
             if let Some(ui) = ui_weak_for_edit_cancel.upgrade() {
                 ui.global::<InstanceEditLogic>().set_show_dialog(false);
             }
         });
-    
+
         let store_for_edit = Arc::clone(&store);
         let master_for_edit = Arc::clone(&master_configs);
         let ui_weak_for_edit_confirm = ui.as_weak();
@@ -580,7 +580,7 @@ pub fn setup_launch_logic(
             let xms = edit.get_xms().trim().to_string();
             let java_path = edit.get_java_path().trim().to_string();
             let java_mode = java_label_to_mode(edit.get_selected_java_mode().as_str());
-    
+
             if java_mode == JAVA_MODE_CUSTOM {
                 if java_path.is_empty() {
                     edit.set_error_msg("Path is required when selecting custom Java".into());
@@ -591,7 +591,7 @@ pub fn setup_launch_logic(
                     return;
                 }
             }
-    
+
             let updated_config = {
                 let mut master = master_for_edit.lock().unwrap();
                 let Some(c) = master.iter_mut().find(|c| c.id == id) else {
@@ -605,7 +605,7 @@ pub fn setup_launch_logic(
                 c.java_path = java_path;
                 c.clone()
             };
-    
+
             // 寫入 instance.toml；watcher 會自動同步 UI 列表
             match store_for_edit.lock().unwrap().save_one(&updated_config) {
                 Ok(()) => {
@@ -616,7 +616,7 @@ pub fn setup_launch_logic(
                 Err(e) => edit.set_error_msg(format!("Save failed: {e}").into()),
             }
         });
-    
+
         let ui_weak_for_settings = ui.as_weak();
         ui.global::<SettingsLogic>().on_save_settings(move || {
             let Some(ui) = ui_weak_for_settings.upgrade() else {
@@ -625,7 +625,7 @@ pub fn setup_launch_logic(
             let sl = ui.global::<SettingsLogic>();
             let java_path = sl.get_java_path().trim().to_string();
             let java_mode = java_label_to_mode(sl.get_selected_java_mode().as_str());
-    
+
             if java_mode == JAVA_MODE_CUSTOM {
                 if java_path.is_empty() {
                     sl.set_status_msg("⚠ Path is required when selecting custom Java".into());
@@ -636,7 +636,7 @@ pub fn setup_launch_logic(
                     return;
                 }
             }
-    
+
             let new_settings = AppSettings {
                 java_mode: java_mode.to_string(),
                 java_path,
@@ -646,7 +646,7 @@ pub fn setup_launch_logic(
                 Err(e) => sl.set_status_msg(format!("Save failed: {e}").into()),
             }
         });
-    
+
         let ui_weak_for_dismiss = ui.as_weak();
         logic.on_dismiss_install_dialog(move || {
             if let Some(ui) = ui_weak_for_dismiss.upgrade() {
@@ -656,7 +656,7 @@ pub fn setup_launch_logic(
                 logic.set_install_status("".into());
             }
         });
-    
+
         let instance_logs_for_open = Arc::clone(&instance_logs);
         let ui_weak_for_open = ui.as_weak();
         logic.on_open_log(move |id| {
@@ -674,21 +674,21 @@ pub fn setup_launch_logic(
                 logic.set_show_log(true);
             }
         });
-    
+
         let ui_weak_for_close_log = ui.as_weak();
         logic.on_close_log(move || {
             if let Some(ui) = ui_weak_for_close_log.upgrade() {
                 ui.global::<InstanceLogic>().set_show_log(false);
             }
         });
-    
+
         // ── 右鍵選單：開啟資料夾 / 複製 / 重新命名 / 刪除 ─────────────────────
         logic.on_open_instance_folder(move |id| {
             if let Ok(paths) = McPaths::new() {
                 let _ = open::that(paths.instance_dir(id.as_str()));
             }
         });
-    
+
         let store_for_dup = Arc::clone(&store);
         let master_for_dup = Arc::clone(&master_configs);
         let ui_weak_for_dup = ui.as_weak();
@@ -722,7 +722,7 @@ pub fn setup_launch_logic(
                 }
             });
         });
-    
+
         let store_for_rename = Arc::clone(&store);
         let master_for_rename = Arc::clone(&master_configs);
         let ui_weak_for_rename = ui.as_weak();
@@ -751,7 +751,7 @@ pub fn setup_launch_logic(
                 Err(e) => logic.set_rename_error(format!("Save failed: {e}").into()),
             }
         });
-    
+
         let store_for_del = Arc::clone(&store);
         let running_for_del = Arc::clone(&running_procs);
         let ui_weak_for_del = ui.as_weak();
@@ -775,5 +775,5 @@ pub fn setup_launch_logic(
                 detail.set_show_dialog(false);
             }
         });
-    
+
 }

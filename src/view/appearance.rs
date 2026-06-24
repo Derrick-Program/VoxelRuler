@@ -9,7 +9,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
             std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>,
         > = std::sync::Arc::new(std::sync::Mutex::new(None));
         let active_renderer_manage = active_renderer.clone();
-    
+
         let main_ui_weak_for_appearance = ui.as_weak();
         ui.global::<PageAccountLogic>()
             .on_manage_appearance(move || {
@@ -23,7 +23,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             }
                             slint::CloseRequestResponse::KeepWindowShown
                         });
-    
+
                         let ap_weak_drag = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_preview_drag_started(move || {
                             let Some(ap) = ap_weak_drag.upgrade() else { return };
@@ -43,13 +43,13 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 crate::GLOBAL_CACHE.insert("mac_natural_scroll".to_string(), val.to_string());
                             }
                         });
-    
+
                         let ap_weak_drag2 = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_preview_dragged(move |dx, dy| {
                             if let Some(ap) = ap_weak_drag2.upgrade() {
                                 let apl = ap.global::<AppearanceLogic>();
                                 let mut multiplier = 1.0;
-                                
+
                                 #[cfg(target_os = "macos")]
                                 {
                                     if let Some(val) = crate::GLOBAL_CACHE.get("mac_natural_scroll") {
@@ -60,14 +60,14 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         multiplier = -1.0;
                                     }
                                 }
-                                
+
                                 let new_yaw = apl.get_base_yaw() - dx * multiplier;
                                 let new_pitch = (apl.get_base_pitch() - dy * multiplier).clamp(-90.0, 90.0);
                                 apl.set_preview_yaw(new_yaw);
                                 apl.set_preview_pitch(new_pitch);
                             }
                         });
-    
+
                         let ap_timer = ap.as_weak();
                         let active_renderer_timer = active_renderer_manage.clone();
                         let timer = slint::Timer::default();
@@ -89,7 +89,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             }
                         });
                         SKIN_TIMER.with(|t| *t.borrow_mut() = Some(timer));
-    
+
                         let ap_weak_close = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_close_appearance(move || {
                             if let Some(ap) = ap_weak_close.upgrade() {
@@ -102,49 +102,49 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             let ap_weak = ap_weak_apply.clone();
                             let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|r| r.value().clone()).unwrap_or_default();
                             if token.is_empty() { return; }
-                            
+
                             let mut skin_url_to_apply = String::new();
                             let mut variant_to_apply = String::new();
                             let mut cape_id_to_apply = String::new();
-                            
+
                             let mut skin_changed = false;
                             let mut cape_changed = false;
-                            
+
                             if let Some(ap) = ap_weak.upgrade() {
                                 let apl = ap.global::<AppearanceLogic>();
                                 let selected_skin_url = apl.get_selected_library_skin_url().to_string();
                                 let active_skin_url = apl.get_active_skin_url().to_string();
                                 let selected_cape_id = apl.get_selected_cape_id().to_string();
                                 let active_cape_id = apl.get_active_cape_id().to_string();
-                                
+
                                 skin_url_to_apply = selected_skin_url.clone();
                                 variant_to_apply = apl.get_skin_variant().to_string();
                                 cape_id_to_apply = selected_cape_id.clone();
-                                
+
                                 skin_changed = !selected_skin_url.is_empty() && selected_skin_url != active_skin_url;
                                 cape_changed = selected_cape_id != active_cape_id;
-                                
+
                                 if !skin_changed && !cape_changed { return; }
-                                
+
                                 apl.set_is_uploading(true);
                                 apl.set_upload_status("Applying changes...".into());
                             }
-                            
+
                             let main_ui_weak = main_ui_weak_apply.clone();
                             let username = crate::mc_token::SessionData::load_session()
                                 .ok()
                                 .flatten()
                                 .map(|s| s.mc_username().clone())
                                 .unwrap_or_default();
-                                
+
                             tokio::spawn(async move {
                                 let api = crate::mc_api::McAction::new().authenticate(&token);
-                                
+
                                 let mut has_error = false;
                                 let mut err_msg = String::new();
                                 let mut skin_success = false;
                                 let mut new_profile = None;
-                                
+
                                 if skin_changed {
                                     let is_file = skin_url_to_apply.starts_with("file://");
                                     let file_path = is_file
@@ -172,7 +172,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     } else {
                                         api.set_active_cape(&cape_id_to_apply).await.map(Some)
                                     };
-                                    
+
                                     match res {
                                         Ok(Some(p)) => new_profile = Some(p),
                                         Ok(None) => {},
@@ -182,7 +182,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         }
                                     }
                                 }
-                                
+
                                 let fetch_result = if skin_success && !username.is_empty() {
                                     fetch_avatar_from_mojang(&token, &username, false).await
                                 } else {
@@ -190,16 +190,16 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 };
                                 let avatar_path_opt = fetch_result.as_ref().map(|(p, _)| p.clone());
                                 let new_active_url = fetch_result.map(|(_, u)| u);
-                                
+
                                 if cape_changed && !has_error {
                                     update_cape_cache(new_profile.as_ref(), &cape_id_to_apply);
                                 }
-                                
+
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(ap) = ap_weak.upgrade() {
                                         let apl = ap.global::<AppearanceLogic>();
                                         apl.set_is_uploading(false);
-                                        
+
                                         if has_error {
                                             apl.set_upload_is_error(true);
                                             apl.set_upload_status(err_msg.trim().into());
@@ -215,7 +215,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         }
                                         apl.set_show_result_dialog(true);
                                     }
-                                    
+
                                     update_avatar_in_ui(&main_ui_weak, avatar_path_opt.as_deref(), &username);
                                 });
                             });
@@ -226,8 +226,8 @@ pub fn setup_appearance_window(ui: &MainApp) {
                         ap.global::<AppearanceLogic>().on_select_cape(move |cape_id| {
                             handle_select_cape(cape_id, ap_weak_select_cape.clone(), active_renderer_select.clone());
                         });
-    
-    
+
+
                         let ap_weak_delete = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_delete_skin(move |id| {
                             if let Ok(paths) = crate::mc_paths::McPaths::new() {
@@ -235,7 +235,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 let mut history = crate::skin_history::SkinHistory::load(&history_file);
                                 history.skins.retain(|s| s.name != id.as_str());
                                 let _ = history.save(&history_file);
-                                
+
                                 if let Some(ap) = ap_weak_delete.upgrade() {
                                     let ui_skins = get_ui_skins(&paths, &history);
                                     ap.global::<AppearanceLogic>().set_skin_history(
@@ -244,13 +244,13 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 }
                             }
                         });
-    
+
                         let ap_weak_browse = ap.as_weak();
                         let active_renderer_browse = active_renderer_manage.clone();
                         ap.global::<AppearanceLogic>().on_browse_skin_file(move || {
                             handle_browse_skin_file(ap_weak_browse.clone(), active_renderer_browse.clone());
                         });
-    
+
                         let ap_weak_save = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_save_to_library(move || {
                             let Some(ap) = ap_weak_save.upgrade() else { return };
@@ -259,19 +259,19 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             let path_str = apl.get_selected_skin_path().to_string();
                             let url_str = apl.get_skin_url().to_string();
                             let variant = apl.get_skin_variant().to_string();
-                            
+
                             let name = if name.is_empty() { "Unnamed Appearance".to_string() } else { name };
-                            
+
                             apl.set_upload_status("Adding to skin library...".into());
                             apl.set_upload_is_error(false);
                             apl.set_is_uploading(true);
-    
+
                             let ap_weak_async = ap.as_weak();
                             tokio::spawn(async move {
                                 let mut skin_bytes = Vec::new();
                                 let mut is_error = false;
                                 let mut status = "Added successfully!".to_string();
-    
+
                                 match fetch_skin_bytes(&path_str, &url_str).await {
                                     Ok(bytes) => skin_bytes = bytes,
                                     Err(e) => {
@@ -279,12 +279,12 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         status = e;
                                     }
                                 }
-    
+
                                 if !is_error && !skin_bytes.is_empty() {
                                     if let Ok(paths) = crate::mc_paths::McPaths::new() {
                                         let history_file = paths.skins_history_file();
                                         let mut history = crate::skin_history::SkinHistory::load(&history_file);
-                                        
+
                                         use sha1::Digest;
                                         let mut hash = String::new();
                                         if let Ok(img) = image::load_from_memory(&skin_bytes) {
@@ -296,24 +296,24 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                             hasher.update(&skin_bytes);
                                             hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
                                         }
-                                        
+
                                         let target_path = paths.skins_dir().join(format!("{}.png", hash));
                                         let render_path = paths.skins_dir().join(format!("{}_render.png", hash));
-                                        
+
                                         let _ = std::fs::write(&target_path, &skin_bytes);
                                         if let Ok(img) = image::load_from_memory(&skin_bytes) {
                                             let is_slim = variant == "slim";
                                             let render_img = crate::view::generate_2d_front(&img, is_slim);
                                             let _ = render_img.save(&render_path);
                                         }
-                                        
+
                                         let final_url = format!("file://{}", target_path.display());
-                                        
+
                                         history.skins.retain(|s| {
                                             let s_hash = s.url.split('/').last().unwrap_or("").trim_end_matches(".png");
                                             s_hash != hash
                                         });
-                                        
+
                                         history.add_skin(crate::skin_history::SkinEntry {
                                             cape_id: "".to_string(),
                                             model: variant.clone(),
@@ -323,14 +323,14 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                         let _ = history.save(&history_file);
                                     }
                                 }
-    
+
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(ap) = ap_weak_async.upgrade() {
                                         let apl = ap.global::<AppearanceLogic>();
                                         apl.set_upload_status(status.into());
                                         apl.set_upload_is_error(is_error);
                                         apl.set_is_uploading(false);
-                                        
+
                                         if !is_error {
                                             reload_skin_history_ui(&apl);
                                         } else {
@@ -340,7 +340,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 });
                             });
                         });
-    
+
                         let active_renderer_preview = active_renderer_manage.clone();
                         let ap_weak_preview = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_preview_library_skin(move |url| {
@@ -376,7 +376,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 });
                             });
                         });
-    
+
                         let main_ui_weak_inner = main_ui_weak_for_appearance.clone();
                         let ap_weak_upload = ap.as_weak();
                         let main_ui_weak_upload = main_ui_weak_inner.clone();
@@ -386,7 +386,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             let path_str = apl.get_selected_skin_path().to_string();
                             let variant = apl.get_skin_variant().to_string();
                             let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
-    
+
                             if path_str.is_empty() {
                                 apl.set_upload_status("Please select skin file first".into());
                                 apl.set_upload_is_error(true);
@@ -397,11 +397,11 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 apl.set_upload_is_error(true);
                                 return;
                             }
-    
+
                             apl.set_upload_status("Uploading...".into());
                             apl.set_upload_is_error(false);
                             apl.set_is_uploading(true);
-    
+
                             let ap_weak_async = ap.as_weak();
                             let main_ui_weak = main_ui_weak_upload.clone();
                             let username = crate::mc_token::SessionData::load_session()
@@ -409,7 +409,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 .flatten()
                                 .map(|s| s.mc_username().clone())
                                 .unwrap_or_default();
-                                
+
                             tokio::spawn(async move {
                                 let api = crate::mc_api::McAction::new().authenticate(&token);
                                 let result = api.upload_skin_from_file(std::path::Path::new(&path_str), &variant).await;
@@ -417,7 +417,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     Ok(()) => ("Upload successful!".to_string(), false),
                                     Err(e) => (format!("Upload failed: {e}"), true),
                                 };
-                                
+
                                 // Re-fetch avatar directly from Mojang (no CDN delay)
                                 let fetch_result: Option<(std::path::PathBuf, String)> = if !is_error && !username.is_empty() {
                                     fetch_avatar_from_mojang(&token, &username, false).await
@@ -426,14 +426,14 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 };
                                 let avatar_path_opt = fetch_result.as_ref().map(|(p, _)| p.clone());
                                 let new_active_url = fetch_result.map(|(_, u)| u);
-    
+
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(ap) = ap_weak_async.upgrade() {
                                         let apl = ap.global::<AppearanceLogic>();
                                         apl.set_upload_status(status.into());
                                         apl.set_upload_is_error(is_error);
                                         apl.set_is_uploading(false);
-    
+
                                         if let Some(url) = new_active_url {
                                             apl.set_active_skin_url(url.into());
                                         }
@@ -454,7 +454,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             let url_str = url.to_string();
                             let variant = apl.get_skin_variant().to_string();
                             let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
-    
+
                             if url_str.is_empty() {
                                 apl.set_upload_status("Please enter skin URL".into());
                                 apl.set_upload_is_error(true);
@@ -465,11 +465,11 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 apl.set_upload_is_error(true);
                                 return;
                             }
-    
+
                             apl.set_upload_status("Applying...".into());
                             apl.set_upload_is_error(false);
                             apl.set_is_uploading(true);
-    
+
                             let ap_weak_async = ap.as_weak();
                             let main_ui_weak = main_ui_weak_url.clone();
                             let username = crate::mc_token::SessionData::load_session()
@@ -477,7 +477,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 .flatten()
                                 .map(|s| s.mc_username().clone())
                                 .unwrap_or_default();
-                                
+
                             tokio::spawn(async move {
                                 let is_file = url_str.starts_with("file://");
                                 let file_path = is_file
@@ -524,11 +524,11 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                 });
                             });
                         });
-    
+
                         *ap_ref = Some(ap);
                     }
                 }
-    
+
                 if let Some(ap) = ap_ref.as_ref() {
                     let apl = ap.global::<AppearanceLogic>();
                     apl.set_upload_status("".into());
@@ -538,9 +538,9 @@ pub fn setup_appearance_window(ui: &MainApp) {
                     apl.set_skin_variant("classic".into());
                     apl.set_is_uploading(false);
                     apl.set_has_preview(false);
-    
+
                     reload_skin_history_ui(&apl);
-    
+
                     let token = crate::GLOBAL_CACHE.get("mc_ac_key").map(|v| v.clone()).unwrap_or_default();
                     if !token.is_empty() {
                         let active_renderer_spawn = active_renderer_manage.clone();
@@ -669,11 +669,11 @@ pub fn setup_appearance_window(ui: &MainApp) {
                             }
                         });
                     }
-    
+
                     let _ = ap.show();
                 }
             });
-    
+
 }
 
 
@@ -713,7 +713,7 @@ fn handle_browse_skin_file(
         .add_filter("PNG Image", &["png"])
         .set_title("Select Skin File")
         .pick_file();
-        
+
     let Some(path) = result else { return; };
     let path_str = path.to_string_lossy().to_string();
     let Some(ap) = ap_weak.upgrade() else { return; };
@@ -761,7 +761,7 @@ fn handle_select_cape(
         let Some(ap) = ap_weak.upgrade() else { return; };
         let apl = ap.global::<AppearanceLogic>();
         apl.set_selected_cape_id(cape_id.clone().into());
-        
+
         if cape_id.is_empty() {
             if let Ok(mut guard) = renderer_lock.lock() {
                 if let Some(r) = guard.as_mut() {
@@ -783,9 +783,9 @@ fn handle_select_cape(
             })
             .unwrap_or_else(|| (String::new(), cape_id.clone()));
         apl.set_selected_cape_name(cape_name.into());
-        
+
         if url.is_empty() { return; }
-        
+
         let renderer_lock2 = renderer_lock.clone();
         let cape_id_clone = cape_id.clone();
         let ap_weak2 = ap_weak.clone();
@@ -793,7 +793,7 @@ fn handle_select_cape(
             let Some(bytes) = fetch_cape_bytes_cached(&cape_id_clone, &url).await else { return };
             let Ok(img) = image::load_from_memory(&bytes) else { return };
             let (raw_pixels, w, h) = create_cape_preview_raw(&img);
-            
+
             let _ = slint::invoke_from_event_loop(move || {
                 if let Ok(mut guard) = renderer_lock2.lock() {
                     if let Some(r) = guard.as_mut() {

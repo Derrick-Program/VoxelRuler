@@ -203,7 +203,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             ui.global::<InstanceCreateLogic>().set_is_loading(true);
         }
     }
-    
+
     let cache_for_fetch = Arc::clone(&mc_versions_cache);
     let ui_weak_for_fetch = ui.as_weak();
     tokio::spawn(async move {
@@ -235,7 +235,7 @@ pub async fn open_view() -> anyhow::Result<()> {
     ui.global::<InstanceCreateLogic>().on_filter_versions(move || {
         let Some(ui) = ui_weak_for_filter.upgrade() else { return; };
         let logic = ui.global::<InstanceCreateLogic>();
-        
+
         let versions = cache_for_filter.lock().unwrap();
         let search_text = logic.get_version_search_text().to_string().to_lowercase();
         let show_release = logic.get_show_release();
@@ -249,7 +249,7 @@ pub async fn open_view() -> anyhow::Result<()> {
                 if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
                     return false;
                 }
-                
+
                 match v.r#type.as_str() {
                     "release" => show_release,
                     "snapshot" => show_snapshot,
@@ -261,7 +261,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             })
             .map(|v| v.id.clone().into())
             .collect();
-            
+
         let current_selected = logic.get_selected_version().to_string();
         let mut found = false;
         for f in &filtered {
@@ -270,12 +270,12 @@ pub async fn open_view() -> anyhow::Result<()> {
                 break;
             }
         }
-        
+
         if !found {
             let first = filtered.first().cloned().unwrap_or_default();
             logic.set_selected_version(first);
         }
-        
+
         logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
         logic.invoke_loader_changed();
     });

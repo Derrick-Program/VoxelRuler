@@ -8,7 +8,7 @@ pub fn setup_login_logic(ui: &MainApp) {
             let username = session.mc_username().clone();
             let token = session.minecraft_access_token().clone();
             let ui_weak_for_init = ui.as_weak();
-    
+
             tokio::spawn(async move {
                 let avatar_path = fetch_avatar_path(&username).await;
                 let (authenticator_text, status_text) = if is_expired {
@@ -21,7 +21,7 @@ pub fn setup_login_logic(ui: &MainApp) {
                         Err(_) => ("Microsoft".to_string(), "Offline".to_string()),
                     }
                 };
-    
+
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak_for_init.upgrade() {
                         let avatar_img = avatar_path
@@ -41,7 +41,7 @@ pub fn setup_login_logic(ui: &MainApp) {
                 });
             });
         }
-    
+
         let page_account_logic_clone = ui.global::<PageAccountLogic>();
         page_account_logic_clone.on_open_browser_url(|url| {
             let _ = open::that(url.as_str());
@@ -88,11 +88,11 @@ pub fn setup_login_logic(ui: &MainApp) {
                             .flatten()
                             .map(|s| s.mc_username().clone())
                             .unwrap_or_default();
-    
+
                         let avatar_path = fetch_avatar_from_mojang(&_new_token, &username, true)
                             .await
                             .map(|(p, _)| p);
-    
+
                         handle_login_success(ui_weak.clone(), username, is_premium, avatar_path);
                     }
                     Err(e) => {
@@ -111,7 +111,7 @@ pub fn setup_login_logic(ui: &MainApp) {
             if idx < 0 {
                 return;
             }
-    
+
             let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
             let new_accounts: Vec<AccountRow> = accounts
                 .into_iter()
@@ -119,10 +119,10 @@ pub fn setup_login_logic(ui: &MainApp) {
                 .filter(|(i, _)| *i != idx as usize)
                 .map(|(_, r)| r)
                 .collect();
-    
+
             pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts.clone()))));
             pal.set_selected_index(-1);
-    
+
             if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
                 pal.set_active_account(default_acc.clone());
             } else {
@@ -133,10 +133,10 @@ pub fn setup_login_logic(ui: &MainApp) {
                 guest.checked = false;
                 pal.set_active_account(guest);
             }
-    
+
             let _ = mc_token::SessionData::delete_session();
         });
-    
+
         let ui_weak_set_default = ui.as_weak();
         ui.global::<PageAccountLogic>()
             .on_set_default_account(move || {
@@ -148,7 +148,7 @@ pub fn setup_login_logic(ui: &MainApp) {
                 if idx < 0 {
                     return;
                 }
-    
+
                 let accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
                 let new_accounts: Vec<AccountRow> = accounts
                     .into_iter()
@@ -158,14 +158,14 @@ pub fn setup_login_logic(ui: &MainApp) {
                         r
                     })
                     .collect();
-    
+
                 if let Some(default_acc) = new_accounts.iter().find(|r| r.checked) {
                     pal.set_active_account(default_acc.clone());
                 }
-    
+
                 pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
             });
-    
+
         let ui_weak_unset_default = ui.as_weak();
         ui.global::<PageAccountLogic>()
             .on_unset_default_account(move || {
@@ -181,17 +181,17 @@ pub fn setup_login_logic(ui: &MainApp) {
                         r
                     })
                     .collect();
-    
+
                 let mut guest = pal.get_active_account();
                 guest.username = "Guest".into();
                 guest.authenticator = "No Account".into();
                 guest.status = "Offline".into();
                 guest.checked = false;
                 pal.set_active_account(guest);
-    
+
                 pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(new_accounts))));
             });
-    
+
         let ui_weak_add_offline = ui.as_weak();
         ui.global::<PageAccountLogic>()
             .on_confirm_add_offline_account(move |username| {
@@ -200,7 +200,7 @@ pub fn setup_login_logic(ui: &MainApp) {
                 };
                 let pal = ui.global::<PageAccountLogic>();
                 let username = username.to_string();
-    
+
                 let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
                 let new_row = AccountRow {
                     checked: accounts.is_empty(),
@@ -209,15 +209,15 @@ pub fn setup_login_logic(ui: &MainApp) {
                     status: "Ready".into(),
                     avatar: slint::Image::default(),
                 };
-    
+
                 if new_row.checked {
                     pal.set_active_account(new_row.clone());
                 }
-    
+
                 accounts.push(new_row);
                 pal.set_accounts(ModelRc::from(Rc::new(VecModel::from(accounts))));
             });
-    
+
         let ui_weak_refresh = ui.as_weak();
         ui.global::<PageAccountLogic>().on_refresh_account(move || {
             let Some(ui) = ui_weak_refresh.upgrade() else {
@@ -228,10 +228,10 @@ pub fn setup_login_logic(ui: &MainApp) {
             if idx < 0 {
                 return;
             }
-    
+
             let mut accounts: Vec<AccountRow> = pal.get_accounts().iter().collect();
             let mut row = accounts[idx as usize].clone();
-    
+
             if row.authenticator == "Offline" {
                 row.status = "Ready".into();
                 accounts[idx as usize] = row.clone();
@@ -253,12 +253,12 @@ pub fn setup_login_logic(ui: &MainApp) {
                     let avatar_path = fetch_avatar_from_mojang(&token, &username, false)
                         .await
                         .map(|(p, _)| p);
-    
+
                     handle_refresh_success(ui_weak_async, idx as usize, status_text, avatar_path);
                 });
             }
         });
-    
+
 }
 
 
