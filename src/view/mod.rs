@@ -10,9 +10,6 @@ use instance_detail::*;
 use launch::*;
 use skin::*;
 
-thread_local! {
-    static SKIN_TIMER: std::cell::RefCell<Option<slint::Timer>> = const { std::cell::RefCell::new(None) };
-}
 use crate::{
     mc_install,
     mc_instance::{InstanceConfig, InstanceStore},
@@ -492,4 +489,53 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_java_mode_to_label() {
+        // Instance tests
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_CUSTOM, true),
+            JAVA_MODE_LABEL_CUSTOM
+        );
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_MINECRAFT, true),
+            JAVA_MODE_LABEL_MINECRAFT
+        );
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_GLOBAL, true),
+            JAVA_MODE_LABEL_GLOBAL
+        );
+        assert_eq!(java_mode_to_label("", true), JAVA_MODE_LABEL_GLOBAL);
+
+        // Global tests
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_CUSTOM, false),
+            JAVA_MODE_LABEL_CUSTOM
+        );
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_MINECRAFT, false),
+            JAVA_MODE_LABEL_MINECRAFT
+        );
+        assert_eq!(
+            java_mode_to_label(JAVA_MODE_GLOBAL, false),
+            JAVA_MODE_LABEL_MINECRAFT
+        );
+        assert_eq!(java_mode_to_label("", false), JAVA_MODE_LABEL_MINECRAFT);
+    }
+
+    #[test]
+    fn test_java_label_to_mode() {
+        assert_eq!(java_label_to_mode(JAVA_MODE_LABEL_CUSTOM), JAVA_MODE_CUSTOM);
+        assert_eq!(
+            java_label_to_mode(JAVA_MODE_LABEL_MINECRAFT),
+            JAVA_MODE_MINECRAFT
+        );
+        assert_eq!(java_label_to_mode(JAVA_MODE_LABEL_GLOBAL), JAVA_MODE_GLOBAL);
+        assert_eq!(java_label_to_mode("unknown"), JAVA_MODE_GLOBAL);
+    }
 }

@@ -514,3 +514,34 @@ pub fn setup_instance_detail_logic(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_ansi_log_line() {
+        // Red color test
+        let line = parse_ansi_log_line("\x1b[31mError message\x1b[0m");
+        assert_eq!(line.text.as_str(), "Error message");
+        assert_eq!(line.color.red(), 231);
+        assert_eq!(line.color.green(), 76);
+        assert_eq!(line.color.blue(), 60);
+
+        // No ansi codes
+        let line_clean = parse_ansi_log_line("Just info");
+        assert_eq!(line_clean.text.as_str(), "Just info");
+        assert_eq!(line_clean.color.red(), 197); // default white
+    }
+
+    #[test]
+    fn test_detail_category_tab() {
+        assert_eq!(detail_category_tab("mods"), 2);
+        assert_eq!(detail_category_tab("resourcepacks"), 3);
+        assert_eq!(detail_category_tab("shaderpacks"), 4);
+        assert_eq!(detail_category_tab("saves"), 6);
+        assert_eq!(detail_category_tab("worlds"), 6);
+        assert_eq!(detail_category_tab("screenshots"), 8);
+        assert_eq!(detail_category_tab("settings"), -1); // fallback
+    }
+}

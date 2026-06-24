@@ -276,3 +276,26 @@ pub(crate) async fn fetch_avatar_path(username: &str) -> Option<std::path::PathB
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{DynamicImage, RgbaImage};
+
+    #[test]
+    fn test_detect_is_slim() {
+        // 32 height is never slim (classic 64x32)
+        let img_32 = DynamicImage::ImageRgba8(RgbaImage::new(64, 32));
+        assert!(!detect_is_slim(&img_32));
+
+        // 64 height - if pixel at (54,20) is transparent, it's slim
+        let mut img_64_slim = RgbaImage::new(64, 64);
+        img_64_slim.put_pixel(54, 20, image::Rgba([0, 0, 0, 0])); // transparent
+        assert!(detect_is_slim(&DynamicImage::ImageRgba8(img_64_slim)));
+
+        // 64 height - if pixel at (54,20) is opaque, it's classic (wide)
+        let mut img_64_wide = RgbaImage::new(64, 64);
+        img_64_wide.put_pixel(54, 20, image::Rgba([255, 255, 255, 255])); // opaque
+        assert!(!detect_is_slim(&DynamicImage::ImageRgba8(img_64_wide)));
+    }
+}

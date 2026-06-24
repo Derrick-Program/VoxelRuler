@@ -156,3 +156,26 @@ pub async fn setup_ipc(tx: mpsc::UnboundedSender<String>) -> bool {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dispatch_ipc_bytes() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let data = b"voxelruler://auth?code=123\nsome other data\nvoxelruler://test";
+        dispatch_ipc_bytes(data, &tx);
+
+        assert_eq!(rx.blocking_recv().unwrap(), "voxelruler://auth?code=123");
+        assert_eq!(rx.blocking_recv().unwrap(), "voxelruler://test");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_sock_path_is_absolute() {
+        let path = sock_path();
+        assert!(path.is_absolute());
+        assert!(path.to_string_lossy().contains("voxelruler_ipc"));
+    }
+}

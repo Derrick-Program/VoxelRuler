@@ -86,3 +86,15 @@ pub fn register() -> mpsc::UnboundedReceiver<String> {
     );
     rx
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_url_handler_constants() {
+        assert_eq!(INTERNET_EVENT_CLASS, u32::from_be_bytes(*b"GURL"));
+        assert_eq!(AE_GET_URL, u32::from_be_bytes(*b"GURL"));
+        assert_eq!(KEY_DIRECT_OBJECT, u32::from_be_bytes(*b"----"));
+    }
+}

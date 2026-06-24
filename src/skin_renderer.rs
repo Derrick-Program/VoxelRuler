@@ -500,3 +500,50 @@ impl SkinRenderer {
         buffer
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::RgbaImage;
+
+    #[test]
+    fn test_vec3_math() {
+        let v1 = Vec3::new(1.0, 0.0, 0.0);
+        let v2 = Vec3::new(0.0, 1.0, 0.0);
+
+        // Dot product
+        assert_eq!(v1.dot(&v2), 0.0);
+
+        // Cross product
+        let cross = v1.cross(&v2);
+        assert_eq!(cross.x, 0.0);
+        assert_eq!(cross.y, 0.0);
+        assert_eq!(cross.z, 1.0);
+
+        // Subtraction
+        let sub = v1.sub(&v2);
+        assert_eq!(sub.x, 1.0);
+        assert_eq!(sub.y, -1.0);
+        assert_eq!(sub.z, 0.0);
+
+        // Normalize
+        let v3 = Vec3::new(3.0, 4.0, 0.0);
+        let norm = v3.normalize();
+        assert_eq!(norm.x, 3.0 / 5.0);
+        assert_eq!(norm.y, 4.0 / 5.0);
+        assert_eq!(norm.z, 0.0);
+    }
+
+    #[test]
+    fn test_skin_renderer_initialization() {
+        let img = RgbaImage::new(64, 64);
+        let dyn_img = DynamicImage::ImageRgba8(img);
+
+        let mut renderer = SkinRenderer::new(dyn_img.clone());
+        assert!(renderer.get_cape().is_none());
+
+        let cape_img = DynamicImage::ImageRgba8(RgbaImage::new(64, 32));
+        renderer.set_cape(Some(cape_img));
+        assert!(renderer.get_cape().is_some());
+    }
+}

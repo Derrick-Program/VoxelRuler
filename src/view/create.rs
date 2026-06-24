@@ -37,71 +37,84 @@ pub fn setup_create_logic(
 
     let ui_weak_for_loader = ui.as_weak();
     create_logic.on_loader_changed(move || {
-        let Some(ui) = ui_weak_for_loader.upgrade() else {
-            return;
-        };
-        let logic = ui.global::<InstanceCreateLogic>();
+        let ui_handle_async = ui_weak_for_loader.clone();
 
-        let mc_version = logic.get_selected_version().to_string();
-        let mod_loader_str = logic.get_mod_loader().to_string();
-
-        if mod_loader_str == "None" || mc_version.is_empty() {
-            logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
-            logic.set_selected_mod_loader_version("".into());
-            return;
-        }
-
-        let loader_type = match mod_loader_str.as_str() {
-            "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
-            "Forge" => crate::mc_modloader::ModLoaderType::Forge,
-            "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
-            _ => return,
-        };
-
-        logic.set_is_loading(true);
-        let ui_handle_async = ui.as_weak();
-
+        // Debounce to allow Mac AccessKit to finish combobox interaction before UI heavily updates
         tokio::spawn(async move {
-            match crate::mc_modloader::ModLoaderApi::get_loader_versions(loader_type, &mc_version)
-                .await
-            {
-                Ok(versions) => {
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_handle_async.upgrade() {
-                            let logic = ui.global::<InstanceCreateLogic>();
-                            let slint_versions: Vec<slint::SharedString> = versions
-                                .into_iter()
-                                .map(slint::SharedString::from)
-                                .collect();
-                            let model =
-                                ModelRc::from(Rc::new(VecModel::from(slint_versions.clone())));
-                            logic.set_mod_loader_versions(model);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-                            if let Some(first) = slint_versions.first() {
-                                logic.set_selected_mod_loader_version(first.clone());
-                            } else {
-                                logic.set_selected_mod_loader_version(
-                                    "No available versions".into(),
-                                );
-                            }
-                            logic.set_is_loading(false);
-                        }
-                    });
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = ui_handle_async.upgrade() else {
+                    return;
+                };
+                let logic = ui.global::<InstanceCreateLogic>();
+
+                let mc_version = logic.get_selected_version().to_string();
+                let mod_loader_str = logic.get_mod_loader().to_string();
+
+                if mod_loader_str == "None" || mc_version.is_empty() {
+                    logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(vec![]))));
+                    logic.set_selected_mod_loader_version("".into());
+                    return;
                 }
-                Err(e) => {
-                    println!("Failed to fetch Mod Loader versions: {}", e);
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_handle_async.upgrade() {
-                            let logic = ui.global::<InstanceCreateLogic>();
-                            logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(
-                                vec![],
-                            ))));
-                            logic.set_selected_mod_loader_version("Read failed".into());
-                            logic.set_is_loading(false);
+
+                let loader_type = match mod_loader_str.as_str() {
+                    "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
+                    "Forge" => crate::mc_modloader::ModLoaderType::Forge,
+                    "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
+                    _ => return,
+                };
+
+                logic.set_is_loading(true);
+                let ui_handle_inner = ui.as_weak();
+
+                tokio::spawn(async move {
+                    match crate::mc_modloader::ModLoaderApi::get_loader_versions(
+                        loader_type,
+                        &mc_version,
+                    )
+                    .await
+                    {
+                        Ok(versions) => {
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_handle_inner.upgrade() {
+                                    let logic = ui.global::<InstanceCreateLogic>();
+                                    let slint_versions: Vec<slint::SharedString> = versions
+                                        .into_iter()
+                                        .map(slint::SharedString::from)
+                                        .collect();
+                                    let model = ModelRc::from(Rc::new(VecModel::from(
+                                        slint_versions.clone(),
+                                    )));
+                                    logic.set_mod_loader_versions(model);
+
+                                    if let Some(first) = slint_versions.first() {
+                                        logic.set_selected_mod_loader_version(first.clone());
+                                    } else {
+                                        logic.set_selected_mod_loader_version(
+                                            "No available versions".into(),
+                                        );
+                                    }
+                                    logic.set_is_loading(false);
+                                }
+                            });
                         }
-                    });
-                }
-            }
+                        Err(e) => {
+                            println!("Failed to fetch Mod Loader versions: {}", e);
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_handle_inner.upgrade() {
+                                    let logic = ui.global::<InstanceCreateLogic>();
+                                    logic.set_mod_loader_versions(ModelRc::from(Rc::new(
+                                        VecModel::from(vec![]),
+                                    )));
+                                    logic.set_selected_mod_loader_version("Read failed".into());
+                                    logic.set_is_loading(false);
+                                }
+                            });
+                        }
+                    }
+                });
+            });
         });
     });
 

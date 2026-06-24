@@ -5,6 +5,9 @@ pub fn setup_appearance_window(ui: &MainApp) {
     let appearance_win_rc: std::rc::Rc<std::cell::RefCell<Option<AppearanceWindow>>> =
         std::rc::Rc::new(std::cell::RefCell::new(None));
     let ap_rc_manage = appearance_win_rc.clone();
+    let skin_timer_rc: std::rc::Rc<std::cell::RefCell<Option<slint::Timer>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let skin_timer_manage = skin_timer_rc.clone();
     let active_renderer: std::sync::Arc<
         std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>,
     > = std::sync::Arc::new(std::sync::Mutex::new(None));
@@ -87,7 +90,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     apl.set_has_preview(true);
                                 }
                         });
-                        SKIN_TIMER.with(|t| *t.borrow_mut() = Some(timer));
+                        *skin_timer_manage.borrow_mut() = Some(timer);
 
                         let ap_weak_close = ap.as_weak();
                         ap.global::<AppearanceLogic>().on_close_appearance(move || {
