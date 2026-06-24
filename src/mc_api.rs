@@ -63,7 +63,12 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
             }
         }
     }
-    Err(last_err).with_context(|| format!("API request failed (retry {} times): {}", API_MAX_RETRIES, url))
+    Err(last_err).with_context(|| {
+        format!(
+            "API request failed (retry {} times): {}",
+            API_MAX_RETRIES, url
+        )
+    })
 }
 
 pub struct Unauthenticated;

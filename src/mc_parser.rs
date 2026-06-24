@@ -123,7 +123,10 @@ impl LaunchContext {
 
             all_jvm.push(format!("-Xmx{}", self.xmx));
             all_jvm.push(format!("-Xms{}", self.xms));
-            all_jvm.push(format!("-Dminecraft.applet.TargetDirectory={}", self.game_dir.display()));
+            all_jvm.push(format!(
+                "-Dminecraft.applet.TargetDirectory={}",
+                self.game_dir.display()
+            ));
             all_jvm.push("-Dfml.ignorePatchDiscrepancies=true".to_string());
             all_jvm.push("-Dfml.ignoreInvalidMinecraftCertificates=true".to_string());
 
@@ -158,7 +161,10 @@ impl LaunchContext {
             // 舊版格式（無 arguments 欄位）：直接加，不會有重複問題
             cmd.arg(format!("-Xmx{}", self.xmx));
             cmd.arg(format!("-Xms{}", self.xms));
-            cmd.arg(format!("-Dminecraft.applet.TargetDirectory={}", self.game_dir.display()));
+            cmd.arg(format!(
+                "-Dminecraft.applet.TargetDirectory={}",
+                self.game_dir.display()
+            ));
             cmd.arg("-Dfml.ignorePatchDiscrepancies=true");
             cmd.arg("-Dfml.ignoreInvalidMinecraftCertificates=true");
             cmd.arg(format!(
@@ -246,7 +252,11 @@ impl LaunchContext {
             .versions_dir
             .join(&self.version.id)
             .join(format!("{}-nosig.jar", self.version.id));
-        parts.push(if nosig_jar.exists() { nosig_jar } else { version_jar });
+        parts.push(if nosig_jar.exists() {
+            nosig_jar
+        } else {
+            version_jar
+        });
 
         // 同名 lib 可能因規則重複通過（如 1.18.x 的 lwjgl）→ 去重保留首見順序
         let mut seen = std::collections::HashSet::new();
@@ -371,7 +381,11 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
         if GC_FLAGS.contains(&arg.as_str()) {
             last_gc = Some(i);
         }
-        if let Some((pi, _)) = UNIQUE_PREFIXES.iter().enumerate().find(|(_, p)| arg.starts_with(*p)) {
+        if let Some((pi, _)) = UNIQUE_PREFIXES
+            .iter()
+            .enumerate()
+            .find(|(_, p)| arg.starts_with(*p))
+        {
             last_prefix[pi] = Some(i);
         }
     }
@@ -387,7 +401,11 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
                 }
                 return Some(arg);
             }
-            if let Some((pi, _)) = UNIQUE_PREFIXES.iter().enumerate().find(|(_, p)| arg.starts_with(*p)) {
+            if let Some((pi, _)) = UNIQUE_PREFIXES
+                .iter()
+                .enumerate()
+                .find(|(_, p)| arg.starts_with(*p))
+            {
                 if Some(i) != last_prefix[pi] {
                     warn!("Removing duplicate JVM argument: {arg}");
                     return None;
@@ -504,10 +522,14 @@ fn collect_args(items: &[McArgumentItem], vars: &HashMap<&'static str, String>) 
         .iter()
         .filter_map(|item| match item {
             McArgumentItem::Simple(s) => Some(vec![resolve_argument(s, vars)]),
-            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => Some(match &cond.value {
-                McArgumentValue::Single(s) => vec![resolve_argument(s, vars)],
-                McArgumentValue::Many(args) => args.iter().map(|a| resolve_argument(a, vars)).collect(),
-            }),
+            McArgumentItem::Conditional(cond) if evaluate_rules(&cond.rules) => {
+                Some(match &cond.value {
+                    McArgumentValue::Single(s) => vec![resolve_argument(s, vars)],
+                    McArgumentValue::Many(args) => {
+                        args.iter().map(|a| resolve_argument(a, vars)).collect()
+                    }
+                })
+            }
             _ => None,
         })
         .flatten()
@@ -602,7 +624,11 @@ pub fn get_mojang_os_arch() -> &'static str {
         ("linux", "x86") => "linux-i386",
 
         _ => {
-            warn!(os = OS, arch = ARCH, "Unknown OS or architecture combination");
+            warn!(
+                os = OS,
+                arch = ARCH,
+                "Unknown OS or architecture combination"
+            );
             "unknown"
         }
     }
@@ -638,7 +664,8 @@ mod test {
     }
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
-        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
+        let data =
+            std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
         serde_json::from_str(&data).unwrap_or_else(|_| panic!("Failed to parse {path}"))
     }
 
@@ -739,7 +766,10 @@ mod test {
         let cmd = make_ctx_with_java(load_version("data/1.21.json"), 22).build_command();
         let args = cmd_args(&cmd);
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
+        let cp_pos = args
+            .iter()
+            .position(|a| a == "-cp")
+            .expect("Could not find -cp");
         assert!(
             args.contains(&"--add-modules=jdk.incubator.vector".into()),
             "Missing incubator.vector"
@@ -761,7 +791,10 @@ mod test {
             .iter()
             .position(|a| a == "--sun-misc-unsafe-memory-access=allow")
             .unwrap();
-        assert!(native_pos < cp_pos, "--enable-native-access should be before -cp");
+        assert!(
+            native_pos < cp_pos,
+            "--enable-native-access should be before -cp"
+        );
         assert!(
             unsafe_pos < cp_pos,
             "--sun-misc-unsafe-memory-access should be before -cp"
@@ -773,7 +806,10 @@ mod test {
         let cmd = make_ctx_with_java(load_version("data/1.21.json"), 17).build_command();
         let args = cmd_args(&cmd);
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
+        let cp_pos = args
+            .iter()
+            .position(|a| a == "-cp")
+            .expect("Could not find -cp");
         assert!(
             args.contains(&"--add-modules=jdk.incubator.vector".into()),
             "Java 17 should have incubator.vector"
@@ -791,7 +827,10 @@ mod test {
             .iter()
             .position(|a| a == "--enable-native-access=ALL-UNNAMED")
             .unwrap();
-        assert!(native_pos < cp_pos, "--enable-native-access should be before -cp");
+        assert!(
+            native_pos < cp_pos,
+            "--enable-native-access should be before -cp"
+        );
     }
 
     #[test]
@@ -830,7 +869,10 @@ mod test {
         );
         assert!(args.contains(&"-cp".into()), "Missing -cp");
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
+        let cp_pos = args
+            .iter()
+            .position(|a| a == "-cp")
+            .expect("Could not find -cp");
         let classpath = &args[cp_pos + 1];
         assert!(
             classpath.ends_with("1.21/1.21.jar"),
@@ -881,10 +923,16 @@ mod test {
         );
 
         assert!(args.contains(&"--username".into()));
-        assert!(args.contains(&"Steve".into()), "auth_player_name not replaced");
+        assert!(
+            args.contains(&"Steve".into()),
+            "auth_player_name not replaced"
+        );
         assert!(args.contains(&"1.21".into()), "version_name not replaced");
         assert!(args.contains(&"--gameDir".into()));
-        assert!(args.contains(&"/game".into()), "game_directory not replaced");
+        assert!(
+            args.contains(&"/game".into()),
+            "game_directory not replaced"
+        );
         assert!(args.contains(&"msa".into()), "user_type should be msa");
 
         assert!(
@@ -931,7 +979,10 @@ mod test {
         );
         assert!(args.contains(&"-cp".into()), "Missing -cp");
 
-        let cp_pos = args.iter().position(|a| a == "-cp").expect("Could not find -cp");
+        let cp_pos = args
+            .iter()
+            .position(|a| a == "-cp")
+            .expect("Could not find -cp");
         let classpath = &args[cp_pos + 1];
         assert!(
             classpath.ends_with("1.12.2/1.12.2.jar"),
@@ -967,10 +1018,16 @@ mod test {
         );
 
         assert!(args.contains(&"--username".into()));
-        assert!(args.contains(&"Steve".into()), "auth_player_name not replaced");
+        assert!(
+            args.contains(&"Steve".into()),
+            "auth_player_name not replaced"
+        );
         assert!(args.contains(&"1.12.2".into()), "version_name not replaced");
         assert!(args.contains(&"--gameDir".into()));
-        assert!(args.contains(&"/game".into()), "game_directory not replaced");
+        assert!(
+            args.contains(&"/game".into()),
+            "game_directory not replaced"
+        );
         assert!(args.contains(&"--userType".into()));
         assert!(args.contains(&"msa".into()), "user_type should be msa");
         assert!(args.contains(&"--uuid".into()));
@@ -1039,7 +1096,10 @@ mod test {
     fn test_compat_override_replaces_lwjgl_in_classpath() {
         let mut ctx = make_ctx(load_version("data/1.18.1.json"));
         ctx.compat_override = crate::mc_compat::arm64_override_for(&ctx.version);
-        assert!(ctx.compat_override.is_some(), "1.18.1 should have override table");
+        assert!(
+            ctx.compat_override.is_some(),
+            "1.18.1 should have override table"
+        );
 
         let cp = ctx
             .classpath_paths()
@@ -1052,7 +1112,10 @@ mod test {
             cp.contains("lwjgl-glfw-3.3.1-natives-macos-arm64.jar"),
             "Should have arm64 natives"
         );
-        assert!(!cp.contains("3.2.1"), "Original lwjgl 3.2.1 should be excluded");
+        assert!(
+            !cp.contains("3.2.1"),
+            "Original lwjgl 3.2.1 should be excluded"
+        );
         assert!(
             cp.contains("java-objc-bridge-1.1"),
             "Should be replaced with java-objc-bridge 1.1"

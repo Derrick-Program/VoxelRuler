@@ -94,13 +94,23 @@ impl McSpecificVersionDetail {
         self.time = modded.time;
         self.release_time = modded.release_time;
         self.main_class = modded.main_class;
-        
-        if let Some(jv) = modded.java_version { self.java_version = Some(jv); }
-        if let Some(dl) = modded.downloads { self.downloads = Some(dl); }
-        if let Some(ai) = modded.asset_index { self.asset_index = Some(ai); }
-        if let Some(ass) = modded.assets { self.assets = Some(ass); }
-        if let Some(log) = modded.logging { self.logging = Some(log); }
-        
+
+        if let Some(jv) = modded.java_version {
+            self.java_version = Some(jv);
+        }
+        if let Some(dl) = modded.downloads {
+            self.downloads = Some(dl);
+        }
+        if let Some(ai) = modded.asset_index {
+            self.asset_index = Some(ai);
+        }
+        if let Some(ass) = modded.assets {
+            self.assets = Some(ass);
+        }
+        if let Some(log) = modded.logging {
+            self.logging = Some(log);
+        }
+
         // 優先讀取 ModLoader 的 libraries，原版墊後
         let mut new_libs = modded.libraries;
         new_libs.extend(self.libraries);
@@ -119,7 +129,7 @@ impl McSpecificVersionDetail {
             }
             _ => {}
         }
-        
+
         if let Some(mc_args) = modded.minecraft_arguments {
             self.minecraft_arguments = Some(mc_args);
         }

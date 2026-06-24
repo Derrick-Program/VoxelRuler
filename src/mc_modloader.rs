@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use quick_xml::de::from_str;
+use serde::Deserialize;
 
 // === XML 解析結構 (用於 Forge / NeoForge) ===
 
@@ -53,7 +53,10 @@ pub struct ModLoaderApi;
 
 impl ModLoaderApi {
     /// 取得特定 Loader 的所有可用版本（針對特定 MC 版本進行篩選）
-    pub async fn get_loader_versions(loader_type: ModLoaderType, mc_version: &str) -> anyhow::Result<Vec<String>> {
+    pub async fn get_loader_versions(
+        loader_type: ModLoaderType,
+        mc_version: &str,
+    ) -> anyhow::Result<Vec<String>> {
         match loader_type {
             ModLoaderType::Fabric => Self::get_fabric_versions(mc_version).await,
             ModLoaderType::NeoForge => Self::get_neoforge_versions(mc_version).await,
@@ -63,17 +66,29 @@ impl ModLoaderApi {
 
     /// 從 Fabric Meta API 取得對應 MC 版本的 Loader 清單
     async fn get_fabric_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
-        let url = format!("https://meta.fabricmc.net/v2/versions/loader/{}", mc_version);
+        let url = format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}",
+            mc_version
+        );
         let client = reqwest::Client::new();
-        let entries: Vec<FabricLoaderEntry> = client.get(&url).send().await?.error_for_status()?.json().await?;
-        
-        Ok(entries.into_iter().map(|e| {
-            if e.loader.stable {
-                format!("{} (Stable)", e.loader.version)
-            } else {
-                format!("{} (Beta)", e.loader.version)
-            }
-        }).collect())
+        let entries: Vec<FabricLoaderEntry> = client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        Ok(entries
+            .into_iter()
+            .map(|e| {
+                if e.loader.stable {
+                    format!("{} (Stable)", e.loader.version)
+                } else {
+                    format!("{} (Beta)", e.loader.version)
+                }
+            })
+            .collect())
     }
 
     async fn get_forge_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
@@ -81,7 +96,8 @@ impl ModLoaderApi {
             "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
             &format!("{}-", mc_version),
             false,
-        ).await?;
+        )
+        .await?;
 
         let mut latest_suffix = String::new();
         let mut recommended_suffix = String::new();
@@ -110,15 +126,18 @@ impl ModLoaderApi {
             }
         }
 
-        Ok(versions.into_iter().map(|v| {
-            if !recommended_suffix.is_empty() && v.ends_with(&recommended_suffix) {
-                format!("{} (Recommended)", v)
-            } else if !latest_suffix.is_empty() && v.ends_with(&latest_suffix) {
-                format!("{} (Latest)", v)
-            } else {
-                v
-            }
-        }).collect())
+        Ok(versions
+            .into_iter()
+            .map(|v| {
+                if !recommended_suffix.is_empty() && v.ends_with(&recommended_suffix) {
+                    format!("{} (Recommended)", v)
+                } else if !latest_suffix.is_empty() && v.ends_with(&latest_suffix) {
+                    format!("{} (Latest)", v)
+                } else {
+                    v
+                }
+            })
+            .collect())
     }
 
     async fn get_neoforge_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
@@ -126,35 +145,52 @@ impl ModLoaderApi {
             "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
             &Self::get_neoforge_prefix(mc_version),
             true,
-        ).await?;
+        )
+        .await?;
 
-        Ok(versions.into_iter().map(|v| {
-            if v.contains("-beta") {
-                format!("{} (Beta)", v)
-            } else {
-                format!("{} (Stable)", v)
-            }
-        }).collect())
+        Ok(versions
+            .into_iter()
+            .map(|v| {
+                if v.contains("-beta") {
+                    format!("{} (Beta)", v)
+                } else {
+                    format!("{} (Stable)", v)
+                }
+            })
+            .collect())
     }
 
     /// 從官方 Maven 下載 XML，並根據前綴進行篩選
-    async fn get_xml_versions(url: &str, prefix: &str, needs_reverse: bool) -> anyhow::Result<Vec<String>> {
+    async fn get_xml_versions(
+        url: &str,
+        prefix: &str,
+        needs_reverse: bool,
+    ) -> anyhow::Result<Vec<String>> {
         let client = reqwest::Client::new();
-        let xml_str = client.get(url).send().await?.error_for_status()?.text().await?;
-        
+        let xml_str = client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
         let metadata: MavenMetadata = from_str(&xml_str)?;
-        
+
         // 篩選出符合該 MC 版本前綴的 Loader 版本
-        let mut filtered: Vec<String> = metadata.versioning.versions.list
+        let mut filtered: Vec<String> = metadata
+            .versioning
+            .versions
+            .list
             .into_iter()
             .filter(|v| v.starts_with(prefix))
             .collect();
-        
+
         // 根據來源決定是否需要反轉順序
         if needs_reverse {
             filtered.reverse();
         }
-            
+
         Ok(filtered)
     }
 
@@ -181,36 +217,63 @@ impl ModLoaderApi {
         java_path: &std::path::Path,
         minecraft_dir: &std::path::Path,
     ) -> anyhow::Result<String> {
-        let clean_version = loader_version.split_whitespace().next().unwrap_or(loader_version);
+        let clean_version = loader_version
+            .split_whitespace()
+            .next()
+            .unwrap_or(loader_version);
 
         match loader_type {
-            ModLoaderType::Fabric => Self::install_fabric(mc_version, clean_version, minecraft_dir).await,
-            ModLoaderType::Forge => Self::install_forge(mc_version, clean_version, java_path, minecraft_dir).await,
-            ModLoaderType::NeoForge => Self::install_neoforge(mc_version, clean_version, java_path, minecraft_dir).await,
+            ModLoaderType::Fabric => {
+                Self::install_fabric(mc_version, clean_version, minecraft_dir).await
+            }
+            ModLoaderType::Forge => {
+                Self::install_forge(mc_version, clean_version, java_path, minecraft_dir).await
+            }
+            ModLoaderType::NeoForge => {
+                Self::install_neoforge(mc_version, clean_version, java_path, minecraft_dir).await
+            }
         }
     }
 
-    async fn install_fabric(mc_version: &str, loader_version: &str, mc_dir: &std::path::Path) -> anyhow::Result<String> {
+    async fn install_fabric(
+        mc_version: &str,
+        loader_version: &str,
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<String> {
         let profile_id = format!("fabric-loader-{}-{}", loader_version, mc_version);
         let target_dir = mc_dir.join("versions").join(&profile_id);
         let json_path = target_dir.join(format!("{}.json", profile_id));
-        
+
         if json_path.exists() {
             return Ok(profile_id);
         }
 
-        let url = format!("https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json", mc_version, loader_version);
-        
+        let url = format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+            mc_version, loader_version
+        );
+
         let client = reqwest::Client::new();
-        let json_str = client.get(&url).send().await?.error_for_status()?.text().await?;
-        
+        let json_str = client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
         tokio::fs::create_dir_all(&target_dir).await?;
         tokio::fs::write(&json_path, json_str).await?;
-        
+
         Ok(profile_id)
     }
 
-    async fn install_forge(mc_version: &str, loader_version: &str, java_path: &std::path::Path, mc_dir: &std::path::Path) -> anyhow::Result<String> {
+    async fn install_forge(
+        mc_version: &str,
+        loader_version: &str,
+        java_path: &std::path::Path,
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<String> {
         let url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{}/forge-{}-installer.jar",
             loader_version, loader_version
@@ -223,8 +286,15 @@ impl ModLoaderApi {
         let resp = match client.get(&url).send().await {
             Ok(r) => {
                 if r.status() == reqwest::StatusCode::NOT_FOUND {
-                    tracing::warn!("Forge installer 404 Not Found. Attempting to process as early version without installer (e.g. 1.4.x)...");
-                    return Self::install_legacy_forge_without_installer(mc_version, loader_version, mc_dir).await;
+                    tracing::warn!(
+                        "Forge installer 404 Not Found. Attempting to process as early version without installer (e.g. 1.4.x)..."
+                    );
+                    return Self::install_legacy_forge_without_installer(
+                        mc_version,
+                        loader_version,
+                        mc_dir,
+                    )
+                    .await;
                 }
                 r.error_for_status()?
             }
@@ -318,7 +388,10 @@ impl ModLoaderApi {
     /// 舊版 Forge installer（≤1.12）：install_profile.json 含 versionInfo，
     /// 直接從 JAR 解出版本 JSON 與內嵌的 Forge JAR，不需執行任何子程序。
     /// 回傳 versionInfo.id（即實際安裝後的版本目錄名稱）。
-    fn install_forge_old_format_sync(bytes: &[u8], mc_dir: &std::path::Path) -> anyhow::Result<String> {
+    fn install_forge_old_format_sync(
+        bytes: &[u8],
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<String> {
         use std::io::Read;
 
         let cursor = std::io::Cursor::new(bytes);
@@ -349,13 +422,11 @@ impl ModLoaderApi {
         )?;
 
         // 取出 installer 中內嵌的 Forge JAR（filePath 是 JAR 內部路徑，path 是 Maven 座標）
-        let embedded_jar = profile
-            .get("install")
-            .and_then(|inst| {
-                let file_path = inst.get("filePath").and_then(|v| v.as_str())?;
-                let maven_coords = inst.get("path").and_then(|v| v.as_str())?;
-                Some((file_path, maven_coords))
-            });
+        let embedded_jar = profile.get("install").and_then(|inst| {
+            let file_path = inst.get("filePath").and_then(|v| v.as_str())?;
+            let maven_coords = inst.get("path").and_then(|v| v.as_str())?;
+            Some((file_path, maven_coords))
+        });
         if let Some((file_path, maven_coords)) = embedded_jar {
             if let Ok(mut entry) = zip.by_name(file_path) {
                 let lib_path = mc_dir
@@ -376,7 +447,11 @@ impl ModLoaderApi {
     /// 針對沒有 installer.jar 的早期 Forge，依序嘗試：
     ///   1. universal.zip（1.3.x 部分版本）→ 加入 libraries 陣列
     ///   2. client.zip（1.0–1.2.5）→ 解出 minecraft.jar 置為版本 JAR
-    async fn install_legacy_forge_without_installer(mc_version: &str, loader_version: &str, mc_dir: &std::path::Path) -> anyhow::Result<String> {
+    async fn install_legacy_forge_without_installer(
+        mc_version: &str,
+        loader_version: &str,
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<String> {
         let effective_id = loader_version.replacen("-", "-forge-", 1);
 
         // 已安裝則直接回傳
@@ -395,19 +470,28 @@ impl ModLoaderApi {
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-universal.zip",
             loader_version
         );
-        tracing::info!("Attempting to download Forge universal.zip: {}", universal_url);
+        tracing::info!(
+            "Attempting to download Forge universal.zip: {}",
+            universal_url
+        );
         let resp = http.get(&universal_url).send().await?;
         if resp.status().is_success() {
             let bytes = resp.bytes().await?;
 
             use sha1::{Digest, Sha1};
-            let sha1 = Sha1::digest(&bytes).iter().map(|b| format!("{:02x}", b)).collect::<String>();
+            let sha1 = Sha1::digest(&bytes)
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>();
             let size = bytes.len() as u64;
 
             let version_dir = mc_dir.join("versions").join(&effective_id);
             tokio::fs::create_dir_all(&version_dir).await?;
 
-            let rel_path = format!("net/minecraftforge/forge/{0}/forge-{0}-universal.zip", loader_version);
+            let rel_path = format!(
+                "net/minecraftforge/forge/{0}/forge-{0}-universal.zip",
+                loader_version
+            );
             let lib_path = mc_dir.join("libraries").join(&rel_path);
             if let Some(parent) = lib_path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
@@ -444,7 +528,10 @@ impl ModLoaderApi {
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-client.zip",
             loader_version
         );
-        tracing::info!("universal.zip does not exist, trying client.zip: {}", client_url);
+        tracing::info!(
+            "universal.zip does not exist, trying client.zip: {}",
+            client_url
+        );
         let resp = http.get(&client_url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!(
@@ -453,7 +540,15 @@ impl ModLoaderApi {
             );
         }
         let bytes = resp.error_for_status()?.bytes().await?;
-        Self::install_legacy_client_zip(mc_version, loader_version, mc_dir, &effective_id, &json_path, &bytes).await
+        Self::install_legacy_client_zip(
+            mc_version,
+            loader_version,
+            mc_dir,
+            &effective_id,
+            &json_path,
+            &bytes,
+        )
+        .await
     }
 
     /// client.zip 安裝路徑（1.0–1.2.5）：
@@ -525,9 +620,17 @@ impl ModLoaderApi {
         base.join(artifact).join(version).join(filename)
     }
 
-    async fn install_neoforge(_mc_version: &str, loader_version: &str, java_path: &std::path::Path, mc_dir: &std::path::Path) -> anyhow::Result<String> {
+    async fn install_neoforge(
+        _mc_version: &str,
+        loader_version: &str,
+        java_path: &std::path::Path,
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<String> {
         let profile_id = format!("neoforge-{}", loader_version);
-        let json_path = mc_dir.join("versions").join(&profile_id).join(format!("{}.json", profile_id));
+        let json_path = mc_dir
+            .join("versions")
+            .join(&profile_id)
+            .join(format!("{}.json", profile_id));
 
         if json_path.exists() {
             return Ok(profile_id);
@@ -543,7 +646,11 @@ impl ModLoaderApi {
         Ok(profile_id)
     }
 
-    async fn run_installer_jar(url: &str, java_path: &std::path::Path, mc_dir: &std::path::Path) -> anyhow::Result<()> {
+    async fn run_installer_jar(
+        url: &str,
+        java_path: &std::path::Path,
+        mc_dir: &std::path::Path,
+    ) -> anyhow::Result<()> {
         // Installer 需要 launcher_profiles.json，否則拒絕安裝
         let profiles_json = mc_dir.join("launcher_profiles.json");
         if !profiles_json.exists() {
@@ -554,7 +661,13 @@ impl ModLoaderApi {
         let installer_path = temp_dir.join(format!("installer-{}.jar", uuid::Uuid::new_v4()));
 
         let client = reqwest::Client::new();
-        let bytes = client.get(url).send().await?.error_for_status()?.bytes().await?;
+        let bytes = client
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
         tokio::fs::write(&installer_path, bytes).await?;
 
         let java_path_owned = java_path.to_path_buf();
@@ -590,21 +703,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fabric_versions() {
-        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Fabric, "1.20.4").await.unwrap();
+        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Fabric, "1.20.4")
+            .await
+            .unwrap();
         assert!(!versions.is_empty());
         println!("Fabric 1.20.4 versions: {:?}", versions);
     }
 
     #[tokio::test]
     async fn test_get_neoforge_versions() {
-        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::NeoForge, "1.20.4").await.unwrap();
+        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::NeoForge, "1.20.4")
+            .await
+            .unwrap();
         assert!(!versions.is_empty());
         println!("NeoForge 1.20.4 versions: {:?}", versions);
     }
 
     #[tokio::test]
     async fn test_get_forge_versions() {
-        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Forge, "1.20.4").await.unwrap();
+        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Forge, "1.20.4")
+            .await
+            .unwrap();
         assert!(!versions.is_empty());
         println!("Forge 1.20.4 versions: {:?}", versions);
     }

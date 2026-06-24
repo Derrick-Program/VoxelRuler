@@ -1,14 +1,14 @@
 slint::include_modules!();
-pub mod skin;
-pub mod launch;
-pub mod instance_detail;
 pub mod appearance;
-pub mod login;
 pub mod create;
+pub mod instance_detail;
+pub mod launch;
+pub mod login;
+pub mod skin;
 
-use skin::*;
-use launch::*;
 use instance_detail::*;
+use launch::*;
+use skin::*;
 
 thread_local! {
     static SKIN_TIMER: std::cell::RefCell<Option<slint::Timer>> = std::cell::RefCell::new(None);
@@ -136,7 +136,8 @@ pub async fn open_view() -> anyhow::Result<()> {
     // 這樣在重建 instance list 時，可以保留正在執行中的實例狀態，
     // 避免 watcher 刷新列表時把 "running" status overridden to "ready"。
     let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
-    let launching_procs: Arc<Mutex<std::collections::HashSet<String>>> = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let launching_procs: Arc<Mutex<std::collections::HashSet<String>>> =
+        Arc::new(Mutex::new(std::collections::HashSet::new()));
     let instance_logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
@@ -195,7 +196,9 @@ pub async fn open_view() -> anyhow::Result<()> {
         }
     });
 
-    let mc_versions_cache = Arc::new(std::sync::Mutex::new(Vec::<crate::mc_types::McVersion>::new()));
+    let mc_versions_cache = Arc::new(std::sync::Mutex::new(
+        Vec::<crate::mc_types::McVersion>::new(),
+    ));
 
     let ui_weak_for_versions = ui.as_weak();
     {
@@ -217,7 +220,8 @@ pub async fn open_view() -> anyhow::Result<()> {
                         create.set_is_loading(false);
                         create.invoke_filter_versions();
                     }
-                }).ok();
+                })
+                .ok();
             }
             Err(e) => {
                 eprintln!("Failed to fetch MC versions: {e}");
@@ -225,61 +229,65 @@ pub async fn open_view() -> anyhow::Result<()> {
                     if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         ui.global::<InstanceCreateLogic>().set_is_loading(false);
                     }
-                }).ok();
+                })
+                .ok();
             }
         }
     });
 
     let cache_for_filter = Arc::clone(&mc_versions_cache);
     let ui_weak_for_filter = ui.as_weak();
-    ui.global::<InstanceCreateLogic>().on_filter_versions(move || {
-        let Some(ui) = ui_weak_for_filter.upgrade() else { return; };
-        let logic = ui.global::<InstanceCreateLogic>();
+    ui.global::<InstanceCreateLogic>()
+        .on_filter_versions(move || {
+            let Some(ui) = ui_weak_for_filter.upgrade() else {
+                return;
+            };
+            let logic = ui.global::<InstanceCreateLogic>();
 
-        let versions = cache_for_filter.lock().unwrap();
-        let search_text = logic.get_version_search_text().to_string().to_lowercase();
-        let show_release = logic.get_show_release();
-        let show_snapshot = logic.get_show_snapshot();
-        let show_beta = logic.get_show_beta();
-        let show_alpha = logic.get_show_alpha();
-        let show_experimental = logic.get_show_experimental();
+            let versions = cache_for_filter.lock().unwrap();
+            let search_text = logic.get_version_search_text().to_string().to_lowercase();
+            let show_release = logic.get_show_release();
+            let show_snapshot = logic.get_show_snapshot();
+            let show_beta = logic.get_show_beta();
+            let show_alpha = logic.get_show_alpha();
+            let show_experimental = logic.get_show_experimental();
 
-        let filtered: Vec<slint::SharedString> = versions.iter()
-            .filter(|v| {
-                if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
-                    return false;
+            let filtered: Vec<slint::SharedString> = versions
+                .iter()
+                .filter(|v| {
+                    if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
+                        return false;
+                    }
+
+                    match v.r#type.as_str() {
+                        "release" => show_release,
+                        "snapshot" => show_snapshot,
+                        "old_beta" => show_beta,
+                        "old_alpha" => show_alpha,
+                        "experimental" | "pending" => show_experimental,
+                        _ => show_experimental,
+                    }
+                })
+                .map(|v| v.id.clone().into())
+                .collect();
+
+            let current_selected = logic.get_selected_version().to_string();
+            let mut found = false;
+            for f in &filtered {
+                if f.as_str() == current_selected {
+                    found = true;
+                    break;
                 }
-
-                match v.r#type.as_str() {
-                    "release" => show_release,
-                    "snapshot" => show_snapshot,
-                    "old_beta" => show_beta,
-                    "old_alpha" => show_alpha,
-                    "experimental" | "pending" => show_experimental,
-                    _ => show_experimental,
-                }
-            })
-            .map(|v| v.id.clone().into())
-            .collect();
-
-        let current_selected = logic.get_selected_version().to_string();
-        let mut found = false;
-        for f in &filtered {
-            if f.as_str() == current_selected {
-                found = true;
-                break;
             }
-        }
 
-        if !found {
-            let first = filtered.first().cloned().unwrap_or_default();
-            logic.set_selected_version(first);
-        }
+            if !found {
+                let first = filtered.first().cloned().unwrap_or_default();
+                logic.set_selected_version(first);
+            }
 
-        logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
-        logic.invoke_loader_changed();
-    });
-
+            logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
+            logic.invoke_loader_changed();
+        });
 
     // ── 網路狀態偵測（footer status）────────────────────────────────────
     // 每 15 秒 HEAD 一次 Mojang 端點：對 launcher 而言「連得上 Mojang」才算 online
@@ -387,9 +395,22 @@ pub async fn open_view() -> anyhow::Result<()> {
         });
     });
 
-    launch::setup_launch_logic(&ui, Arc::clone(&store), Arc::clone(&master_configs), Arc::clone(&running_procs), Arc::clone(&launching_procs), Arc::clone(&instance_logs));
+    launch::setup_launch_logic(
+        &ui,
+        Arc::clone(&store),
+        Arc::clone(&master_configs),
+        Arc::clone(&running_procs),
+        Arc::clone(&launching_procs),
+        Arc::clone(&instance_logs),
+    );
 
-    instance_detail::setup_instance_detail_logic(&ui, Arc::clone(&store), Arc::clone(&master_configs), Arc::clone(&running_procs), Arc::clone(&instance_logs));
+    instance_detail::setup_instance_detail_logic(
+        &ui,
+        Arc::clone(&store),
+        Arc::clone(&master_configs),
+        Arc::clone(&running_procs),
+        Arc::clone(&instance_logs),
+    );
 
     create::setup_create_logic(&ui, Arc::clone(&store), Arc::clone(&master_configs));
 

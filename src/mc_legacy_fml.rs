@@ -108,7 +108,10 @@ pub async fn copy_fmllibs_to_game_dir(
         let source = libraries_dir.join("fmllibs").join(filename);
         let dest = lib_dir.join(filename);
         if source.exists() {
-            tracing::info!(filename, "Copying legacy FML dependencies to instance directory");
+            tracing::info!(
+                filename,
+                "Copying legacy FML dependencies to instance directory"
+            );
             tokio::fs::copy(&source, &dest).await?;
         }
     }

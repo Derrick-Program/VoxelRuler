@@ -46,10 +46,14 @@ fn first_deeplink_arg() -> Option<String> {
 
 /// Decode raw IPC bytes and forward every `voxelruler://` line to `tx`.
 fn dispatch_ipc_bytes(data: &[u8], tx: &mpsc::UnboundedSender<String>) {
-    let Ok(s) = std::str::from_utf8(data) else { return };
+    let Ok(s) = std::str::from_utf8(data) else {
+        return;
+    };
     s.lines()
         .filter(|l| l.starts_with("voxelruler://"))
-        .for_each(|l| { let _ = tx.send(l.to_string()); });
+        .for_each(|l| {
+            let _ = tx.send(l.to_string());
+        });
 }
 
 /// Set up single-instance IPC.
@@ -83,15 +87,21 @@ pub async fn setup_ipc(tx: mpsc::UnboundedSender<String>) -> bool {
 
         // Become the primary instance
         let _ = std::fs::remove_file(&sock); // remove stale socket from a crash
-        let Ok(listener) = UnixListener::bind(&sock) else { return true };
+        let Ok(listener) = UnixListener::bind(&sock) else {
+            return true;
+        };
 
         tokio::spawn(async move {
             loop {
-                let Ok((mut socket, _)) = listener.accept().await else { continue };
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    continue;
+                };
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
                     let mut buf = [0u8; 4096];
-                    let Ok(n) = socket.read(&mut buf).await else { return };
+                    let Ok(n) = socket.read(&mut buf).await else {
+                        return;
+                    };
                     dispatch_ipc_bytes(&buf[..n], &tx_clone);
                 });
             }
@@ -113,7 +123,9 @@ pub async fn setup_ipc(tx: mpsc::UnboundedSender<String>) -> bool {
         }
 
         // Become the primary instance
-        let Ok(mut server) = ServerOptions::new().first_pipe_instance(true).create(PIPE_NAME)
+        let Ok(mut server) = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(PIPE_NAME)
         else {
             error!("Failed to create IPC named pipe");
             return true;
@@ -121,7 +133,9 @@ pub async fn setup_ipc(tx: mpsc::UnboundedSender<String>) -> bool {
 
         tokio::spawn(async move {
             loop {
-                if server.connect().await.is_err() { break; }
+                if server.connect().await.is_err() {
+                    break;
+                }
 
                 // Prepare the next pipe instance before handling the current client
                 let Ok(next_server) = ServerOptions::new().create(PIPE_NAME) else {
@@ -132,7 +146,9 @@ pub async fn setup_ipc(tx: mpsc::UnboundedSender<String>) -> bool {
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
                     let mut buf = [0u8; 4096];
-                    let Ok(n) = socket.read(&mut buf).await else { return };
+                    let Ok(n) = socket.read(&mut buf).await else {
+                        return;
+                    };
                     dispatch_ipc_bytes(&buf[..n], &tx_clone);
                 });
             }

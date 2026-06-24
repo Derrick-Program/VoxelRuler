@@ -1,17 +1,17 @@
 use super::*;
 
 pub fn setup_appearance_window(ui: &MainApp) {
-        // ── Appearance / Skin Management ─────────────────────────────────────────
-        let appearance_win_rc: std::rc::Rc<std::cell::RefCell<Option<AppearanceWindow>>> =
-            std::rc::Rc::new(std::cell::RefCell::new(None));
-        let ap_rc_manage = appearance_win_rc.clone();
-        let active_renderer: std::sync::Arc<
-            std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>,
-        > = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let active_renderer_manage = active_renderer.clone();
+    // ── Appearance / Skin Management ─────────────────────────────────────────
+    let appearance_win_rc: std::rc::Rc<std::cell::RefCell<Option<AppearanceWindow>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let ap_rc_manage = appearance_win_rc.clone();
+    let active_renderer: std::sync::Arc<
+        std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>,
+    > = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let active_renderer_manage = active_renderer.clone();
 
-        let main_ui_weak_for_appearance = ui.as_weak();
-        ui.global::<PageAccountLogic>()
+    let main_ui_weak_for_appearance = ui.as_weak();
+    ui.global::<PageAccountLogic>()
             .on_manage_appearance(move || {
                 let mut ap_ref = ap_rc_manage.borrow_mut();
                 if ap_ref.is_none() {
@@ -673,9 +673,7 @@ pub fn setup_appearance_window(ui: &MainApp) {
                     let _ = ap.show();
                 }
             });
-
 }
-
 
 async fn auto_detect_variant(skin_url: &str) -> Option<String> {
     let bytes = if skin_url.starts_with("file://") {
@@ -683,27 +681,49 @@ async fn auto_detect_variant(skin_url: &str) -> Option<String> {
         let path = parsed.to_file_path().ok()?;
         std::fs::read(&path).ok()?
     } else {
-        reqwest::get(skin_url).await.ok()?.bytes().await.ok()?.to_vec()
+        reqwest::get(skin_url)
+            .await
+            .ok()?
+            .bytes()
+            .await
+            .ok()?
+            .to_vec()
     };
     let img = image::load_from_memory(&bytes).ok()?;
-    Some(if detect_is_slim(&img) { "slim".to_string() } else { "classic".to_string() })
+    Some(if detect_is_slim(&img) {
+        "slim".to_string()
+    } else {
+        "classic".to_string()
+    })
 }
 
 fn update_cape_cache(new_profile: Option<&crate::mc_types::McProfile>, cape_id_to_apply: &str) {
-    let Ok(paths) = crate::mc_paths::McPaths::new() else { return };
+    let Ok(paths) = crate::mc_paths::McPaths::new() else {
+        return;
+    };
     let f = paths.capes_dir().join("profile_cache.json");
     if let Some(profile) = new_profile {
-        let _ = std::fs::write(&f, serde_json::to_string_pretty(profile).unwrap_or_default());
+        let _ = std::fs::write(
+            &f,
+            serde_json::to_string_pretty(profile).unwrap_or_default(),
+        );
         return;
     }
-    let Ok(s) = std::fs::read_to_string(&f) else { return };
-    let Ok(mut p) = serde_json::from_str::<crate::mc_types::McProfile>(&s) else { return };
+    let Ok(s) = std::fs::read_to_string(&f) else {
+        return;
+    };
+    let Ok(mut p) = serde_json::from_str::<crate::mc_types::McProfile>(&s) else {
+        return;
+    };
     p.capes.iter_mut().for_each(|c| {
-        c.state = if c.id == cape_id_to_apply { crate::mc_types::McState::Active } else { crate::mc_types::McState::Inactive };
+        c.state = if c.id == cape_id_to_apply {
+            crate::mc_types::McState::Active
+        } else {
+            crate::mc_types::McState::Inactive
+        };
     });
     let _ = std::fs::write(&f, serde_json::to_string_pretty(&p).unwrap_or_default());
 }
-
 
 fn handle_browse_skin_file(
     ap_weak: slint::Weak<AppearanceWindow>,
@@ -714,9 +734,13 @@ fn handle_browse_skin_file(
         .set_title("Select Skin File")
         .pick_file();
 
-    let Some(path) = result else { return; };
+    let Some(path) = result else {
+        return;
+    };
     let path_str = path.to_string_lossy().to_string();
-    let Some(ap) = ap_weak.upgrade() else { return; };
+    let Some(ap) = ap_weak.upgrade() else {
+        return;
+    };
     let apl = ap.global::<AppearanceLogic>();
 
     let Ok(img) = image::open(&path) else {
@@ -731,7 +755,9 @@ fn handle_browse_skin_file(
     use image::GenericImageView;
     let (w, h) = img.dimensions();
     if w != 64 || (h != 64 && h != 32) {
-        apl.set_upload_status(format!("Invalid skin size ({}x{}), must be 64x64 or 64x32", w, h).into());
+        apl.set_upload_status(
+            format!("Invalid skin size ({}x{}), must be 64x64 or 64x32", w, h).into(),
+        );
         apl.set_upload_is_error(true);
         apl.set_show_result_dialog(true);
         apl.set_has_preview(false);
@@ -747,18 +773,24 @@ fn handle_browse_skin_file(
         new_renderer.set_cape_rgba(old_cape);
         *guard = Some(new_renderer);
     }
-    apl.set_skin_variant(if is_slim { "slim".into() } else { "classic".into() });
+    apl.set_skin_variant(if is_slim {
+        "slim".into()
+    } else {
+        "classic".into()
+    });
     apl.set_has_preview(true);
 }
 
 fn handle_select_cape(
     cape_id: slint::SharedString,
     ap_weak: slint::Weak<AppearanceWindow>,
-    renderer_lock: std::sync::Arc<std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>>
+    renderer_lock: std::sync::Arc<std::sync::Mutex<Option<crate::skin_renderer::SkinRenderer>>>,
 ) {
     let cape_id = cape_id.to_string();
     let _ = slint::invoke_from_event_loop(move || {
-        let Some(ap) = ap_weak.upgrade() else { return; };
+        let Some(ap) = ap_weak.upgrade() else {
+            return;
+        };
         let apl = ap.global::<AppearanceLogic>();
         apl.set_selected_cape_id(cape_id.clone().into());
 
@@ -778,20 +810,30 @@ fn handle_select_cape(
             .filter_map(|i| capes.row_data(i))
             .find(|c| c.id == cape_id)
             .map(|c| {
-                let name = if !c.alias.to_string().is_empty() { c.alias.to_string() } else { c.id.to_string() };
+                let name = if !c.alias.to_string().is_empty() {
+                    c.alias.to_string()
+                } else {
+                    c.id.to_string()
+                };
                 (c.url.to_string(), name)
             })
             .unwrap_or_else(|| (String::new(), cape_id.clone()));
         apl.set_selected_cape_name(cape_name.into());
 
-        if url.is_empty() { return; }
+        if url.is_empty() {
+            return;
+        }
 
         let renderer_lock2 = renderer_lock.clone();
         let cape_id_clone = cape_id.clone();
         let ap_weak2 = ap_weak.clone();
         tokio::spawn(async move {
-            let Some(bytes) = fetch_cape_bytes_cached(&cape_id_clone, &url).await else { return };
-            let Ok(img) = image::load_from_memory(&bytes) else { return };
+            let Some(bytes) = fetch_cape_bytes_cached(&cape_id_clone, &url).await else {
+                return;
+            };
+            let Ok(img) = image::load_from_memory(&bytes) else {
+                return;
+            };
             let (raw_pixels, w, h) = create_cape_preview_raw(&img);
 
             let _ = slint::invoke_from_event_loop(move || {
@@ -802,15 +844,15 @@ fn handle_select_cape(
                 }
                 if let Some(ap) = ap_weak2.upgrade() {
                     let slint_img = slint::Image::from_rgba8(
-                        slint::SharedPixelBuffer::clone_from_slice(&raw_pixels, w, h)
+                        slint::SharedPixelBuffer::clone_from_slice(&raw_pixels, w, h),
                     );
-                    ap.global::<AppearanceLogic>().set_selected_cape_preview(slint_img);
+                    ap.global::<AppearanceLogic>()
+                        .set_selected_cape_preview(slint_img);
                 }
             });
         });
     });
 }
-
 
 async fn fetch_cape_bytes_cached(cape_id: &str, cape_url: &str) -> Option<Vec<u8>> {
     let paths = crate::mc_paths::McPaths::new().ok()?;
@@ -818,18 +860,26 @@ async fn fetch_cape_bytes_cached(cape_id: &str, cape_url: &str) -> Option<Vec<u8
     if cache_file.exists() {
         return std::fs::read(&cache_file).ok();
     }
-    let bytes = reqwest::get(cape_url).await.ok()?.bytes().await.ok()?.to_vec();
+    let bytes = reqwest::get(cape_url)
+        .await
+        .ok()?
+        .bytes()
+        .await
+        .ok()?
+        .to_vec();
     let _ = std::fs::write(&cache_file, &bytes);
     Some(bytes)
 }
 
 fn reload_skin_history_ui(apl: &AppearanceLogic) {
-    let Ok(paths) = crate::mc_paths::McPaths::new() else { return };
+    let Ok(paths) = crate::mc_paths::McPaths::new() else {
+        return;
+    };
     let history_file = paths.skins_history_file();
     let history = crate::skin_history::SkinHistory::load(&history_file);
-    apl.set_skin_history(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(
-        get_ui_skins(&paths, &history),
-    ))));
+    apl.set_skin_history(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(get_ui_skins(&paths, &history)),
+    )));
 }
 
 fn update_avatar_in_ui(
@@ -838,8 +888,12 @@ fn update_avatar_in_ui(
     username: &str,
 ) {
     let Some(path) = avatar_path else { return };
-    let Some(main_ui) = main_ui_weak.upgrade() else { return };
-    let Ok(img) = slint::Image::load_from_path(path) else { return };
+    let Some(main_ui) = main_ui_weak.upgrade() else {
+        return;
+    };
+    let Ok(img) = slint::Image::load_from_path(path) else {
+        return;
+    };
     let pal = main_ui.global::<PageAccountLogic>();
     let mut active = pal.get_active_account();
     active.avatar = img.clone();
@@ -848,15 +902,22 @@ fn update_avatar_in_ui(
     if let Some(row) = accounts.iter_mut().find(|r| r.username == username) {
         row.avatar = img;
     }
-    pal.set_accounts(slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(accounts))));
+    pal.set_accounts(slint::ModelRc::from(std::rc::Rc::new(
+        slint::VecModel::from(accounts),
+    )));
 }
 
 async fn fetch_skin_bytes(path_str: &str, url_str: &str) -> Result<Vec<u8>, String> {
     if !path_str.is_empty() {
         std::fs::read(path_str).map_err(|_| "Failed to read local file".to_string())
     } else if !url_str.is_empty() {
-        let resp = reqwest::get(url_str).await.map_err(|_| "Failed to connect to URL".to_string())?;
-        let bytes = resp.bytes().await.map_err(|_| "Failed to download skin".to_string())?;
+        let resp = reqwest::get(url_str)
+            .await
+            .map_err(|_| "Failed to connect to URL".to_string())?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|_| "Failed to download skin".to_string())?;
         Ok(bytes.to_vec())
     } else {
         Err("No file or URL selected".to_string())

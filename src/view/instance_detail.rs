@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use slint::{ModelRc, SharedString, VecModel, Weak, Model, ComponentHandle};
 use crate::view::*;
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel, Weak};
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use crate::view::{MainApp, InstanceFileEntry};
+use crate::view::{InstanceFileEntry, MainApp};
 use tracing::error;
 
 pub(crate) fn append_log_line(
@@ -52,7 +52,12 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
 
     // Fallback to keyword matching if no ANSI color codes are present
     if !has_ansi {
-        if line.contains("/ERROR]") || line.contains(" ERROR ") || line.starts_with("Exception") || line.contains("Exception:") || line.starts_with("\tat ") {
+        if line.contains("/ERROR]")
+            || line.contains(" ERROR ")
+            || line.starts_with("Exception")
+            || line.contains("Exception:")
+            || line.starts_with("\tat ")
+        {
             color = slint::Color::from_rgb_u8(231, 76, 60).into(); // Red
         } else if line.contains("/WARN]") || line.contains(" WARN ") {
             color = slint::Color::from_rgb_u8(241, 196, 15).into(); // Yellow
@@ -100,7 +105,11 @@ pub(crate) fn shared_log_model(items: Vec<crate::view::LogLine>) -> ModelRc<crat
     ModelRc::from(Rc::new(VecModel::from(items)))
 }
 
-pub(crate) fn file_entries_model(dir: &Path, exts: &[&str], allow_dirs: bool) -> ModelRc<InstanceFileEntry> {
+pub(crate) fn file_entries_model(
+    dir: &Path,
+    exts: &[&str],
+    allow_dirs: bool,
+) -> ModelRc<InstanceFileEntry> {
     let items: Vec<InstanceFileEntry> = crate::instance_assets::list_entries(dir, exts, allow_dirs)
         .into_iter()
         .map(|e| InstanceFileEntry {
@@ -296,207 +305,212 @@ pub fn setup_instance_detail_logic(
     ui: &MainApp,
     store: std::sync::Arc<std::sync::Mutex<crate::mc_instance::InstanceStore>>,
     master_configs: std::sync::Arc<std::sync::Mutex<Vec<crate::mc_instance::InstanceConfig>>>,
-    running_procs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>>,
-    instance_logs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::collections::VecDeque<crate::view::LogLine>>>>,
+    running_procs: std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>,
+    >,
+    instance_logs: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<String, std::collections::VecDeque<crate::view::LogLine>>,
+        >,
+    >,
 ) {
-        // ── 實例詳細視窗（側欄分頁）──────────────────────────────────────────
-        let detail_logic = ui.global::<InstanceDetailLogic>();
+    // ── 實例詳細視窗（側欄分頁）──────────────────────────────────────────
+    let detail_logic = ui.global::<InstanceDetailLogic>();
 
-        let master_for_detail_open = Arc::clone(&master_configs);
-        let running_for_detail_open = Arc::clone(&running_procs);
-        let logs_for_detail_open = Arc::clone(&instance_logs);
-        let ui_weak_for_detail_open = ui.as_weak();
-        detail_logic.on_open_detail(move |id, tab| {
-            let Some(ui) = ui_weak_for_detail_open.upgrade() else {
+    let master_for_detail_open = Arc::clone(&master_configs);
+    let running_for_detail_open = Arc::clone(&running_procs);
+    let logs_for_detail_open = Arc::clone(&instance_logs);
+    let ui_weak_for_detail_open = ui.as_weak();
+    detail_logic.on_open_detail(move |id, tab| {
+        let Some(ui) = ui_weak_for_detail_open.upgrade() else {
+            return;
+        };
+        open_instance_detail(
+            &ui,
+            &master_for_detail_open,
+            &running_for_detail_open,
+            &logs_for_detail_open,
+            id.as_str(),
+            tab,
+        );
+    });
+
+    let ui_weak_for_detail_close = ui.as_weak();
+    detail_logic.on_close_detail(move || {
+        if let Some(ui) = ui_weak_for_detail_close.upgrade() {
+            ui.global::<InstanceDetailLogic>().set_show_dialog(false);
+        }
+    });
+
+    let logs_for_tab = Arc::clone(&instance_logs);
+    let ui_weak_for_tab = ui.as_weak();
+    detail_logic.on_tab_changed(move |tab| {
+        let Some(ui) = ui_weak_for_tab.upgrade() else {
+            return;
+        };
+        let id = ui
+            .global::<InstanceDetailLogic>()
+            .get_instance_id()
+            .to_string();
+        load_detail_tab(&ui, &id, tab, &logs_for_tab);
+    });
+
+    let ui_weak_for_subfolder = ui.as_weak();
+    detail_logic.on_open_subfolder(move |category| {
+        let Some(ui) = ui_weak_for_subfolder.upgrade() else {
+            return;
+        };
+        let id = ui
+            .global::<InstanceDetailLogic>()
+            .get_instance_id()
+            .to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = open::that(dir);
+    });
+
+    let logs_for_toggle = Arc::clone(&instance_logs);
+    let ui_weak_for_toggle = ui.as_weak();
+    detail_logic.on_toggle_entry(move |category, file_name| {
+        let Some(ui) = ui_weak_for_toggle.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        match crate::instance_assets::toggle_disabled(&dir, file_name.as_str()) {
+            Ok(_) => detail.set_status_msg("".into()),
+            Err(e) => detail.set_status_msg(format!("{e}").into()),
+        }
+        load_detail_tab(
+            &ui,
+            &id,
+            detail_category_tab(category.as_str()),
+            &logs_for_toggle,
+        );
+    });
+
+    let logs_for_delete_entry = Arc::clone(&instance_logs);
+    let ui_weak_for_delete_entry = ui.as_weak();
+    detail_logic.on_delete_entry(move |category, file_name| {
+        let Some(ui) = ui_weak_for_delete_entry.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let dir = detail_category_dir(&paths, &id, category.as_str());
+        match crate::instance_assets::delete_entry(&dir, file_name.as_str()) {
+            Ok(()) => detail.set_status_msg("".into()),
+            Err(e) => detail.set_status_msg(format!("{e}").into()),
+        }
+        load_detail_tab(
+            &ui,
+            &id,
+            detail_category_tab(category.as_str()),
+            &logs_for_delete_entry,
+        );
+    });
+
+    let logs_for_add = Arc::clone(&instance_logs);
+    let ui_weak_for_add = ui.as_weak();
+    detail_logic.on_add_entry(move |category| {
+        let ui_weak = ui_weak_for_add.clone();
+        let logs = Arc::clone(&logs_for_add);
+        let category = category.to_string();
+        let _ = slint::spawn_local(async move {
+            let mut dialog = rfd::AsyncFileDialog::new().set_title("Select file to add");
+            dialog = match category.as_str() {
+                "mods" => dialog.add_filter("Minecraft Mod", &["jar"]),
+                "resourcepacks" | "shaderpacks" => dialog.add_filter("Pack", &["zip"]),
+                _ => dialog,
+            };
+            let Some(files) = dialog.pick_files().await else {
                 return;
             };
-            open_instance_detail(
-                &ui,
-                &master_for_detail_open,
-                &running_for_detail_open,
-                &logs_for_detail_open,
-                id.as_str(),
-                tab,
-            );
-        });
-
-        let ui_weak_for_detail_close = ui.as_weak();
-        detail_logic.on_close_detail(move || {
-            if let Some(ui) = ui_weak_for_detail_close.upgrade() {
-                ui.global::<InstanceDetailLogic>().set_show_dialog(false);
-            }
-        });
-
-        let logs_for_tab = Arc::clone(&instance_logs);
-        let ui_weak_for_tab = ui.as_weak();
-        detail_logic.on_tab_changed(move |tab| {
-            let Some(ui) = ui_weak_for_tab.upgrade() else {
-                return;
-            };
-            let id = ui
-                .global::<InstanceDetailLogic>()
-                .get_instance_id()
-                .to_string();
-            load_detail_tab(&ui, &id, tab, &logs_for_tab);
-        });
-
-        let ui_weak_for_subfolder = ui.as_weak();
-        detail_logic.on_open_subfolder(move |category| {
-            let Some(ui) = ui_weak_for_subfolder.upgrade() else {
-                return;
-            };
-            let id = ui
-                .global::<InstanceDetailLogic>()
-                .get_instance_id()
-                .to_string();
-            let Ok(paths) = McPaths::new() else { return };
-            let dir = detail_category_dir(&paths, &id, category.as_str());
-            let _ = std::fs::create_dir_all(&dir);
-            let _ = open::that(dir);
-        });
-
-        let logs_for_toggle = Arc::clone(&instance_logs);
-        let ui_weak_for_toggle = ui.as_weak();
-        detail_logic.on_toggle_entry(move |category, file_name| {
-            let Some(ui) = ui_weak_for_toggle.upgrade() else {
-                return;
-            };
+            let Some(ui) = ui_weak.upgrade() else { return };
             let detail = ui.global::<InstanceDetailLogic>();
             let id = detail.get_instance_id().to_string();
             let Ok(paths) = McPaths::new() else { return };
-            let dir = detail_category_dir(&paths, &id, category.as_str());
-            match crate::instance_assets::toggle_disabled(&dir, file_name.as_str()) {
-                Ok(_) => detail.set_status_msg("".into()),
-                Err(e) => detail.set_status_msg(format!("{e}").into()),
-            }
-            load_detail_tab(
-                &ui,
-                &id,
-                detail_category_tab(category.as_str()),
-                &logs_for_toggle,
-            );
-        });
-
-        let logs_for_delete_entry = Arc::clone(&instance_logs);
-        let ui_weak_for_delete_entry = ui.as_weak();
-        detail_logic.on_delete_entry(move |category, file_name| {
-            let Some(ui) = ui_weak_for_delete_entry.upgrade() else {
-                return;
-            };
-            let detail = ui.global::<InstanceDetailLogic>();
-            let id = detail.get_instance_id().to_string();
-            let Ok(paths) = McPaths::new() else { return };
-            let dir = detail_category_dir(&paths, &id, category.as_str());
-            match crate::instance_assets::delete_entry(&dir, file_name.as_str()) {
-                Ok(()) => detail.set_status_msg("".into()),
-                Err(e) => detail.set_status_msg(format!("{e}").into()),
-            }
-            load_detail_tab(
-                &ui,
-                &id,
-                detail_category_tab(category.as_str()),
-                &logs_for_delete_entry,
-            );
-        });
-
-        let logs_for_add = Arc::clone(&instance_logs);
-        let ui_weak_for_add = ui.as_weak();
-        detail_logic.on_add_entry(move |category| {
-            let ui_weak = ui_weak_for_add.clone();
-            let logs = Arc::clone(&logs_for_add);
-            let category = category.to_string();
-            let _ = slint::spawn_local(async move {
-                let mut dialog = rfd::AsyncFileDialog::new().set_title("Select file to add");
-                dialog = match category.as_str() {
-                    "mods" => dialog.add_filter("Minecraft Mod", &["jar"]),
-                    "resourcepacks" | "shaderpacks" => dialog.add_filter("Pack", &["zip"]),
-                    _ => dialog,
-                };
-                let Some(files) = dialog.pick_files().await else {
-                    return;
-                };
-                let Some(ui) = ui_weak.upgrade() else { return };
-                let detail = ui.global::<InstanceDetailLogic>();
-                let id = detail.get_instance_id().to_string();
-                let Ok(paths) = McPaths::new() else { return };
-                let dir = detail_category_dir(&paths, &id, &category);
-                for f in files {
-                    if let Err(e) = crate::instance_assets::add_file(&dir, f.path()) {
-                        detail.set_status_msg(format!("{e}").into());
-                    }
-                }
-                load_detail_tab(&ui, &id, detail_category_tab(&category), &logs);
-            });
-        });
-
-        let ui_weak_for_notes = ui.as_weak();
-        detail_logic.on_save_notes(move || {
-            let Some(ui) = ui_weak_for_notes.upgrade() else {
-                return;
-            };
-            let detail = ui.global::<InstanceDetailLogic>();
-            let id = detail.get_instance_id().to_string();
-            let Ok(paths) = McPaths::new() else { return };
-            match crate::instance_assets::save_notes(
-                &paths.instance_dir(&id),
-                detail.get_notes().as_str(),
-            ) {
-                Ok(()) => detail.set_notes_status("✓ Saved".into()),
-                Err(e) => detail.set_notes_status(format!("{e}").into()),
-            }
-        });
-
-        let ui_weak_for_view_log = ui.as_weak();
-        detail_logic.on_view_log_file(move |name| {
-            let Some(ui) = ui_weak_for_view_log.upgrade() else {
-                return;
-            };
-            let detail = ui.global::<InstanceDetailLogic>();
-            let id = detail.get_instance_id().to_string();
-            let Ok(paths) = McPaths::new() else { return };
-            let logs_dir = paths.instance_dir(&id).join("logs");
-            detail.set_viewing_log_name(name.clone());
-            match crate::instance_assets::read_log_lines(&logs_dir, name.as_str(), 2000) {
-                Ok(lines) => {
-                    let shared: Vec<slint::SharedString> =
-                        lines.iter().map(|s| s.as_str().into()).collect();
-                    detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(shared))));
-                }
-                Err(e) => {
-                    let msg: Vec<slint::SharedString> = vec![format!("Read failed: {e}").into()];
-                    detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(msg))));
+            let dir = detail_category_dir(&paths, &id, &category);
+            for f in files {
+                if let Err(e) = crate::instance_assets::add_file(&dir, f.path()) {
+                    detail.set_status_msg(format!("{e}").into());
                 }
             }
+            load_detail_tab(&ui, &id, detail_category_tab(&category), &logs);
         });
+    });
 
-        let store_for_version = Arc::clone(&store);
-        let master_for_version = Arc::clone(&master_configs);
-        let ui_weak_for_version_save = ui.as_weak();
-        detail_logic.on_save_version(move || {
-            let Some(ui) = ui_weak_for_version_save.upgrade() else {
+    let ui_weak_for_notes = ui.as_weak();
+    detail_logic.on_save_notes(move || {
+        let Some(ui) = ui_weak_for_notes.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        match crate::instance_assets::save_notes(
+            &paths.instance_dir(&id),
+            detail.get_notes().as_str(),
+        ) {
+            Ok(()) => detail.set_notes_status("✓ Saved".into()),
+            Err(e) => detail.set_notes_status(format!("{e}").into()),
+        }
+    });
+
+    let ui_weak_for_view_log = ui.as_weak();
+    detail_logic.on_view_log_file(move |name| {
+        let Some(ui) = ui_weak_for_view_log.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let Ok(paths) = McPaths::new() else { return };
+        let logs_dir = paths.instance_dir(&id).join("logs");
+        detail.set_viewing_log_name(name.clone());
+        match crate::instance_assets::read_log_lines(&logs_dir, name.as_str(), 2000) {
+            Ok(lines) => {
+                let shared: Vec<slint::SharedString> =
+                    lines.iter().map(|s| s.as_str().into()).collect();
+                detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(shared))));
+            }
+            Err(e) => {
+                let msg: Vec<slint::SharedString> = vec![format!("Read failed: {e}").into()];
+                detail.set_other_log_content(ModelRc::from(Rc::new(VecModel::from(msg))));
+            }
+        }
+    });
+
+    let store_for_version = Arc::clone(&store);
+    let master_for_version = Arc::clone(&master_configs);
+    let ui_weak_for_version_save = ui.as_weak();
+    detail_logic.on_save_version(move || {
+        let Some(ui) = ui_weak_for_version_save.upgrade() else {
+            return;
+        };
+        let detail = ui.global::<InstanceDetailLogic>();
+        let id = detail.get_instance_id().to_string();
+        let new_version = detail.get_selected_version().to_string();
+        if new_version.is_empty() {
+            return;
+        }
+        let updated = {
+            let mut master = master_for_version.lock().unwrap();
+            let Some(c) = master.iter_mut().find(|c| c.id == id) else {
                 return;
             };
-            let detail = ui.global::<InstanceDetailLogic>();
-            let id = detail.get_instance_id().to_string();
-            let new_version = detail.get_selected_version().to_string();
-            if new_version.is_empty() {
-                return;
+            c.version = new_version.clone();
+            c.clone()
+        };
+        match store_for_version.lock().unwrap().save_one(&updated) {
+            Ok(()) => {
+                detail.set_version(new_version.as_str().into());
+                detail.set_status_msg("✓ Saved".into());
             }
-            let updated = {
-                let mut master = master_for_version.lock().unwrap();
-                let Some(c) = master.iter_mut().find(|c| c.id == id) else {
-                    return;
-                };
-                c.version = new_version.clone();
-                c.clone()
-            };
-            match store_for_version.lock().unwrap().save_one(&updated) {
-                Ok(()) => {
-                    detail.set_version(new_version.as_str().into());
-                    detail.set_status_msg("✓ Saved".into());
-                }
-                Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),
-            }
-        });
-
+            Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),
+        }
+    });
 }

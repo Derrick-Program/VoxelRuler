@@ -1,7 +1,7 @@
-use slint::SharedString;
-use slint::Image;
 use crate::view::SkinData;
 use crate::view::*;
+use slint::Image;
+use slint::SharedString;
 
 pub(crate) fn create_cape_preview_raw(img: &image::DynamicImage) -> (Vec<u8>, u32, u32) {
     use image::GenericImageView;
@@ -25,7 +25,10 @@ pub(crate) fn create_cape_preview_raw(img: &image::DynamicImage) -> (Vec<u8>, u3
     }
 }
 
-pub(crate) fn generate_2d_front(skin_img: &image::DynamicImage, is_slim: bool) -> image::DynamicImage {
+pub(crate) fn generate_2d_front(
+    skin_img: &image::DynamicImage,
+    is_slim: bool,
+) -> image::DynamicImage {
     use image::{GenericImage, imageops};
 
     let mut out = image::DynamicImage::new_rgba8(16, 32);
@@ -268,4 +271,3 @@ pub(crate) async fn fetch_avatar_path(username: &str) -> Option<std::path::PathB
     }
     None
 }
-

@@ -131,9 +131,11 @@ pub fn delete_entry(dir: &Path, file_name: &str) -> anyhow::Result<()> {
     validate_file_name(file_name)?;
     let target = dir.join(file_name);
     if target.is_dir() {
-        std::fs::remove_dir_all(&target).with_context(|| format!("Failed to delete directory {file_name}"))?;
+        std::fs::remove_dir_all(&target)
+            .with_context(|| format!("Failed to delete directory {file_name}"))?;
     } else if target.exists() {
-        std::fs::remove_file(&target).with_context(|| format!("Failed to delete file {file_name}"))?;
+        std::fs::remove_file(&target)
+            .with_context(|| format!("Failed to delete file {file_name}"))?;
     }
     Ok(())
 }

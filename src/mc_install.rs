@@ -186,14 +186,25 @@ pub async fn install_libraries(
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
         .filter(|lib| !excluded(&lib.name))
         .flat_map(|lib| {
-            let regular = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()).and_then(|artifact| {
-                let dest = artifact
-                    .path
-                    .as_deref()
-                    .map(|p| libraries_dir.join(p))
-                    .or_else(|| maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p)))?;
-                Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
-            });
+            let regular = lib
+                .downloads
+                .as_ref()
+                .and_then(|d| d.artifact.as_ref())
+                .and_then(|artifact| {
+                    let dest = artifact
+                        .path
+                        .as_deref()
+                        .map(|p| libraries_dir.join(p))
+                        .or_else(|| {
+                            maven_coord_to_path(&lib.name).map(|p| libraries_dir.join(p))
+                        })?;
+                    Some((
+                        dest,
+                        artifact.url.clone(),
+                        artifact.size,
+                        artifact.sha1.clone(),
+                    ))
+                });
             let classifier = native_classifier_key(lib).and_then(|key| {
                 let artifact = lib
                     .downloads
@@ -208,7 +219,12 @@ pub async fn install_libraries(
                         maven_coord_to_path(&format!("{}:{}", lib.name, key))
                             .map(|p| libraries_dir.join(p))
                     })?;
-                Some((dest, artifact.url.clone(), artifact.size, artifact.sha1.clone()))
+                Some((
+                    dest,
+                    artifact.url.clone(),
+                    artifact.size,
+                    artifact.sha1.clone(),
+                ))
             });
             regular.into_iter().chain(classifier)
         })
@@ -243,7 +259,10 @@ pub async fn install_libraries(
             if let Some((_, url, size, sha1)) =
                 JNA_FIXUPS.iter().find(|(name, ..)| *name == artifact)
             {
-                warn!(artifact, "macOS: jna version too old, downloading compatible version");
+                warn!(
+                    artifact,
+                    "macOS: jna version too old, downloading compatible version"
+                );
                 applicable.push((
                     libraries_dir.join(jna_compat_rel_path(artifact)),
                     (*url).to_string(),
@@ -256,7 +275,10 @@ pub async fn install_libraries(
 
     // Apple Silicon 原生模式：下載替換用的 artifacts
     if let Some(ov) = compat {
-        warn!(name = ov.name, "Apple Silicon native mode: replacing incompatible libraries");
+        warn!(
+            name = ov.name,
+            "Apple Silicon native mode: replacing incompatible libraries"
+        );
         for art in ov.artifacts {
             applicable.push((
                 libraries_dir.join(art.rel_path),
@@ -288,7 +310,12 @@ pub async fn install_libraries(
         .iter()
         .filter(|lib| lib.rules.as_ref().is_none_or(|r| evaluate_rules(r)))
         .filter(|lib| !excluded(&lib.name))
-        .filter(|lib| lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()).is_none())
+        .filter(|lib| {
+            lib.downloads
+                .as_ref()
+                .and_then(|d| d.artifact.as_ref())
+                .is_none()
+        })
         .filter(|lib| lib.natives.is_none()) // natives-only 的 lib 由 Pass B 處理
         .filter_map(|lib| {
             let rel = maven_coord_to_path(&lib.name)?;
@@ -315,7 +342,11 @@ pub async fn install_libraries(
                 repos.extend(FALLBACK_REPOS);
 
                 for repo in repos {
-                    let repo = if repo.ends_with('/') { repo.to_string() } else { format!("{}/", repo) };
+                    let repo = if repo.ends_with('/') {
+                        repo.to_string()
+                    } else {
+                        format!("{}/", repo)
+                    };
                     let url = format!("{}{}", repo, rel);
                     if download_best_effort(&url, &dest).await.is_ok() {
                         return;
@@ -489,13 +520,16 @@ pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
     let src = src.to_path_buf();
     let dst = dst.to_path_buf();
     tokio::task::spawn_blocking(move || process_nosig_jar(&src, &dst))
-    .await
-    .context("JAR signature stripping task failed")??;
+        .await
+        .context("JAR signature stripping task failed")??;
     Ok(())
 }
 
-
-fn extract_single_native_jar(jar: &Path, excludes: &[String], natives_dir: &Path) -> anyhow::Result<()> {
+fn extract_single_native_jar(
+    jar: &Path,
+    excludes: &[String],
+    natives_dir: &Path,
+) -> anyhow::Result<()> {
     if !jar.exists() {
         warn!(jar = %jar.display(), "natives jar does not exist, skipping extraction");
         return Ok(());
@@ -550,8 +584,7 @@ fn process_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
         {
             continue;
         }
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(entry.compression());
+        let opts = zip::write::SimpleFileOptions::default().compression_method(entry.compression());
         writer.start_file(&name, opts)?;
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
@@ -570,7 +603,8 @@ mod test {
     use crate::mc_types::*;
 
     fn load_version(path: &str) -> McSpecificVersionDetail {
-        let data = std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
+        let data =
+            std::fs::read_to_string(path).unwrap_or_else(|_| panic!("Could not find {path}"));
         serde_json::from_str(&data).unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
     }
 
@@ -845,7 +879,10 @@ mod test {
             .await
             .unwrap();
 
-        assert!(natives.join("libtest.so").exists(), "Should extract natives files");
+        assert!(
+            natives.join("libtest.so").exists(),
+            "Should extract natives files"
+        );
         assert!(
             !natives.join("META-INF/MANIFEST.MF").exists(),
             "META-INF should be excluded"
@@ -868,7 +905,10 @@ mod test {
             .await
             .unwrap();
         let count = count_jars(dir.path());
-        assert!(count > 0, "libraries directory should have JAR files, actual: {count}");
+        assert!(
+            count > 0,
+            "libraries directory should have JAR files, actual: {count}"
+        );
     }
 
     #[tokio::test]
