@@ -417,3 +417,363 @@ pub(crate) async fn do_launch(
 
 
 
+
+pub fn setup_launch_logic(
+    ui: &MainApp,
+    store: std::sync::Arc<std::sync::Mutex<crate::mc_instance::InstanceStore>>,
+    master_configs: std::sync::Arc<std::sync::Mutex<Vec<crate::mc_instance::InstanceConfig>>>,
+    running_procs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>>,
+    launching_procs: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    instance_logs: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::collections::VecDeque<crate::view::LogLine>>>>,
+) {
+    let logic = ui.global::<InstanceLogic>();
+        let master_for_search = Arc::clone(&master_configs);
+        let ui_weak_for_search = ui.as_weak();
+        logic.on_search_changed(move |text| {
+            let Some(ui) = ui_weak_for_search.upgrade() else {
+                return;
+            };
+            let logic = ui.global::<InstanceLogic>();
+            let configs = master_for_search.lock().unwrap();
+            let filtered: Vec<InstanceData> = configs
+                .iter()
+                .filter(|c| text.is_empty() || c.name.to_lowercase().contains(&text.to_lowercase()))
+                .map(config_to_ui_data)
+                .collect();
+            logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
+        });
+    
+    
+        let master_for_launch = Arc::clone(&master_configs);
+        let running_procs_for_launch = Arc::clone(&running_procs);
+        let launching_procs_for_launch = Arc::clone(&launching_procs);
+        let instance_logs_for_launch = Arc::clone(&instance_logs);
+        let ui_weak_for_launch = ui.as_weak();
+        logic.on_launch_instance(move |id| {
+            let (active_account_authenticator, active_account_username) = {
+                let Some(ui) = ui_weak_for_launch.upgrade() else { return; };
+                let acc = ui.global::<PageAccountLogic>().get_active_account();
+                (acc.authenticator.to_string(), acc.username.to_string())
+            };
+            if active_account_authenticator == "No Account" {
+                set_install_state(&ui_weak_for_launch, true, 0.0, "Please login to an account first", true);
+                return;
+            }
+    
+            let config = {
+                let configs = master_for_launch.lock().unwrap();
+                configs
+                    .iter()
+                    .find(|c| c.id == id.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| InstanceConfig {
+                        id: id.to_string(),
+                        name: id.to_string(),
+                        version: id.to_string(),
+                        ..Default::default()
+                    })
+            };
+            let instance_id = config.id.clone();
+            let running_procs = Arc::clone(&running_procs_for_launch);
+            let launching_procs = Arc::clone(&launching_procs_for_launch);
+            let ui_weak = ui_weak_for_launch.clone();
+            let logs = Arc::clone(&instance_logs_for_launch);
+            if !running_procs.lock().unwrap().is_empty() {
+                set_install_state(&ui_weak_for_launch, true, 0.0, "Please close the currently running game first", true);
+                return;
+            }
+            let mut launching_lock = launching_procs.lock().unwrap();
+            if !launching_lock.is_empty() {
+                return; // Already launching some instance
+            }
+            launching_lock.insert(instance_id.clone());
+            drop(launching_lock);
+            tokio::spawn(async move {
+                let res = do_launch(config, ui_weak.clone(), logs, active_account_authenticator, active_account_username).await;
+                launching_procs.lock().unwrap().remove(&instance_id);
+                match res {
+                    Ok(child) => {
+                        running_procs
+                            .lock()
+                            .unwrap()
+                            .insert(instance_id.clone(), child);
+                        set_instance_status(&ui_weak, &instance_id, "running");
+                        let running_procs_watch = Arc::clone(&running_procs);
+                        let ui_weak_watch = ui_weak.clone();
+                        let id_watch = instance_id.clone();
+                        tokio::spawn(async move {
+                            loop {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                                let mut map = running_procs_watch.lock().unwrap();
+                                let Some(child) = map.get_mut(&id_watch) else {
+                                    break;
+                                };
+                                match child.try_wait() {
+                                    Ok(Some(_)) | Err(_) => {
+                                        map.remove(&id_watch);
+                                        drop(map);
+                                        set_instance_status(&ui_weak_watch, &id_watch, "ready");
+                                        break;
+                                    }
+                                    Ok(None) => {}
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!("Launch failed: {e:#}");
+                        set_install_state(&ui_weak, true, 0.0, &format!("Launch failed: {e:#}"), true);
+                    }
+                }
+            });
+        });
+    
+        let running_procs_for_kill = Arc::clone(&running_procs);
+        let ui_weak_for_kill = ui.as_weak();
+        logic.on_kill_instance(move |id| {
+            let mut map = running_procs_for_kill.lock().unwrap();
+            if let Some(mut child) = map.remove(id.as_str()) {
+                let _ = child.kill();
+                drop(map);
+                set_instance_status(&ui_weak_for_kill, id.as_str(), "ready");
+            }
+        });
+    
+        // 「編輯實例」→ 開啟詳細視窗的「設定」分頁（tab 9）
+        let master_for_edit_open = Arc::clone(&master_configs);
+        let running_for_edit_open = Arc::clone(&running_procs);
+        let logs_for_edit_open = Arc::clone(&instance_logs);
+        let ui_weak_for_edit_open = ui.as_weak();
+        logic.on_open_instance_settings(move |id| {
+            let Some(ui) = ui_weak_for_edit_open.upgrade() else {
+                return;
+            };
+            open_instance_detail(
+                &ui,
+                &master_for_edit_open,
+                &running_for_edit_open,
+                &logs_for_edit_open,
+                id.as_str(),
+                9,
+            );
+        });
+    
+        let edit_logic = ui.global::<InstanceEditLogic>();
+    
+        let ui_weak_for_edit_cancel = ui.as_weak();
+        edit_logic.on_cancel_edit(move || {
+            if let Some(ui) = ui_weak_for_edit_cancel.upgrade() {
+                ui.global::<InstanceEditLogic>().set_show_dialog(false);
+            }
+        });
+    
+        let store_for_edit = Arc::clone(&store);
+        let master_for_edit = Arc::clone(&master_configs);
+        let ui_weak_for_edit_confirm = ui.as_weak();
+        edit_logic.on_confirm_edit(move || {
+            let Some(ui) = ui_weak_for_edit_confirm.upgrade() else {
+                return;
+            };
+            let edit = ui.global::<InstanceEditLogic>();
+            let id = edit.get_instance_id().to_string();
+            let xmx = edit.get_xmx().trim().to_string();
+            let xms = edit.get_xms().trim().to_string();
+            let java_path = edit.get_java_path().trim().to_string();
+            let java_mode = java_label_to_mode(edit.get_selected_java_mode().as_str());
+    
+            if java_mode == JAVA_MODE_CUSTOM {
+                if java_path.is_empty() {
+                    edit.set_error_msg("Path is required when selecting custom Java".into());
+                    return;
+                }
+                if !Path::new(&java_path).is_file() {
+                    edit.set_error_msg("Custom Java path does not exist or is not a file".into());
+                    return;
+                }
+            }
+    
+            let updated_config = {
+                let mut master = master_for_edit.lock().unwrap();
+                let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                    edit.set_error_msg("Instance not found".into());
+                    return;
+                };
+                c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
+                c.xms = if xms.is_empty() { "512M".into() } else { xms };
+                c.java_mode = java_mode.to_string();
+                // 路徑文字保留，切換模式時不清掉使用者輸入
+                c.java_path = java_path;
+                c.clone()
+            };
+    
+            // 寫入 instance.toml；watcher 會自動同步 UI 列表
+            match store_for_edit.lock().unwrap().save_one(&updated_config) {
+                Ok(()) => {
+                    edit.set_error_msg("".into());
+                    ui.global::<InstanceDetailLogic>()
+                        .set_status_msg("✓ Saved".into());
+                }
+                Err(e) => edit.set_error_msg(format!("Save failed: {e}").into()),
+            }
+        });
+    
+        let ui_weak_for_settings = ui.as_weak();
+        ui.global::<SettingsLogic>().on_save_settings(move || {
+            let Some(ui) = ui_weak_for_settings.upgrade() else {
+                return;
+            };
+            let sl = ui.global::<SettingsLogic>();
+            let java_path = sl.get_java_path().trim().to_string();
+            let java_mode = java_label_to_mode(sl.get_selected_java_mode().as_str());
+    
+            if java_mode == JAVA_MODE_CUSTOM {
+                if java_path.is_empty() {
+                    sl.set_status_msg("⚠ Path is required when selecting custom Java".into());
+                    return;
+                }
+                if !Path::new(&java_path).is_file() {
+                    sl.set_status_msg("⚠ Java path does not exist or is not a file".into());
+                    return;
+                }
+            }
+    
+            let new_settings = AppSettings {
+                java_mode: java_mode.to_string(),
+                java_path,
+            };
+            match new_settings.save() {
+                Ok(()) => sl.set_status_msg("✓ Saved".into()),
+                Err(e) => sl.set_status_msg(format!("Save failed: {e}").into()),
+            }
+        });
+    
+        let ui_weak_for_dismiss = ui.as_weak();
+        logic.on_dismiss_install_dialog(move || {
+            if let Some(ui) = ui_weak_for_dismiss.upgrade() {
+                let logic = ui.global::<InstanceLogic>();
+                logic.set_is_installing(false);
+                logic.set_install_is_error(false);
+                logic.set_install_status("".into());
+            }
+        });
+    
+        let instance_logs_for_open = Arc::clone(&instance_logs);
+        let ui_weak_for_open = ui.as_weak();
+        logic.on_open_log(move |id| {
+            let id = id.to_string();
+            let lines: Vec<crate::view::LogLine> = {
+                let logs = instance_logs_for_open.lock().unwrap();
+                logs.get(&id)
+                    .map(|deque| deque.iter().cloned().collect())
+                    .unwrap_or_default()
+            };
+            if let Some(ui) = ui_weak_for_open.upgrade() {
+                let logic = ui.global::<InstanceLogic>();
+                logic.set_log_instance_id(id.into());
+                logic.set_log_lines(ModelRc::from(Rc::new(VecModel::from(lines))));
+                logic.set_show_log(true);
+            }
+        });
+    
+        let ui_weak_for_close_log = ui.as_weak();
+        logic.on_close_log(move || {
+            if let Some(ui) = ui_weak_for_close_log.upgrade() {
+                ui.global::<InstanceLogic>().set_show_log(false);
+            }
+        });
+    
+        // ── 右鍵選單：開啟資料夾 / 複製 / 重新命名 / 刪除 ─────────────────────
+        logic.on_open_instance_folder(move |id| {
+            if let Ok(paths) = McPaths::new() {
+                let _ = open::that(paths.instance_dir(id.as_str()));
+            }
+        });
+    
+        let store_for_dup = Arc::clone(&store);
+        let master_for_dup = Arc::clone(&master_configs);
+        let ui_weak_for_dup = ui.as_weak();
+        logic.on_duplicate_instance(move |id| {
+            let config = {
+                let configs = master_for_dup.lock().unwrap();
+                configs.iter().find(|c| c.id == id.as_str()).cloned()
+            };
+            let Some(config) = config else { return };
+            let store = Arc::clone(&store_for_dup);
+            let ui_weak = ui_weak_for_dup.clone();
+            // 實例資料夾可能很大（worlds / mods），放 blocking thread 複製
+            tokio::task::spawn_blocking(move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let paths = McPaths::new()?;
+                    let mut new_config = config.clone();
+                    new_config.id = uuid::Uuid::new_v4().to_string();
+                    new_config.name = format!("{} (copy)", config.name);
+                    new_config.last_played = String::new();
+                    new_config.play_time_secs = 0;
+                    let src = paths.instance_dir(&config.id);
+                    let dst = paths.instance_dir(&new_config.id);
+                    crate::instance_assets::copy_dir_recursive(&src, &dst)?;
+                    // 覆寫複製來的 instance.toml（換 id / 名稱）；watcher 會同步列表
+                    store.lock().unwrap().save_one(&new_config)?;
+                    Ok(())
+                })();
+                if let Err(e) = result {
+                    error!("Failed to duplicate instance: {e:#}");
+                    set_install_state(&ui_weak, true, 0.0, &format!("Failed to duplicate instance: {e:#}"), true);
+                }
+            });
+        });
+    
+        let store_for_rename = Arc::clone(&store);
+        let master_for_rename = Arc::clone(&master_configs);
+        let ui_weak_for_rename = ui.as_weak();
+        logic.on_confirm_rename(move || {
+            let Some(ui) = ui_weak_for_rename.upgrade() else {
+                return;
+            };
+            let logic = ui.global::<InstanceLogic>();
+            let id = logic.get_rename_id().to_string();
+            let new_name = logic.get_rename_text().trim().to_string();
+            if new_name.is_empty() {
+                logic.set_rename_error("Name cannot be empty".into());
+                return;
+            }
+            let updated = {
+                let mut master = master_for_rename.lock().unwrap();
+                let Some(c) = master.iter_mut().find(|c| c.id == id) else {
+                    logic.set_rename_error("Instance not found".into());
+                    return;
+                };
+                c.name = new_name;
+                c.clone()
+            };
+            match store_for_rename.lock().unwrap().save_one(&updated) {
+                Ok(()) => logic.set_show_rename(false),
+                Err(e) => logic.set_rename_error(format!("Save failed: {e}").into()),
+            }
+        });
+    
+        let store_for_del = Arc::clone(&store);
+        let running_for_del = Arc::clone(&running_procs);
+        let ui_weak_for_del = ui.as_weak();
+        logic.on_confirm_delete(move || {
+            let Some(ui) = ui_weak_for_del.upgrade() else {
+                return;
+            };
+            let logic = ui.global::<InstanceLogic>();
+            let id = logic.get_delete_id().to_string();
+            // 執行中先停止
+            if let Some(mut child) = running_for_del.lock().unwrap().remove(&id) {
+                let _ = child.kill();
+            }
+            if let Err(e) = store_for_del.lock().unwrap().delete_one(&id) {
+                error!("Failed to delete instance: {e:#}");
+            }
+            logic.set_show_delete_confirm(false);
+            // 詳細視窗若開著同一實例，順手關閉
+            let detail = ui.global::<InstanceDetailLogic>();
+            if detail.get_instance_id().as_str() == id {
+                detail.set_show_dialog(false);
+            }
+        });
+    
+}

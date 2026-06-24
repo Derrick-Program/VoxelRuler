@@ -426,38 +426,7 @@ pub async fn extract_natives(
     let natives_dir = natives_dir.to_path_buf();
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         for (jar, excludes) in jobs {
-            if !jar.exists() {
-                // install_libraries 是下載的權威；這裡只警告，
-                // 避免單一異常資料（natives 指到不存在的 classifier）直接擋下啟動
-                warn!(jar = %jar.display(), "natives jar does not exist, skipping extraction");
-                continue;
-            }
-            let file = std::fs::File::open(&jar)
-                .with_context(|| format!("Failed to open natives jar: {}", jar.display()))?;
-            let mut archive = zip::ZipArchive::new(file)
-                .with_context(|| format!("Failed to read natives jar: {}", jar.display()))?;
-            for i in 0..archive.len() {
-                let mut entry = archive.by_index(i)?;
-                if entry.is_dir() || should_skip_native_entry(entry.name(), &excludes) {
-                    continue;
-                }
-                // enclosed_name 可防 zip-slip（路徑跳脫）
-                let Some(rel) = entry.enclosed_name() else {
-                    warn!(entry = entry.name(), "Skipping unsafe zip path");
-                    continue;
-                };
-                let dest = natives_dir.join(rel);
-                // 已解壓且大小一致 → 跳過（同版本實例執行中時，Windows 會鎖住 DLL）
-                if dest.metadata().is_ok_and(|m| m.len() == entry.size()) {
-                    continue;
-                }
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut out = std::fs::File::create(&dest)
-                    .with_context(|| format!("Failed to write natives: {}", dest.display()))?;
-                std::io::copy(&mut entry, &mut out)?;
-            }
+            extract_single_native_jar(&jar, &excludes, &natives_dir)?;
         }
         Ok(())
     })
@@ -519,44 +488,78 @@ pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
     }
     let src = src.to_path_buf();
     let dst = dst.to_path_buf();
-    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        use std::io::{Read, Write};
-        let file = std::fs::File::open(&src)
-            .with_context(|| format!("Failed to open JAR: {}", src.display()))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .with_context(|| format!("Failed to read JAR: {}", src.display()))?;
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let out_file = std::fs::File::create(&dst)
-            .with_context(|| format!("Failed to create unsigned JAR: {}", dst.display()))?;
-        let mut writer = zip::ZipWriter::new(out_file);
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i)?;
-            let name = entry.name().to_string();
-            if name.starts_with("META-INF/")
-                && (name.ends_with(".SF")
-                    || name.ends_with(".RSA")
-                    || name.ends_with(".DSA")
-                    || name.ends_with(".EC"))
-            {
-                continue;
-            }
-            let opts = zip::write::SimpleFileOptions::default()
-                .compression_method(entry.compression());
-            writer.start_file(&name, opts)?;
-            let mut data = Vec::new();
-            entry.read_to_end(&mut data)?;
-            writer.write_all(&data)?;
-        }
-        writer.finish()?;
-        Ok(())
-    })
+    tokio::task::spawn_blocking(move || process_nosig_jar(&src, &dst))
     .await
     .context("JAR signature stripping task failed")??;
     Ok(())
 }
 
+
+fn extract_single_native_jar(jar: &Path, excludes: &[String], natives_dir: &Path) -> anyhow::Result<()> {
+    if !jar.exists() {
+        warn!(jar = %jar.display(), "natives jar does not exist, skipping extraction");
+        return Ok(());
+    }
+    let file = std::fs::File::open(jar)
+        .with_context(|| format!("Failed to open natives jar: {}", jar.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("Failed to read natives jar: {}", jar.display()))?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        if entry.is_dir() || should_skip_native_entry(entry.name(), excludes) {
+            continue;
+        }
+        let Some(rel) = entry.enclosed_name() else {
+            warn!(entry = entry.name(), "Skipping unsafe zip path");
+            continue;
+        };
+        let dest = natives_dir.join(rel);
+        if dest.metadata().is_ok_and(|m| m.len() == entry.size()) {
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&dest)
+            .with_context(|| format!("Failed to write natives: {}", dest.display()))?;
+        std::io::copy(&mut entry, &mut out)?;
+    }
+    Ok(())
+}
+
+fn process_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+    let file = std::fs::File::open(src)
+        .with_context(|| format!("Failed to open JAR: {}", src.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("Failed to read JAR: {}", src.display()))?;
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let out_file = std::fs::File::create(dst)
+        .with_context(|| format!("Failed to create unsigned JAR: {}", dst.display()))?;
+    let mut writer = zip::ZipWriter::new(out_file);
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        if name.starts_with("META-INF/")
+            && (name.ends_with(".SF")
+                || name.ends_with(".RSA")
+                || name.ends_with(".DSA")
+                || name.ends_with(".EC"))
+        {
+            continue;
+        }
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(entry.compression());
+        writer.start_file(&name, opts)?;
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        writer.write_all(&data)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;

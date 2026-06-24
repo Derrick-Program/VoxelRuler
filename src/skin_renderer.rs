@@ -481,52 +481,55 @@ impl SkinRenderer {
                     let w1 = ((p2.y - p0.y) * (px - p2.x) + (p0.x - p2.x) * (py - p2.y)) / denom;
                     let w2 = 1.0 - w0 - w1;
 
-                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                        let z = w0 * p0.z + w1 * p1.z + w2 * p2.z;
-                        let idx = (y * width + x) as usize;
-                        if z < z_buffer[idx] {
-                            let u = w0 * u0 + w1 * u1 + w2 * u2;
-                            let v = w0 * v0 + w1 * v1 + w2 * v2;
+                    if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        continue;
+                    }
 
-                            let pixel = if tex == 0 {
-                                let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
-                                let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
-                                self.image.get_pixel(tx, ty)
-                            } else if let Some(cape) = &self.cape {
-                                let c_w = cape.width() as f32;
-                                let c_h = cape.height() as f32;
-                                let tx = (u * c_w).clamp(0.0, c_w - 1.0) as u32;
-                                let ty = (v * c_h).clamp(0.0, c_h - 1.0) as u32;
-                                cape.get_pixel(tx, ty)
-                            } else {
-                                &image::Rgba([0, 0, 0, 0])
-                            };
+                    let z = w0 * p0.z + w1 * p1.z + w2 * p2.z;
+                    let idx = (y * width + x) as usize;
+                    if z >= z_buffer[idx] {
+                        continue;
+                    }
 
-                            if pixel[3] > 0 {
-                                if pixel[3] < 255 {
-                                    let bg = pixels[idx];
-                                    let alpha = pixel[3] as f32 / 255.0;
-                                    let inv_alpha = 1.0 - alpha;
-                                    pixels[idx] = Rgba8Pixel {
-                                        r: (pixel[0] as f32 * alpha + bg.r as f32 * inv_alpha)
-                                            as u8,
-                                        g: (pixel[1] as f32 * alpha + bg.g as f32 * inv_alpha)
-                                            as u8,
-                                        b: (pixel[2] as f32 * alpha + bg.b as f32 * inv_alpha)
-                                            as u8,
-                                        a: 255,
-                                    };
-                                } else {
-                                    z_buffer[idx] = z;
-                                    pixels[idx] = Rgba8Pixel {
-                                        r: pixel[0],
-                                        g: pixel[1],
-                                        b: pixel[2],
-                                        a: pixel[3],
-                                    };
-                                }
-                            }
-                        }
+                    let u = w0 * u0 + w1 * u1 + w2 * u2;
+                    let v = w0 * v0 + w1 * v1 + w2 * v2;
+
+                    let pixel = if tex == 0 {
+                        let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
+                        let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
+                        self.image.get_pixel(tx, ty)
+                    } else if let Some(cape) = &self.cape {
+                        let c_w = cape.width() as f32;
+                        let c_h = cape.height() as f32;
+                        let tx = (u * c_w).clamp(0.0, c_w - 1.0) as u32;
+                        let ty = (v * c_h).clamp(0.0, c_h - 1.0) as u32;
+                        cape.get_pixel(tx, ty)
+                    } else {
+                        &image::Rgba([0, 0, 0, 0])
+                    };
+
+                    if pixel[3] == 0 {
+                        continue;
+                    }
+
+                    if pixel[3] < 255 {
+                        let bg = pixels[idx];
+                        let alpha = pixel[3] as f32 / 255.0;
+                        let inv_alpha = 1.0 - alpha;
+                        pixels[idx] = Rgba8Pixel {
+                            r: (pixel[0] as f32 * alpha + bg.r as f32 * inv_alpha) as u8,
+                            g: (pixel[1] as f32 * alpha + bg.g as f32 * inv_alpha) as u8,
+                            b: (pixel[2] as f32 * alpha + bg.b as f32 * inv_alpha) as u8,
+                            a: 255,
+                        };
+                    } else {
+                        z_buffer[idx] = z;
+                        pixels[idx] = Rgba8Pixel {
+                            r: pixel[0],
+                            g: pixel[1],
+                            b: pixel[2],
+                            a: pixel[3],
+                        };
                     }
                 }
             }
