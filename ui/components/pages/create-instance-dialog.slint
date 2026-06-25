@@ -5,6 +5,9 @@ import { ComboBox, CheckBox } from "std-widgets.slint";
 export component CreateInstanceDialog inherits Rectangle {
     background: #000000.with-alpha(0.6);
 
+    // Block all clicks on the backdrop from reaching underlying page elements
+    TouchArea { }
+
     Rectangle {
         width: 460px;
         height: 540px;
@@ -129,6 +132,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                 x: 12px; width: parent.width - 24px; height: parent.height;
                                 text <=> InstanceCreateLogic.name;
                                 color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                                accepted => { InstanceCreateLogic.confirm-create(); }
                             }
                             if name-input.text == "": Text {
                                 x: 12px; height: parent.height;

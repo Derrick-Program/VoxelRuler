@@ -186,6 +186,7 @@ async fn main() -> anyhow::Result<()> {
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer())
+            .with(console_subscriber::spawn())
             .init();
     }
     let token_init_attempt = match mc_token::SessionData::load_session() {
