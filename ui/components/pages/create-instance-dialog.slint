@@ -239,7 +239,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                                 width: 8px; height: 8px; x: 6px; y: 6px;
                                                 border-radius: 2px; background: white;
                                             }
-                                            TouchArea { clicked => { InstanceCreateLogic.show-release = !InstanceCreateLogic.show-release; InstanceCreateLogic.filter-versions(); } }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-release = !InstanceCreateLogic.show-release; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
                                         }
                                         Text { text: @tr("Release"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                     }
@@ -254,7 +254,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                                 width: 8px; height: 8px; x: 6px; y: 6px;
                                                 border-radius: 2px; background: white;
                                             }
-                                            TouchArea { clicked => { InstanceCreateLogic.show-snapshot = !InstanceCreateLogic.show-snapshot; InstanceCreateLogic.filter-versions(); } }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-snapshot = !InstanceCreateLogic.show-snapshot; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
                                         }
                                         Text { text: @tr("Snapshot"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                     }
@@ -269,7 +269,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                                 width: 8px; height: 8px; x: 6px; y: 6px;
                                                 border-radius: 2px; background: white;
                                             }
-                                            TouchArea { clicked => { InstanceCreateLogic.show-beta = !InstanceCreateLogic.show-beta; InstanceCreateLogic.filter-versions(); } }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-beta = !InstanceCreateLogic.show-beta; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
                                         }
                                         Text { text: @tr("Beta"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                     }
@@ -288,7 +288,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                                 width: 8px; height: 8px; x: 6px; y: 6px;
                                                 border-radius: 2px; background: white;
                                             }
-                                            TouchArea { clicked => { InstanceCreateLogic.show-alpha = !InstanceCreateLogic.show-alpha; InstanceCreateLogic.filter-versions(); } }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-alpha = !InstanceCreateLogic.show-alpha; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
                                         }
                                         Text { text: @tr("Alpha"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                     }
@@ -303,7 +303,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                                 width: 8px; height: 8px; x: 6px; y: 6px;
                                                 border-radius: 2px; background: white;
                                             }
-                                            TouchArea { clicked => { InstanceCreateLogic.show-experimental = !InstanceCreateLogic.show-experimental; InstanceCreateLogic.filter-versions(); } }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-experimental = !InstanceCreateLogic.show-experimental; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
                                         }
                                         Text { text: @tr("Experimental"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                     }

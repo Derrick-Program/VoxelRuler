@@ -15,6 +15,10 @@ pub fn setup_create_logic(
         let create = ui.global::<InstanceCreateLogic>();
         create.set_name("".into());
         create.set_mod_loader("None".into());
+        create.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(
+            Vec::<slint::SharedString>::new(),
+        ))));
+        create.set_selected_mod_loader_version("".into());
         create.set_xmx("2G".into());
         create.set_xms("512M".into());
         create.set_logs_enabled(true);
@@ -23,6 +27,14 @@ pub fn setup_create_logic(
         create.set_shader_pack("".into());
         create.set_error_msg("".into());
         create.set_active_tab(0);
+        // Reset version filter flags and selection so dialog always opens at latest
+        create.set_show_release(true);
+        create.set_show_snapshot(false);
+        create.set_show_beta(false);
+        create.set_show_alpha(false);
+        create.set_show_experimental(false);
+        create.set_selected_version("".into());
+        create.invoke_filter_versions();
         create.set_show_dialog(true);
     });
 

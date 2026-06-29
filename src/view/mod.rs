@@ -269,17 +269,36 @@ pub async fn open_view() -> anyhow::Result<()> {
                 .collect();
 
             let current_selected = logic.get_selected_version().to_string();
-            let mut found = false;
-            for f in &filtered {
-                if f.as_str() == current_selected {
-                    found = true;
-                    break;
-                }
-            }
+            let found = !current_selected.is_empty()
+                && filtered.iter().any(|f| f.as_str() == current_selected);
 
             if !found {
-                let first = filtered.first().cloned().unwrap_or_default();
-                logic.set_selected_version(first);
+                // Pick latest by priority: release > snapshot > old_beta > old_alpha > experimental
+                let priority: &[(&str, bool)] = &[
+                    ("release", show_release),
+                    ("snapshot", show_snapshot),
+                    ("old_beta", show_beta),
+                    ("old_alpha", show_alpha),
+                    ("experimental", show_experimental),
+                    ("pending", show_experimental),
+                ];
+                let best = priority
+                    .iter()
+                    .filter(|(_, enabled)| *enabled)
+                    .find_map(|(type_str, _)| {
+                        versions
+                            .iter()
+                            .find(|v| v.r#type.as_str() == *type_str)
+                            .and_then(|v| {
+                                filtered
+                                    .iter()
+                                    .find(|f| f.as_str() == v.id.as_str())
+                                    .cloned()
+                            })
+                    })
+                    .or_else(|| filtered.first().cloned())
+                    .unwrap_or_default();
+                logic.set_selected_version(best);
             }
 
             logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
