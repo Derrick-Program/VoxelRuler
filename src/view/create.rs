@@ -15,9 +15,9 @@ pub fn setup_create_logic(
         let create = ui.global::<InstanceCreateLogic>();
         create.set_name("".into());
         create.set_mod_loader("None".into());
-        create.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(
-            Vec::<slint::SharedString>::new(),
-        ))));
+        create.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(Vec::<
+            slint::SharedString,
+        >::new()))));
         create.set_selected_mod_loader_version("".into());
         create.set_xmx("2G".into());
         create.set_xms("512M".into());
