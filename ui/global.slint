@@ -592,6 +592,10 @@ export global InstanceCreateLogic {
     in-out property <string>   selected-mod-loader-version: "";
     callback loader-changed();
 
+    // Scroll-to-selection helpers (set alongside selected-*-version)
+    in-out property <int> selected-version-index: -1;
+    in-out property <int> selected-loader-index: -1;
+
     callback confirm-create();
     callback cancel-create();
 }

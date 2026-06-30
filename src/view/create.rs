@@ -102,6 +102,7 @@ pub fn setup_create_logic(
 
                                     if let Some(first) = slint_versions.first() {
                                         logic.set_selected_mod_loader_version(first.clone());
+                                        logic.set_selected_loader_index(0);
                                     } else {
                                         logic.set_selected_mod_loader_version(
                                             "No available versions".into(),
