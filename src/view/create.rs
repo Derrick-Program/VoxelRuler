@@ -152,6 +152,32 @@ pub fn setup_create_logic(
             return;
         }
 
+        let mod_loader = create.get_mod_loader().to_string();
+        if mod_loader != "None" && !mod_loader.is_empty() {
+            let loader_ver = create.get_selected_mod_loader_version().to_string();
+            match loader_ver.as_str() {
+                "" => {
+                    create.set_error_msg(
+                        format!("Please select a {} version", mod_loader).into(),
+                    );
+                    return;
+                }
+                "No available versions" => {
+                    create.set_error_msg(
+                        format!("{} has no available versions for Minecraft {}", mod_loader, version).into(),
+                    );
+                    return;
+                }
+                "Read failed" => {
+                    create.set_error_msg(
+                        "Failed to load mod loader versions. Please check your network and try again.".into(),
+                    );
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         let config = InstanceConfig {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.trim().to_string(),

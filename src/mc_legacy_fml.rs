@@ -10,6 +10,7 @@ pub fn get_fmllib_filenames(version_id: &str) -> &'static [&'static str] {
     let mc_ver = version_id.split('-').next().unwrap_or(version_id);
 
     match mc_ver {
+        v if v.starts_with("1.3.") => &["argo-2.25.jar", "guava-12.0.1.jar", "asm-all-4.0.jar"],
         v if v.starts_with("1.4.") => &[
             "bcprov-jdk15on-147.jar",
             "argo-2.25.jar",
@@ -74,7 +75,8 @@ pub fn get_fmllib_filenames(version_id: &str) -> &'static [&'static str] {
 }
 
 /// Downloads all required FML libs for the given Forge version into `libraries_dir/fmllibs/`.
-/// Uses best-effort download (no SHA1 verification); skips files that already exist.
+/// Validates that each file is a real JAR/ZIP (PK magic bytes); deletes and re-downloads if
+/// a previously cached file turns out to be an HTML error page.
 pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::Result<()> {
     let filenames = get_fmllib_filenames(version_id);
     if filenames.is_empty() {
@@ -85,8 +87,33 @@ pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::
     for filename in filenames {
         let url = format!("{}{}", PRISM_FMLLIBS_BASE, filename);
         let dest = fmllib_dir.join(filename);
+
+        // If a previously cached file is not a valid ZIP/JAR, delete it so it gets re-fetched.
+        if dest.exists() {
+            let header = tokio::fs::read(&dest).await.unwrap_or_default();
+            if header.len() < 2 || &header[..2] != b"PK" {
+                tracing::warn!(
+                    filename,
+                    "Cached fmllib is not a valid JAR/ZIP (may be an error page), deleting for re-download"
+                );
+                tokio::fs::remove_file(&dest).await.ok();
+            }
+        }
+
         tracing::info!(filename, "Downloading legacy FML dependencies");
         crate::mc_install::download_best_effort(&url, &dest).await?;
+
+        // Verify the downloaded file is a real JAR/ZIP, not an HTML error page.
+        let content = tokio::fs::read(&dest).await?;
+        if content.len() < 2 || &content[..2] != b"PK" {
+            tokio::fs::remove_file(&dest).await.ok();
+            anyhow::bail!(
+                "Legacy FML dependency '{}' downloaded from {} is not a valid JAR/ZIP file \
+                (server may have returned an error page). Please check your network and try again.",
+                filename,
+                url
+            );
+        }
     }
     Ok(())
 }
@@ -121,6 +148,16 @@ pub async fn copy_fmllibs_to_game_dir(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_1_3_x_returns_three_libs() {
+        let libs = get_fmllib_filenames("1.3.2-Forge3.1.50.400");
+        assert_eq!(libs.len(), 3);
+        assert!(libs.contains(&"argo-2.25.jar"));
+        assert!(libs.contains(&"guava-12.0.1.jar"));
+        assert!(libs.contains(&"asm-all-4.0.jar"));
+        assert!(!libs.contains(&"bcprov-jdk15on-147.jar"));
+    }
 
     #[test]
     fn test_1_4_x_returns_four_libs() {
