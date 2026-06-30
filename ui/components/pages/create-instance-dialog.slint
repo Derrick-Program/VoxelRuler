@@ -128,7 +128,7 @@ export component CreateInstanceDialog inherits Rectangle {
                 // Basic
                 if InstanceCreateLogic.active-tab == 0: ScrollView {
                     VerticalLayout {
-                        padding: 20px; spacing: 16px;
+                        padding: 20px; spacing: 16px; alignment: start;
 
                         VerticalLayout {
                             spacing: 6px;
@@ -463,7 +463,7 @@ export component CreateInstanceDialog inherits Rectangle {
 
                 // Advanced
                 if InstanceCreateLogic.active-tab == 1: VerticalLayout {
-                    padding: 20px; spacing: 16px;
+                    padding: 20px; spacing: 16px; alignment: start;
 
                     HorizontalLayout {
                         spacing: 12px;
@@ -535,7 +535,7 @@ export component CreateInstanceDialog inherits Rectangle {
 
                 // Resources
                 if InstanceCreateLogic.active-tab == 2: VerticalLayout {
-                    padding: 20px; spacing: 16px;
+                    padding: 20px; spacing: 16px; alignment: start;
 
                     VerticalLayout {
                         spacing: 6px;
