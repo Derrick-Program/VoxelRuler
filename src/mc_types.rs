@@ -223,24 +223,10 @@ pub struct McRule {
     pub features: Option<McFeatureRule>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum McRuleOS {
-    Windows,
-    Osx,
-    Linux,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum McRuleArch {
-    X86,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McOsRule {
-    pub name: Option<McRuleOS>,
-    pub arch: Option<McRuleArch>,
+    pub name: Option<String>,
+    pub arch: Option<String>,
     pub version: Option<String>,
     #[serde(rename = "versionRange")]
     pub version_range: Option<McVersionRange>,
@@ -267,7 +253,9 @@ pub struct McFeatureRule {
 pub struct McArguments {
     #[serde(rename = "default-user-jvm")]
     pub default_user_jvm: Option<Vec<McArgumentItem>>,
+    #[serde(default)]
     pub game: Vec<McArgumentItem>,
+    #[serde(default)]
     pub jvm: Vec<McArgumentItem>,
 }
 

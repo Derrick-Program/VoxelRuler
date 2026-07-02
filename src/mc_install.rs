@@ -61,13 +61,13 @@ async fn download_and_verify(
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
             let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
-            // warn!(
-            //     attempt,
-            //     max = MAX_RETRIES - 1,
-            //     delay_ms = delay,
-            //     url,
-            //     "Retrying download"
-            // );
+            warn!(
+                attempt,
+                max = MAX_RETRIES - 1,
+                delay_ms = delay,
+                url,
+                "Retrying download"
+            );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
         }
 

@@ -433,10 +433,15 @@ pub fn list_log_files(logs_dir: &Path) -> Vec<String> {
         })
         .collect();
     // latest.log 排最前，其餘倒序（新日期在前）
-    out.sort_by(|a, b| match (a.as_str(), b.as_str()) {
-        ("latest.log", _) => std::cmp::Ordering::Less,
-        (_, "latest.log") => std::cmp::Ordering::Greater,
-        _ => b.cmp(a),
+    out.sort_by(|a, b| {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        match (a.as_str(), b.as_str()) {
+            ("latest.log", _) => std::cmp::Ordering::Less,
+            (_, "latest.log") => std::cmp::Ordering::Greater,
+            _ => b.cmp(a),
+        }
     });
     out
 }

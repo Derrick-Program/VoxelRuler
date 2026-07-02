@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
-use tracing::error;
+use tracing::{error, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
@@ -68,15 +68,38 @@ impl InstanceStore {
         if !self.base_dir.exists() {
             return Ok(Vec::new());
         }
-        let instances = std::fs::read_dir(&self.base_dir)?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let p = e.path().join("instance.toml");
-                p.is_file().then_some(p)
-            })
-            .filter_map(|p| std::fs::read_to_string(p).ok())
-            .filter_map(|c| toml::from_str(&c).ok())
-            .collect();
+
+        let mut instances = Vec::new();
+        for entry_res in std::fs::read_dir(&self.base_dir)? {
+            let entry = match entry_res {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!("Failed to read directory entry: {}", e);
+                    continue;
+                }
+            };
+
+            let path = entry.path().join("instance.toml");
+            if !path.is_file() {
+                continue;
+            }
+
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "Failed to read instance config file");
+                    continue;
+                }
+            };
+
+            match toml::from_str::<InstanceConfig>(&content) {
+                Ok(config) => instances.push(config),
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "Failed to parse instance config TOML, instance ignored");
+                }
+            }
+        }
+
         Ok(instances)
     }
 

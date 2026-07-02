@@ -122,6 +122,8 @@
 - [x] `GLOBAL_CACHE` token 快取機制
 - [x] 多語系支援（zh_TW / en_US）
 - [x] 修復版本相關 lib 缺失（2026-06-11）：舊版 natives classifier 下載＋解壓、macOS jna 升級一致化、啟動前 classpath 缺檔檢查
+- [x] 跨版本圖形崩潰診斷（2026-07-02）：`mc_compat::diagnose_graphics_crash` 特徵表（Intel HD 無加速、GL 3.2 Core、Vulkan 26.2+、Wayland/X11、LWJGL2 macOS、natives 架構不符），遊戲異常退出時自動比對並顯示建議；特徵含 OS 限定避免跨平台誤判；Linux 加 `_JAVA_AWT_WM_NONREPARENTING=1`
+- [x] macOS x64 LWJGL 自動替換（2026-07-02）：1.13–1.18 在 Rosetta / Intel Mac（x86_64 Java）自動換 LWJGL **3.2.3** natives-macos（`LWJGL3_X64_OVERRIDE`，Maven Central），修內建 GLFW 3.2.x 在新版 macOS 的「service port for display」崩潰；不能用 3.3.x（GLFW 3.4 dev 對 1.13.x 的 `glfwSetWindowIcon` 報 error 65548 → 啟動期直接崩）；`macos_override_for(version, arm64_java)` 依 Java 架構自動選表
 
 ---
 

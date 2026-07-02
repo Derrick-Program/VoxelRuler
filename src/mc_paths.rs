@@ -14,74 +14,58 @@ impl McPaths {
         Ok(Self { base })
     }
 
+    /// 確保目錄存在，若建立失敗則記錄警告，避免錯誤被完全遮蔽 (Robustness)
+    fn ensure_dir(path: PathBuf) -> PathBuf {
+        if !path.exists()
+            && let Err(e) = std::fs::create_dir_all(&path)
+        {
+            tracing::warn!(path = %path.display(), error = %e, "Failed to create directory");
+        }
+        path
+    }
+
     pub fn base_dir(&self) -> PathBuf {
         self.base.clone()
     }
 
     pub fn versions_dir(&self) -> PathBuf {
-        let d = self.base.join("versions");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("versions"))
     }
 
     pub fn version_dir(&self, version_id: &str) -> PathBuf {
-        let d = self.versions_dir().join(version_id);
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.versions_dir().join(version_id))
     }
 
     pub fn version_jar(&self, version_id: &str) -> PathBuf {
         let d = self
             .version_dir(version_id)
             .join(format!("{}.jar", version_id));
-        if !d.exists() {
-            std::fs::File::create(&d).ok();
+        if !d.exists()
+            && let Err(e) = std::fs::File::create(&d)
+        {
+            tracing::warn!(path = %d.display(), error = %e, "Failed to create version jar");
         }
         d
     }
 
     pub fn libraries_dir(&self) -> PathBuf {
-        let d = self.base.join("libraries");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("libraries"))
     }
 
     pub fn assets_dir(&self) -> PathBuf {
-        let d = self.base.join("assets");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("assets"))
     }
 
     pub fn asset_indexes_dir(&self) -> PathBuf {
-        let d = self.assets_dir().join("indexes");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.assets_dir().join("indexes"))
     }
 
     pub fn asset_objects_dir(&self) -> PathBuf {
-        let d = self.assets_dir().join("objects");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.assets_dir().join("objects"))
     }
 
     pub fn java_dir(&self, component: &str) -> PathBuf {
-        let d = self.base.join("java").join(component);
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("java").join(component))
     }
 
     pub fn java_bin(&self, component: &str) -> PathBuf {
@@ -100,27 +84,15 @@ impl McPaths {
     }
 
     pub fn instances_base_dir(&self) -> PathBuf {
-        let d = self.base.join("instances");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("instances"))
     }
 
     pub fn instance_dir(&self, instance_id: &str) -> PathBuf {
-        let d = self.base.join("instances").join(instance_id);
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("instances").join(instance_id))
     }
 
     pub fn skins_dir(&self) -> PathBuf {
-        let d = self.base.join("skins");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("skins"))
     }
 
     pub fn skins_history_file(&self) -> PathBuf {
@@ -128,19 +100,11 @@ impl McPaths {
     }
 
     pub fn capes_dir(&self) -> PathBuf {
-        let d = self.base.join("capes");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.base.join("capes"))
     }
 
     pub fn natives_dir(&self, version_id: &str) -> PathBuf {
-        let d = self.version_dir(version_id).join("natives");
-        if !d.exists() {
-            std::fs::create_dir_all(&d).ok();
-        }
-        d
+        Self::ensure_dir(self.version_dir(version_id).join("natives"))
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(unused)]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::marker::PhantomData;
-use tracing::warn;
+use tracing::{error, info, warn};
 
 use crate::mc_types::{
     McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail, McVersion,
@@ -303,8 +303,8 @@ impl McAction<Unauthenticated> {
             .buffer_unordered(5);
         while let Some((id, result)) = stream.next().await {
             match result {
-                Ok(_) => println!("Successfully downloaded: {}", id),
-                Err(e) => eprintln!("Failed to download {}: {}", id, e),
+                Ok(_) => info!("Successfully downloaded: {}", id),
+                Err(e) => error!("Failed to download {}: {}", id, e),
             }
         }
 
@@ -325,7 +325,7 @@ impl McAction<Authenticated> {
             .error_for_status()?
             .json()
             .await
-            .inspect_err(|e| println!("{:#?}", e))?)
+            .inspect_err(|e| error!("Profile parse error: {:#?}", e))?)
     }
 
     pub async fn upload_skin_from_url(&self, url: &str, variant: &str) -> anyhow::Result<()> {

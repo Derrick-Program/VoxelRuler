@@ -16,6 +16,35 @@ use std::process::Child;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info, warn};
 
+/// 離線帳號 / 無法取得線上 profile 時使用的 UUID
+const OFFLINE_UUID: &str = "00000000-0000-0000-0000-000000000000";
+
+/// Java 安裝目錄名稱：與原生架構相同時直接用 component 名，
+/// 跨架構（如 Apple Silicon 退回 Rosetta x64）時加上 os_arch 後綴避免混用
+fn java_runtime_dir_name(component: &str, os_arch: &str, native_arch: &str) -> String {
+    if os_arch == native_arch {
+        component.to_string()
+    } else {
+        format!("{component}-{os_arch}")
+    }
+}
+
+/// 是否需要向 Mojang 查詢線上 profile：離線帳號或無 token 時不查
+fn should_fetch_online_profile(authenticator: &str, token: &str) -> bool {
+    authenticator != "Offline" && !token.is_empty()
+}
+
+/// 依線上查詢結果決定玩家名稱與 UUID；查不到時退回帳號名稱＋離線 UUID
+fn resolve_player_identity(
+    username: &str,
+    online_profile: Option<(String, String)>,
+) -> (String, String) {
+    match online_profile {
+        Some((name, id)) => (name, id),
+        None => (username.to_string(), OFFLINE_UUID.to_string()),
+    }
+}
+
 pub(crate) async fn install_java_runtime(
     api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
     paths: &McPaths,
@@ -44,11 +73,7 @@ pub(crate) async fn install_java_runtime(
     let manifest = manifest
         .with_context(|| format!("Failed to get Java runtime '{component}' ({os_arch}) info"))?;
 
-    let dir_name = if os_arch == native_arch {
-        component.to_string()
-    } else {
-        format!("{component}-{os_arch}")
-    };
+    let dir_name = java_runtime_dir_name(component, &os_arch, native_arch);
     info!(java_dir = ?paths.java_dir(&dir_name), component, %os_arch, "Starting Java installation");
     mc_install::install_java(&manifest, &paths.java_dir(&dir_name), {
         let ui_weak = ui_weak.clone();
@@ -104,7 +129,7 @@ pub(crate) async fn do_launch(
             set_install_state(&ui_weak, true, 0.4, "Using custom Java...", false);
 
             #[cfg(target_os = "macos")]
-            if is_arm_mac && !supports_arm64 {
+            if !supports_arm64 {
                 let probe = p.clone();
                 let archs = tokio::task::spawn_blocking(move || {
                     crate::mc_parser::detect_java_archs(&probe)
@@ -112,24 +137,25 @@ pub(crate) async fn do_launch(
                 .await
                 .unwrap_or_default();
                 info!(?archs, "Custom Java architecture detection");
-                let java_is_arm64 = archs.is_empty() || archs.iter().any(|a| a == "arm64");
-                if java_is_arm64 {
-                    compat = crate::mc_compat::arm64_override_for(&version);
-                    match compat {
-                        Some(ov) => {
-                            info!(
-                                name = ov.name,
-                                "Enabling Apple Silicon native mode (library replacement)"
-                            )
-                        }
-                        None if !archs.iter().any(|a| a == "x86_64") => {
-                            anyhow::bail!(
-                                "This Minecraft version lacks Apple Silicon native libraries and has no replacements.\nRequires x86_64 Java via Rosetta, but selected Java architecture is {}.",
-                                archs.join("/")
-                            );
-                        }
-                        None => {}
+                let java_is_arm64 =
+                    is_arm_mac && (archs.is_empty() || archs.iter().any(|a| a == "arm64"));
+                // x86_64 Java（Rosetta / Intel Mac）也要換 LWJGL 3.3.1：
+                // 內建 GLFW 3.2.x 在新版 macOS 會以 service port 錯誤崩潰
+                compat = crate::mc_compat::macos_override_for(&version, java_is_arm64);
+                match compat {
+                    Some(ov) => {
+                        info!(
+                            name = ov.name,
+                            "macOS compatibility mode (library replacement)"
+                        )
                     }
+                    None if java_is_arm64 && !archs.iter().any(|a| a == "x86_64") => {
+                        anyhow::bail!(
+                            "This Minecraft version lacks Apple Silicon native libraries and has no replacements.\nRequires x86_64 Java via Rosetta, but selected Java architecture is {}.",
+                            archs.join("/")
+                        );
+                    }
+                    None => {}
                 }
             }
 
@@ -165,7 +191,7 @@ pub(crate) async fn do_launch(
                 .unwrap_or_else(|| "jre-legacy".into());
 
             if is_arm_mac && !supports_arm64 {
-                compat = crate::mc_compat::arm64_override_for(&version);
+                compat = crate::mc_compat::macos_override_for(&version, true);
             }
 
             // Mojang 只有 Java 17+（gamma/delta）的 arm64 版；
@@ -186,18 +212,18 @@ pub(crate) async fn do_launch(
                 )
                 .await?;
                 // 官方 arm64 目錄缺貨而 fallback 至 x64 時，
-                // 必須同步取消替換（x64 Java 配 arm64 natives 會炸）→ 改走 Rosetta + 原版函式庫
+                // 必須同步改用 x64 替換表（x64 Java 配 arm64 natives 會炸；
+                // 且 Rosetta 下仍需換 LWJGL 修 GLFW service port 崩潰）
                 if used_arch != requested_arch {
                     warn!(
-                        "arm64 Java unavailable, fell back to x86_64, cancelled library replacement (Rosetta mode)"
+                        "arm64 Java unavailable, fell back to x86_64, switching to x64 library replacement (Rosetta mode)"
                     );
-                    compat = None;
+                    compat = crate::mc_compat::macos_override_for(&version, false);
                 }
                 path
             } else {
                 let os_arch = if is_arm_mac && !supports_arm64 {
-                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta + 原版函式庫
-                    compat = None;
+                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta
                     info!(
                         "This version lacks arm64 natives and arm64 Java, fetching x86_64 Java instead (Rosetta)"
                     );
@@ -205,6 +231,19 @@ pub(crate) async fn do_launch(
                 } else {
                     crate::mc_parser::get_mojang_os_arch()
                 };
+                // x86_64 Java：1.13 以上換 LWJGL 3.2.3（修新版 macOS 的 GLFW
+                // service port 崩潰，Intel Mac 也適用）；≤1.12（LWJGL2）維持原版
+                compat = if cfg!(target_os = "macos") && !supports_arm64 {
+                    crate::mc_compat::macos_override_for(&version, false)
+                } else {
+                    None
+                };
+                if let Some(ov) = compat {
+                    info!(
+                        name = ov.name,
+                        "macOS compatibility mode (library replacement)"
+                    );
+                }
                 actual_java_major = required_java_major;
                 let (path, _) =
                     install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
@@ -213,17 +252,30 @@ pub(crate) async fn do_launch(
         }
     };
 
+    // 預先下載原版客戶端 JAR 與儲存 JSON（Forge installer 需要用到原版 JAR 才能打補丁）
+    let vanilla_version_dir = paths.versions_dir().join(&version_id);
+    tokio::fs::create_dir_all(&vanilla_version_dir).await?;
+    let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
+    let vanilla_json_str = serde_json::to_string(&version)?;
+    tokio::fs::write(&vanilla_json_path, vanilla_json_str).await?;
+
+    info!(versions_dir = ?paths.versions_dir(), "Pre-installing vanilla Minecraft client for Mod Loader");
+    mc_install::install_client(&version, &paths.versions_dir(), {
+        let ui_weak = ui_weak.clone();
+        move |p| {
+            let status = format!("Downloading vanilla client... {:.0}%", p * 100.0);
+            set_install_state(&ui_weak, true, 0.4 + p * 0.1, &status, false);
+        }
+    })
+    .await?;
+
     if config.mod_loader != "None"
         && !config.mod_loader.is_empty()
         && !config.mod_loader_version.is_empty()
     {
-        set_install_state(&ui_weak, true, 0.45, "Installing Mod Loader...", false);
-        let loader_type = match config.mod_loader.as_str() {
-            "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
-            "Forge" => crate::mc_modloader::ModLoaderType::Forge,
-            "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
-            _ => anyhow::bail!("Unknown Mod Loader type: {}", config.mod_loader),
-        };
+        set_install_state(&ui_weak, true, 0.55, "Installing Mod Loader...", false);
+        let loader_type = crate::mc_modloader::ModLoaderType::from_name(&config.mod_loader)
+            .ok_or_else(|| anyhow::anyhow!("Unknown Mod Loader type: {}", config.mod_loader))?;
         let profile_id = crate::mc_modloader::ModLoaderApi::install_modloader(
             loader_type,
             &version_id,
@@ -254,9 +306,19 @@ pub(crate) async fn do_launch(
 
         version = version.merge(modded_version);
         version_id = profile_id;
+
+        // 為了相容 Legacy Forge，將原版 client.jar 複製到 modded 資料夾下作為 classpath 使用
+        let vanilla_jar_path = vanilla_version_dir.join(format!("{}.jar", config.version));
+        let modded_version_dir = paths.versions_dir().join(&version_id);
+        tokio::fs::create_dir_all(&modded_version_dir).await?;
+        let modded_jar_path = modded_version_dir.join(format!("{}.jar", version_id));
+        if vanilla_jar_path.exists() && !modded_jar_path.exists() {
+            tokio::fs::copy(&vanilla_jar_path, &modded_jar_path).await?;
+        }
     }
 
-    info!(versions_dir = ?paths.versions_dir(), "Starting Minecraft client installation");
+    info!(versions_dir = ?paths.versions_dir(), "Checking Minecraft client installation");
+    // 已在前置步驟或是由 modloader 準備好，這裡再次確認或補全（通常會瞬間完成）
     mc_install::install_client(&version, &paths.versions_dir(), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -350,29 +412,18 @@ pub(crate) async fn do_launch(
         .map(|v| v.clone())
         .unwrap_or_default();
 
-    let (player_name, player_uuid) = if active_account_authenticator == "Offline" {
-        (
-            active_account_username.clone(),
-            "00000000-0000-0000-0000-000000000000".into(),
-        )
-    } else if !token.is_empty() {
-        match crate::mc_api::McAction::new()
+    let online_profile = if should_fetch_online_profile(&active_account_authenticator, &token) {
+        crate::mc_api::McAction::new()
             .authenticate(&token)
             .get_user_profile()
             .await
-        {
-            Ok(profile) => (profile.name, profile.id),
-            Err(_) => (
-                active_account_username.clone(),
-                "00000000-0000-0000-0000-000000000000".into(),
-            ),
-        }
+            .ok()
+            .map(|profile| (profile.name, profile.id))
     } else {
-        (
-            active_account_username.clone(),
-            "00000000-0000-0000-0000-000000000000".into(),
-        )
+        None
     };
+    let (player_name, player_uuid) =
+        resolve_player_identity(&active_account_username, online_profile);
 
     let ctx = LaunchContext {
         version,
@@ -537,6 +588,7 @@ pub fn setup_launch_logic(
         launching_lock.insert(instance_id.clone());
         drop(launching_lock);
         tokio::spawn(async move {
+            let logs_watch = Arc::clone(&logs);
             let res = do_launch(
                 config,
                 ui_weak.clone(),
@@ -564,7 +616,34 @@ pub fn setup_launch_logic(
                                 break;
                             };
                             match child.try_wait() {
-                                Ok(Some(_)) | Err(_) => {
+                                Ok(Some(status)) => {
+                                    map.remove(&id_watch);
+                                    drop(map);
+                                    set_instance_status(&ui_weak_watch, &id_watch, "ready");
+                                    // 異常退出：比對已知圖形/函式庫錯誤特徵，給出可行建議
+                                    // （使用者按停止的情況已先從 map 移除，不會走到這裡）
+                                    if !status.success() {
+                                        let lines: Vec<String> = logs_watch
+                                            .lock()
+                                            .unwrap()
+                                            .get(&id_watch)
+                                            .map(|d| d.iter().map(|l| l.text.to_string()).collect())
+                                            .unwrap_or_default();
+                                        let msg = match crate::mc_compat::diagnose_graphics_crash(
+                                            lines.iter().map(String::as_str),
+                                        ) {
+                                            Some(advice) => format!("Game crashed: {advice}"),
+                                            None => format!(
+                                                "Game exited abnormally ({status}). \
+                                                 Check the instance log for details."
+                                            ),
+                                        };
+                                        warn!(instance = %id_watch, "{msg}");
+                                        set_install_state(&ui_weak_watch, true, 0.0, &msg, true);
+                                    }
+                                    break;
+                                }
+                                Err(_) => {
                                     map.remove(&id_watch);
                                     drop(map);
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
@@ -836,4 +915,52 @@ pub fn setup_launch_logic(
             detail.set_show_dialog(false);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_java_runtime_dir_name_native_arch() {
+        assert_eq!(
+            java_runtime_dir_name("java-runtime-gamma", "mac-os-arm64", "mac-os-arm64"),
+            "java-runtime-gamma"
+        );
+    }
+
+    #[test]
+    fn test_java_runtime_dir_name_cross_arch_gets_suffix() {
+        // Apple Silicon 退回 Rosetta x64 時，目錄需帶 os_arch 後綴避免與原生版混用
+        assert_eq!(
+            java_runtime_dir_name("java-runtime-beta", "mac-os", "mac-os-arm64"),
+            "java-runtime-beta-mac-os"
+        );
+    }
+
+    #[test]
+    fn test_should_fetch_online_profile() {
+        assert!(should_fetch_online_profile("Microsoft", "some-token"));
+        // 離線帳號不查線上 profile
+        assert!(!should_fetch_online_profile("Offline", "some-token"));
+        // 無 token 不查
+        assert!(!should_fetch_online_profile("Microsoft", ""));
+    }
+
+    #[test]
+    fn test_resolve_player_identity_online() {
+        let (name, uuid) = resolve_player_identity(
+            "LocalName",
+            Some(("OnlineName".to_string(), "abc-123".to_string())),
+        );
+        assert_eq!(name, "OnlineName");
+        assert_eq!(uuid, "abc-123");
+    }
+
+    #[test]
+    fn test_resolve_player_identity_fallback_to_offline() {
+        let (name, uuid) = resolve_player_identity("LocalName", None);
+        assert_eq!(name, "LocalName");
+        assert_eq!(uuid, OFFLINE_UUID);
+    }
 }

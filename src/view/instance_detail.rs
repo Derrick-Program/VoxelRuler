@@ -544,4 +544,136 @@ mod tests {
         assert_eq!(detail_category_tab("screenshots"), 8);
         assert_eq!(detail_category_tab("settings"), -1); // fallback
     }
+
+    #[test]
+    fn test_parse_ansi_log_line_keyword_fallback() {
+        // 無 ANSI 碼時退回關鍵字比對
+        let err = parse_ansi_log_line("[12:00:00] [main/ERROR]: something broke");
+        assert_eq!((err.color.red(), err.color.green()), (231, 76));
+
+        let warn = parse_ansi_log_line("[12:00:00] [main/WARN]: heads up");
+        assert_eq!((warn.color.red(), warn.color.green()), (241, 196));
+
+        let stack = parse_ansi_log_line("\tat net.minecraft.client.main(Main.java:1)");
+        assert_eq!(stack.color.red(), 231);
+    }
+
+    #[test]
+    fn test_detail_category_dir_mapping() {
+        let paths = McPaths::new().unwrap();
+        let root = paths.instance_dir("abc");
+        assert_eq!(detail_category_dir(&paths, "abc", "root"), root);
+        // "worlds" 是 UI 分類名，實際資料夾是 saves
+        assert_eq!(
+            detail_category_dir(&paths, "abc", "worlds"),
+            root.join("saves")
+        );
+        assert_eq!(
+            detail_category_dir(&paths, "abc", "mods"),
+            root.join("mods")
+        );
+    }
+
+    fn log_line(text: &str) -> crate::view::LogLine {
+        crate::view::LogLine {
+            text: text.into(),
+            color: slint::Color::from_rgb_u8(197, 200, 198),
+        }
+    }
+
+    #[test]
+    fn test_append_log_line_vecmodel_pushes_in_place() {
+        let model: ModelRc<crate::view::LogLine> =
+            ModelRc::from(Rc::new(VecModel::from(vec![log_line("first")])));
+        // VecModel 走快速路徑：就地 push，不需要換 model
+        let replaced = append_log_line(&model, log_line("second"));
+        assert!(replaced.is_none());
+        assert_eq!(model.row_count(), 2);
+        assert_eq!(model.row_data(1).unwrap().text.as_str(), "second");
+    }
+
+    #[test]
+    fn test_append_log_line_non_vecmodel_returns_new_model() {
+        // 非 VecModel（如 FilterModel）走慢速路徑：複製後回傳新 model
+        let inner = Rc::new(VecModel::from(vec![log_line("first")]));
+        let filtered: ModelRc<crate::view::LogLine> =
+            ModelRc::from(Rc::new(slint::FilterModel::new(inner, |_| true)));
+        let replaced =
+            append_log_line(&filtered, log_line("second")).expect("should return new model");
+        assert_eq!(filtered.row_count(), 1); // 原 model 不變
+        assert_eq!(replaced.row_count(), 2);
+        assert_eq!(replaced.row_data(1).unwrap().text.as_str(), "second");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_log_reader_parses_and_stores_lines() {
+        let logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        logs.lock()
+            .unwrap()
+            .insert("inst".to_string(), VecDeque::new());
+
+        let data = "plain line\n\x1b[31mred error\x1b[0m\n";
+        spawn_log_reader(
+            std::io::Cursor::new(data.as_bytes().to_vec()),
+            "inst".to_string(),
+            Arc::clone(&logs),
+            slint::Weak::default(),
+        );
+
+        // spawn_blocking 在背景處理，輪詢等待完成
+        for _ in 0..200 {
+            if logs.lock().unwrap().get("inst").map(|d| d.len()) == Some(2) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let logs_lock = logs.lock().unwrap();
+        let deque = logs_lock.get("inst").unwrap();
+        assert_eq!(deque.len(), 2);
+        assert_eq!(deque[0].text.as_str(), "plain line");
+        // ANSI 碼被剝除、顏色正確解析
+        assert_eq!(deque[1].text.as_str(), "red error");
+        assert_eq!(deque[1].color.red(), 231);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_log_reader_caps_at_500_lines() {
+        let logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        {
+            let mut deque = VecDeque::new();
+            for i in 0..500 {
+                deque.push_back(log_line(&format!("old-{i}")));
+            }
+            logs.lock().unwrap().insert("inst".to_string(), deque);
+        }
+
+        spawn_log_reader(
+            std::io::Cursor::new(b"new line\n".to_vec()),
+            "inst".to_string(),
+            Arc::clone(&logs),
+            slint::Weak::default(),
+        );
+
+        for _ in 0..200 {
+            let done = logs
+                .lock()
+                .unwrap()
+                .get("inst")
+                .is_some_and(|d| d.back().is_some_and(|l| l.text.as_str() == "new line"));
+            if done {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let logs_lock = logs.lock().unwrap();
+        let deque = logs_lock.get("inst").unwrap();
+        // 上限 500：最舊的一行被擠掉
+        assert_eq!(deque.len(), 500);
+        assert_eq!(deque.front().unwrap().text.as_str(), "old-1");
+        assert_eq!(deque.back().unwrap().text.as_str(), "new line");
+    }
 }

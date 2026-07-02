@@ -10,7 +10,7 @@ use tracing::warn;
 
 use crate::mc_types::{
     McArgumentItem, McArgumentValue, McFeatureRule, McLibrary, McOsRule, McRule, McRuleAction,
-    McRuleArch, McRuleOS, McSpecificVersionDetail,
+    McSpecificVersionDetail,
 };
 
 /// macOS（特別是 Apple Silicon）上，過舊的 jna 5.x 會導致原生函式庫載入問題，
@@ -50,10 +50,10 @@ pub fn jna_compat_rel_path(artifact: &str) -> PathBuf {
 /// 若 JSON 缺 `natives` 欄位（例如經過正規化的測試資料），
 /// 退而求其次直接在 classifiers 中猜標準命名。
 pub fn native_classifier_key(lib: &McLibrary) -> Option<String> {
-    let os_key = match OS {
-        "windows" => "windows",
-        "macos" => "osx",
-        "linux" => "linux",
+    let os_keys = match OS {
+        "windows" => vec!["windows"],
+        "macos" => vec!["osx", "macos"],
+        "linux" => vec!["linux"],
         _ => return None,
     };
     let arch = if cfg!(target_pointer_width = "64") {
@@ -61,16 +61,23 @@ pub fn native_classifier_key(lib: &McLibrary) -> Option<String> {
     } else {
         "32"
     };
+
     if let Some(natives) = &lib.natives {
-        return Some(natives.get(os_key)?.replace("${arch}", arch));
+        for key in &os_keys {
+            if let Some(n) = natives.get(*key) {
+                return Some(n.replace("${arch}", arch));
+            }
+        }
     }
+
     let classifiers = lib.downloads.as_ref()?.classifiers.as_ref()?;
-    [
-        format!("natives-{os_key}"),
-        format!("natives-{os_key}-{arch}"),
-    ]
-    .into_iter()
-    .find(|k| classifiers.contains_key(k))
+    for key in &os_keys {
+        let options = [format!("natives-{key}"), format!("natives-{key}-{arch}")];
+        if let Some(k) = options.into_iter().find(|k| classifiers.contains_key(k)) {
+            return Some(k);
+        }
+    }
+    None
 }
 
 #[derive(Debug)]
@@ -112,6 +119,12 @@ impl LaunchContext {
         let mut cmd = Command::new(&self.java_path);
         cmd.current_dir(&self.game_dir);
 
+        if cfg!(target_os = "linux") {
+            // ≤1.12（LWJGL2/AWT）在 tiling WM 與 XWayland 下的灰屏/焦點問題緩解；
+            // 對 LWJGL3 版本無作用、無害
+            cmd.env("_JAVA_AWT_WM_NONREPARENTING", "1");
+        }
+
         if let Some(arguments) = &self.version.arguments {
             // 優先序（後加 = 高優先，dedup 保留最後一筆）：
             //   版本 JSON jvm < default_user_jvm < 明確指定的 Xmx/Xms
@@ -129,6 +142,7 @@ impl LaunchContext {
             ));
             all_jvm.push("-Dfml.ignorePatchDiscrepancies=true".to_string());
             all_jvm.push("-Dfml.ignoreInvalidMinecraftCertificates=true".to_string());
+            all_jvm.push("-Dfml.earlyprogresswindow=false".to_string());
 
             // 去除互斥 flag 的衝突，保留最後（最高優先）那一筆
             let mut all_jvm = dedup_jvm_args(all_jvm);
@@ -167,10 +181,24 @@ impl LaunchContext {
             ));
             cmd.arg("-Dfml.ignorePatchDiscrepancies=true");
             cmd.arg("-Dfml.ignoreInvalidMinecraftCertificates=true");
+            cmd.arg("-Dfml.earlyprogresswindow=false");
             cmd.arg(format!(
                 "-Djava.library.path={}",
                 self.natives_dir.display()
             ));
+
+            let mut compat = self.java_compat_args();
+            if cfg!(target_os = "macos") {
+                let natives_str = self.natives_dir.to_string_lossy().into_owned();
+                compat.push(format!("-Djna.tmpdir={}", natives_str));
+                compat.push(format!(
+                    "-Dorg.lwjgl.system.SharedLibraryExtractPath={}",
+                    natives_str
+                ));
+                compat.push(format!("-Dio.netty.native.workdir={}", natives_str));
+            }
+            cmd.args(compat);
+
             cmd.arg("-cp");
             cmd.arg(classpath);
             cmd.arg(&self.version.main_class);
@@ -434,20 +462,22 @@ pub(crate) fn evaluate_rules(rules: &[McRule]) -> bool {
 
 fn os_rule_matches(os: &McOsRule) -> bool {
     if let Some(name) = &os.name {
-        let ok = match name {
-            McRuleOS::Windows => OS == "windows",
-            McRuleOS::Osx => OS == "macos",
-            McRuleOS::Linux => OS == "linux",
+        let ok = match name.as_str() {
+            "windows" => OS == "windows",
+            "osx" => OS == "macos",
+            "linux" => OS == "linux",
+            _ => false,
         };
         if !ok {
             return false;
         }
     }
     if let Some(arch) = &os.arch {
-        let ok = match arch {
-            McRuleArch::X86 => ARCH == "x86",
-            // McRuleArch::X64 => ARCH == "x86_64",
-            // McRuleArch::Arm64 => ARCH == "aarch64",
+        let ok = match arch.as_str() {
+            "x86" => ARCH == "x86",
+            "x64" | "x86_64" => ARCH == "x86_64",
+            "arm64" | "aarch64" => ARCH == "aarch64",
+            _ => false,
         };
         if !ok {
             return false;
@@ -651,6 +681,7 @@ where
     .into_owned()
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
     use crate::mc_types::{McJavaAll, McSpecificVersionDetail};
@@ -682,6 +713,62 @@ mod test {
     async fn test_parse_mc_specific_version_detail() {
         let v = load_version("data/26.1.2.json");
         println!("Complete struct: {:#?}", v.arguments.unwrap().jvm);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_old_versions() {
+        let api = crate::mc_api::McAction::new();
+
+        let v13 = api.get_specific_mc_version_detail("1.13.2").await;
+        println!("1.13.2 result: {}", v13.is_ok());
+        if let Err(e) = v13 {
+            println!("1.13.2 err: {:?}", e);
+        }
+
+        let v8 = api.get_specific_mc_version_detail("1.8.4").await;
+        println!("1.8.4 result: {}", v8.is_ok());
+        if let Err(e) = v8 {
+            println!("1.8.4 err: {:?}", e);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_all_versions_parse() {
+        let client = reqwest::Client::new();
+        let manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+        let manifest: serde_json::Value = client
+            .get(manifest_url)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        let versions = manifest["versions"].as_array().unwrap();
+        println!("Checking {} versions...", versions.len());
+
+        let mut failures = 0;
+        let mut n = 0;
+        for v in versions {
+            let id = v["id"].as_str().unwrap().to_string();
+            let url = v["url"].as_str().unwrap().to_string();
+
+            let text = client.get(&url).send().await.unwrap().text().await.unwrap();
+            let parsed: Result<crate::mc_types::McSpecificVersionDetail, _> =
+                serde_json::from_str(&text);
+            if let Err(e) = parsed {
+                println!("{} failed: {}", id, e);
+                failures += 1;
+            }
+            n += 1;
+            if n % 100 == 0 {
+                println!("Checked {}/{} versions", n, versions.len());
+            }
+        }
+
+        assert_eq!(failures, 0, "Found {} parsing failures", failures);
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::Path;
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -16,23 +17,40 @@ pub struct SkinHistory {
 }
 
 impl SkinHistory {
-    pub fn load(path: &PathBuf) -> Self {
-        if let Ok(data) = std::fs::read_to_string(path)
-            && let Ok(h) = serde_json::from_str(&data)
-        {
-            return h;
+    /// 讀取皮膚歷史紀錄，失敗時回傳預設值並記錄警告
+    pub fn load(path: &Path) -> Self {
+        if path.exists() {
+            match std::fs::read_to_string(path) {
+                Ok(data) => match serde_json::from_str(&data) {
+                    Ok(h) => return h,
+                    Err(e) => {
+                        warn!(path = %path.display(), error = %e, "Failed to parse skin history JSON, falling back to default")
+                    }
+                },
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "Failed to read skin history file, falling back to default")
+                }
+            }
         }
+
         let history = Self::default();
-        let _ = history.save(path);
+        if let Err(e) = history.save(path) {
+            warn!(path = %path.display(), error = %e, "Failed to save default skin history");
+        }
         history
     }
 
-    pub fn save(&self, path: &PathBuf) -> anyhow::Result<()> {
+    /// 儲存皮膚歷史紀錄
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let data = serde_json::to_string_pretty(self)?;
         std::fs::write(path, data)?;
         Ok(())
     }
 
+    /// 加入一筆新的皮膚紀錄，若 URL 已存在則忽略 (Deduplication)
     pub fn add_skin(&mut self, entry: SkinEntry) {
         if !self.skins.iter().any(|s| s.url == entry.url) {
             self.skins.push(entry);

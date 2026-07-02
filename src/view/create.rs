@@ -2,6 +2,41 @@ use super::*;
 
 use slint::{ModelRc, VecModel};
 use std::rc::Rc;
+
+/// 驗證建立實例的輸入，回傳第一個錯誤訊息；全部通過則回傳 Ok
+pub(crate) fn validate_create_input(
+    name: &str,
+    version: &str,
+    mod_loader: &str,
+    loader_version: &str,
+) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("Instance name cannot be empty".to_string());
+    }
+    if version.is_empty() {
+        return Err("Please select Minecraft version".to_string());
+    }
+    if mod_loader != "None" && !mod_loader.is_empty() {
+        match loader_version {
+            "" => return Err(format!("Please select a {} version", mod_loader)),
+            "No available versions" => {
+                return Err(format!(
+                    "{} has no available versions for Minecraft {}",
+                    mod_loader, version
+                ));
+            }
+            "Read failed" => {
+                return Err(
+                    "Failed to load mod loader versions. Please check your network and try again."
+                        .to_string(),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub fn setup_create_logic(
     ui: &MainApp,
     store: std::sync::Arc<std::sync::Mutex<crate::mc_instance::InstanceStore>>,
@@ -70,11 +105,10 @@ pub fn setup_create_logic(
                     return;
                 }
 
-                let loader_type = match mod_loader_str.as_str() {
-                    "Fabric" => crate::mc_modloader::ModLoaderType::Fabric,
-                    "Forge" => crate::mc_modloader::ModLoaderType::Forge,
-                    "NeoForge" => crate::mc_modloader::ModLoaderType::NeoForge,
-                    _ => return,
+                let Some(loader_type) =
+                    crate::mc_modloader::ModLoaderType::from_name(&mod_loader_str)
+                else {
+                    return;
                 };
 
                 logic.set_is_loading(true);
@@ -88,6 +122,8 @@ pub fn setup_create_logic(
                     .await
                     {
                         Ok(versions) => {
+                            let default_idx =
+                                crate::mc_modloader::ModLoaderApi::default_version_index(&versions);
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_handle_inner.upgrade() {
                                     let logic = ui.global::<InstanceCreateLogic>();
@@ -100,9 +136,9 @@ pub fn setup_create_logic(
                                     )));
                                     logic.set_mod_loader_versions(model);
 
-                                    if let Some(first) = slint_versions.first() {
-                                        logic.set_selected_mod_loader_version(first.clone());
-                                        logic.set_selected_loader_index(0);
+                                    if let Some(default_ver) = slint_versions.get(default_idx) {
+                                        logic.set_selected_mod_loader_version(default_ver.clone());
+                                        logic.set_selected_loader_index(default_idx as i32);
                                     } else {
                                         logic.set_selected_mod_loader_version(
                                             "No available versions".into(),
@@ -142,40 +178,12 @@ pub fn setup_create_logic(
 
         let name = create.get_name().to_string();
         let version = create.get_selected_version().to_string();
-
-        if name.trim().is_empty() {
-            create.set_error_msg("Instance name cannot be empty".into());
-            return;
-        }
-        if version.is_empty() {
-            create.set_error_msg("Please select Minecraft version".into());
-            return;
-        }
-
         let mod_loader = create.get_mod_loader().to_string();
-        if mod_loader != "None" && !mod_loader.is_empty() {
-            let loader_ver = create.get_selected_mod_loader_version().to_string();
-            match loader_ver.as_str() {
-                "" => {
-                    create.set_error_msg(
-                        format!("Please select a {} version", mod_loader).into(),
-                    );
-                    return;
-                }
-                "No available versions" => {
-                    create.set_error_msg(
-                        format!("{} has no available versions for Minecraft {}", mod_loader, version).into(),
-                    );
-                    return;
-                }
-                "Read failed" => {
-                    create.set_error_msg(
-                        "Failed to load mod loader versions. Please check your network and try again.".into(),
-                    );
-                    return;
-                }
-                _ => {}
-            }
+        let loader_ver = create.get_selected_mod_loader_version().to_string();
+
+        if let Err(msg) = validate_create_input(&name, &version, &mod_loader, &loader_ver) {
+            create.set_error_msg(msg.into());
+            return;
         }
 
         let config = InstanceConfig {
@@ -206,4 +214,52 @@ pub fn setup_create_logic(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_create_input;
+
+    #[test]
+    fn test_empty_name_rejected() {
+        let err = validate_create_input("   ", "1.20.4", "None", "").unwrap_err();
+        assert!(err.contains("name"));
+    }
+
+    #[test]
+    fn test_missing_version_rejected() {
+        let err = validate_create_input("My Instance", "", "None", "").unwrap_err();
+        assert!(err.contains("Minecraft version"));
+    }
+
+    #[test]
+    fn test_vanilla_without_loader_version_ok() {
+        // mod loader 為 None 或空字串時不檢查 loader 版本
+        assert!(validate_create_input("My Instance", "1.20.4", "None", "").is_ok());
+        assert!(validate_create_input("My Instance", "1.20.4", "", "").is_ok());
+    }
+
+    #[test]
+    fn test_loader_selected_but_no_version_rejected() {
+        let err = validate_create_input("My Instance", "1.20.4", "Forge", "").unwrap_err();
+        assert!(err.contains("Forge"));
+    }
+
+    #[test]
+    fn test_loader_placeholder_values_rejected() {
+        // 下拉選單的佔位字串不可當成版本送出
+        let err =
+            validate_create_input("A", "1.20.4", "Fabric", "No available versions").unwrap_err();
+        assert!(err.contains("Fabric") && err.contains("1.20.4"));
+
+        let err = validate_create_input("A", "1.20.4", "Forge", "Read failed").unwrap_err();
+        assert!(err.contains("network"));
+    }
+
+    #[test]
+    fn test_valid_loader_version_ok() {
+        assert!(
+            validate_create_input("A", "1.20.4", "Forge", "1.20.4-49.0.50 (Recommended)").is_ok()
+        );
+    }
 }

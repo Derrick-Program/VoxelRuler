@@ -47,6 +47,16 @@ impl ModLoaderType {
             ModLoaderType::Fabric => "fabric",
         }
     }
+
+    /// UI 顯示名稱（InstanceConfig.mod_loader）→ ModLoaderType；"None" 或未知回傳 None
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Forge" => Some(ModLoaderType::Forge),
+            "NeoForge" => Some(ModLoaderType::NeoForge),
+            "Fabric" => Some(ModLoaderType::Fabric),
+            _ => None,
+        }
+    }
 }
 
 pub struct ModLoaderApi;
@@ -157,6 +167,16 @@ impl ModLoaderApi {
                 }
             })
             .collect())
+    }
+
+    /// 依標記挑選預設版本索引：Recommended > Stable > Latest > 第一項
+    pub fn default_version_index(versions: &[String]) -> usize {
+        for marker in ["(Recommended)", "(Stable)", "(Latest)"] {
+            if let Some(i) = versions.iter().position(|v| v.ends_with(marker)) {
+                return i;
+            }
+        }
+        0
     }
 
     /// 從官方 Maven 下載 XML，並根據前綴進行篩選
@@ -699,6 +719,233 @@ impl ModLoaderApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 在 mc_dir 下預先建立 versions/<id>/<id>.json，模擬「已安裝」狀態
+    fn create_fake_profile(mc_dir: &std::path::Path, profile_id: &str) -> std::path::PathBuf {
+        let dir = mc_dir.join("versions").join(profile_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let json_path = dir.join(format!("{}.json", profile_id));
+        std::fs::write(&json_path, "{}").unwrap();
+        json_path
+    }
+
+    /// 建立一個記憶體中的 zip，內含指定路徑的檔案
+    fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut buf);
+            let options = zip::write::SimpleFileOptions::default();
+            for (name, data) in entries {
+                writer.start_file(*name, options).unwrap();
+                writer.write_all(data).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    // === 純函式（同步）===
+
+    #[test]
+    fn test_from_name() {
+        assert_eq!(
+            ModLoaderType::from_name("Forge"),
+            Some(ModLoaderType::Forge)
+        );
+        assert_eq!(
+            ModLoaderType::from_name("NeoForge"),
+            Some(ModLoaderType::NeoForge)
+        );
+        assert_eq!(
+            ModLoaderType::from_name("Fabric"),
+            Some(ModLoaderType::Fabric)
+        );
+        assert_eq!(ModLoaderType::from_name("None"), None);
+        assert_eq!(ModLoaderType::from_name(""), None);
+        assert_eq!(ModLoaderType::from_name("forge"), None); // 大小寫敏感
+    }
+
+    #[test]
+    fn test_default_version_index_priority() {
+        // Recommended > Stable > Latest > 第一項
+        let versions = vec![
+            "49.0.50".to_string(),
+            "49.0.30 (Latest)".to_string(),
+            "49.0.10 (Stable)".to_string(),
+            "49.0.3 (Recommended)".to_string(),
+        ];
+        assert_eq!(ModLoaderApi::default_version_index(&versions), 3);
+
+        let versions = vec!["0.15.7 (Beta)".to_string(), "0.15.6 (Stable)".to_string()];
+        assert_eq!(ModLoaderApi::default_version_index(&versions), 1);
+
+        let versions = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(ModLoaderApi::default_version_index(&versions), 0);
+    }
+
+    #[test]
+    fn test_get_neoforge_prefix() {
+        assert_eq!(ModLoaderApi::get_neoforge_prefix("1.20.4"), "20.4.");
+        assert_eq!(ModLoaderApi::get_neoforge_prefix("1.21"), "21.0.");
+        assert_eq!(ModLoaderApi::get_neoforge_prefix("26.1"), "26.1.");
+    }
+
+    #[test]
+    fn test_maven_coords_to_path() {
+        assert_eq!(
+            ModLoaderApi::maven_coords_to_path("net.minecraftforge:forge:1.12.2-14.23.5.2859"),
+            std::path::Path::new(
+                "net/minecraftforge/forge/1.12.2-14.23.5.2859/forge-1.12.2-14.23.5.2859.jar"
+            )
+        );
+        assert_eq!(
+            ModLoaderApi::maven_coords_to_path("org.lwjgl:lwjgl:3.2.3:natives-macos"),
+            std::path::Path::new("org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3-natives-macos.jar")
+        );
+        // 格式不完整時原樣回傳
+        assert_eq!(
+            ModLoaderApi::maven_coords_to_path("broken"),
+            std::path::Path::new("broken")
+        );
+    }
+
+    // === 安裝流程（非同步，不需網路）===
+
+    #[tokio::test]
+    async fn test_install_fabric_skips_when_profile_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let profile_id = "fabric-loader-0.15.7-1.20.4";
+        create_fake_profile(tmp.path(), profile_id);
+
+        // 已存在時應直接回傳，不發出任何網路請求
+        let result = ModLoaderApi::install_fabric("1.20.4", "0.15.7", tmp.path())
+            .await
+            .unwrap();
+        assert_eq!(result, profile_id);
+    }
+
+    #[tokio::test]
+    async fn test_install_neoforge_skips_when_profile_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let profile_id = "neoforge-20.4.237";
+        create_fake_profile(tmp.path(), profile_id);
+
+        // 已存在時應直接回傳，不下載 installer、不執行 Java
+        let result = ModLoaderApi::install_neoforge(
+            "1.20.4",
+            "20.4.237",
+            std::path::Path::new("/nonexistent/java"),
+            tmp.path(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, profile_id);
+    }
+
+    #[tokio::test]
+    async fn test_install_legacy_forge_skips_when_profile_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        // loader_version "1.4.7-6.6.2.534" → effective_id "1.4.7-forge-6.6.2.534"
+        let profile_id = "1.4.7-forge-6.6.2.534";
+        create_fake_profile(tmp.path(), profile_id);
+
+        let result = ModLoaderApi::install_legacy_forge_without_installer(
+            "1.4.7",
+            "1.4.7-6.6.2.534",
+            tmp.path(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, profile_id);
+    }
+
+    #[tokio::test]
+    async fn test_install_modloader_strips_display_suffix() {
+        let tmp = tempfile::tempdir().unwrap();
+        // UI 傳入的版本字串帶有 " (Stable)" 標記，install_modloader 應先清理
+        let profile_id = "fabric-loader-0.15.7-1.20.4";
+        create_fake_profile(tmp.path(), profile_id);
+
+        let result = ModLoaderApi::install_modloader(
+            ModLoaderType::Fabric,
+            "1.20.4",
+            "0.15.7 (Stable)",
+            std::path::Path::new("/nonexistent/java"),
+            tmp.path(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, profile_id);
+    }
+
+    #[tokio::test]
+    async fn test_install_legacy_client_zip_extracts_minecraft_jar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let effective_id = "1.2.5-forge-3.4.9.171";
+        let json_path = tmp
+            .path()
+            .join("versions")
+            .join(effective_id)
+            .join(format!("{}.json", effective_id));
+
+        let jar_content = b"fake-jar-bytes";
+        let zip_bytes = build_zip(&[("bin/minecraft.jar", jar_content.as_slice())]);
+
+        let result = ModLoaderApi::install_legacy_client_zip(
+            "1.2.5",
+            "1.2.5-3.4.9.171",
+            tmp.path(),
+            effective_id,
+            &json_path,
+            &zip_bytes,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, effective_id);
+
+        // 版本 JAR 應為 zip 內的 minecraft.jar
+        let jar_path = tmp
+            .path()
+            .join("versions")
+            .join(effective_id)
+            .join(format!("{}.jar", effective_id));
+        assert_eq!(std::fs::read(&jar_path).unwrap(), jar_content);
+
+        // 版本 JSON：inheritsFrom 正確、downloads 為空物件（避免覆蓋 JAR）
+        let profile: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+        assert_eq!(profile["id"], effective_id);
+        assert_eq!(profile["inheritsFrom"], "1.2.5");
+        assert!(profile["downloads"].as_object().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_install_legacy_client_zip_rejects_zip_without_jar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let effective_id = "1.2.5-forge-3.4.9.171";
+        let json_path = tmp
+            .path()
+            .join("versions")
+            .join(effective_id)
+            .join(format!("{}.json", effective_id));
+
+        let zip_bytes = build_zip(&[("readme.txt", b"nothing here".as_slice())]);
+
+        let err = ModLoaderApi::install_legacy_client_zip(
+            "1.2.5",
+            "1.2.5-3.4.9.171",
+            tmp.path(),
+            effective_id,
+            &json_path,
+            &zip_bytes,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("minecraft.jar"));
+    }
+
+    // === 版本清單 API（需網路）===
 
     #[tokio::test]
     async fn test_get_fabric_versions() {

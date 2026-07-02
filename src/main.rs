@@ -83,6 +83,43 @@ static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(DashMap::
 static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
 
+/// 設定應用程式日誌系統
+fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
+    #[cfg(not(debug_assertions))]
+    {
+        let log_dir = PROJECT_DIR
+            .as_ref()
+            .map(|d| d.data_dir().to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        std::fs::create_dir_all(&log_dir).ok();
+        let file_appender = tracing_appender::rolling::never(&log_dir, "voxelruler.log");
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=info"))
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
+            .init();
+        Some(guard)
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"))
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer())
+            .with(console_subscriber::spawn())
+            .init();
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ── Deep Link 處理與單一實例 (Single Instance) IPC ────────────────────
@@ -134,61 +171,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     });
-    // ── Logging 模式 ──────────────────────────────────────────
-    //
-    //  【預設（不設 RUST_LOG）】
-    //    debug build   → voxelruler=debug  只看自己 app 的 debug+
-    //    release build → voxelruler=info   只看自己 app 的 info+
-    //
-    //  【看所有 crate】
-    //    RUST_LOG=debug / RUST_LOG=info
-    //
-    //  【混合模式】
-    //    RUST_LOG=voxelruler=debug,reqwest=warn,tokio=info
-    //
-    //  Log 檔案位置（release）：
-    //    macOS   → ~/Library/Logs/VoxelRuler/voxelruler.log
-    //    Windows → %APPDATA%\Duacodie\VoxelRuler\logs\voxelruler.log
-    //    Linux   → ~/.local/share/VoxelRuler/voxelruler.log
-    //    即時查看：tail -f <上述路徑>
-    // ──────────────────────────────────────────────────────────
-    use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-
-    // release build：寫入 log 檔案
-    #[cfg(not(debug_assertions))]
-    let _file_guard = {
-        let log_dir = PROJECT_DIR
-            .as_ref()
-            .map(|d| d.data_dir().to_path_buf())
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        std::fs::create_dir_all(&log_dir).ok();
-        let file_appender = tracing_appender::rolling::never(&log_dir, "voxelruler.log");
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("voxelruler=info"))
-            // slint 1.16 的文字引擎（parley/ICU4X）遇到 CJK 會狂噴
-            // 「No segmentation model for language: ja」— 無害（僅斷詞品質降級），直接靜音
-            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
-            .init();
-        guard
-    };
-
-    // debug build：輸出到 terminal + tokio-console
-    #[cfg(debug_assertions)]
-    {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"))
-            // 同 release：靜音 ICU4X 的 CJK 斷詞警告（無害，cjdict 未隨 slint 打包）
-            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(tracing_subscriber::fmt::layer())
-            .with(console_subscriber::spawn())
-            .init();
-    }
+    // 初始化日誌系統
+    let _file_guard = setup_logging();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
             if *s.mc_token_expires_at() >= chrono::Utc::now().timestamp() {
