@@ -31,6 +31,9 @@ pub struct InstanceConfig {
     /// 自訂 Java 執行檔路徑（僅 java_mode = "custom" 時生效）
     #[serde(default)]
     pub java_path: String,
+    /// 建立時間（Unix 秒）。0 表示舊實例缺此欄位，排序時 fallback 檔案時間
+    #[serde(default)]
+    pub created_at: i64,
 }
 
 impl Default for InstanceConfig {
@@ -51,6 +54,7 @@ impl Default for InstanceConfig {
             play_time_secs: 0,
             java_mode: String::new(),
             java_path: String::new(),
+            created_at: 0,
         }
     }
 }
@@ -93,14 +97,31 @@ impl InstanceStore {
             };
 
             match toml::from_str::<InstanceConfig>(&content) {
-                Ok(config) => instances.push(config),
+                Ok(config) => {
+                    // 排序鍵優先用持久化的 created_at；舊實例（0）fallback 檔案時間。
+                    // 不能只靠檔案時間：save_one 每次編輯都重寫 TOML，
+                    // 在 created() 不支援的檔案系統會 fallback mtime，編輯後排序會跳動
+                    let sort_key = if config.created_at > 0 {
+                        config.created_at
+                    } else {
+                        std::fs::metadata(&path)
+                            .and_then(|m| m.created().or_else(|_| m.modified()))
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0)
+                    };
+                    instances.push((config, sort_key));
+                }
                 Err(e) => {
                     warn!(path = %path.display(), error = %e, "Failed to parse instance config TOML, instance ignored");
                 }
             }
         }
 
-        Ok(instances)
+        // 依建立時間新到舊；UI 各更新路徑直接使用此順序，不得再反轉
+        instances.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(instances.into_iter().map(|(c, _)| c).collect())
     }
 
     pub fn save_one(&self, instance: &InstanceConfig) -> anyhow::Result<()> {
@@ -215,6 +236,7 @@ mod tests {
             play_time_secs: 3600,
             java_mode: "custom".into(),
             java_path: "/custom/java/bin/java".into(),
+            created_at: 1_700_000_000,
         };
         store.append(cfg).unwrap();
         let loaded = store.load().unwrap();
@@ -228,6 +250,31 @@ mod tests {
         assert_eq!(c.play_time_secs, 3600);
         assert_eq!(c.java_mode, "custom");
         assert_eq!(c.java_path, "/custom/java/bin/java");
+        assert_eq!(c.created_at, 1_700_000_000);
+    }
+
+    #[test]
+    fn test_load_sorts_by_created_at_newest_first() {
+        let (store, _dir) = tmp_store();
+        let old = InstanceConfig {
+            id: "old".into(),
+            name: "Old".into(),
+            created_at: 100,
+            ..Default::default()
+        };
+        let new = InstanceConfig {
+            id: "new".into(),
+            name: "New".into(),
+            created_at: 200,
+            ..Default::default()
+        };
+        store.save_one(&old).unwrap();
+        store.save_one(&new).unwrap();
+
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].id, "new", "newest instance should come first");
+        assert_eq!(loaded[1].id, "old");
     }
 
     #[test]

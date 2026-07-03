@@ -147,7 +147,21 @@ pub(crate) async fn do_launch(
                         info!(
                             name = ov.name,
                             "macOS compatibility mode (library replacement)"
-                        )
+                        );
+                        // 自訂 arm64 Java + 1.13–1.18 = LWJGL 3.3.1 arm64：
+                        // 原版無條件 setIcon → GLFW error 65548 開機必炸
+                        //（除非有 mod 修補）；預警並放行，崩潰後由
+                        // diagnose_graphics_crash 給出改用預設 Java 的建議
+                        if java_is_arm64
+                            && version
+                                .libraries
+                                .iter()
+                                .any(|l| l.name.starts_with("org.lwjgl:"))
+                        {
+                            warn!(
+                                "1.13-1.18 vanilla sets a window icon at boot; arm64 LWJGL 3.3.1 (GLFW 3.4) reports error 65548 and the game exits. Set this instance's Java to 'Follow Minecraft' to use Rosetta + LWJGL 3.2.3 instead."
+                            );
+                        }
                     }
                     None if java_is_arm64 && !archs.iter().any(|a| a == "x86_64") => {
                         anyhow::bail!(
@@ -190,65 +204,35 @@ pub(crate) async fn do_launch(
                 .map(|j| j.component.clone())
                 .unwrap_or_else(|| "jre-legacy".into());
 
-            if is_arm_mac && !supports_arm64 {
-                compat = crate::mc_compat::macos_override_for(&version, true);
-            }
-
-            // Mojang 只有 Java 17+（gamma/delta）的 arm64 版；
-            // 版本需求 >= 16（1.17–1.18）才能走原生模式，否則退回 Rosetta
-            if compat.is_some() && required_java_major.is_some_and(|m| m >= 16) {
-                info!(
-                    name = compat.map(|o| o.name),
-                    "Apple Silicon native mode: using arm64 java-runtime-gamma"
-                );
-                actual_java_major = Some(17);
-                let requested_arch = crate::mc_parser::get_mojang_os_arch();
-                let (path, used_arch) = install_java_runtime(
-                    &api,
-                    &paths,
-                    "java-runtime-gamma",
-                    requested_arch,
-                    &ui_weak,
-                )
-                .await?;
-                // 官方 arm64 目錄缺貨而 fallback 至 x64 時，
-                // 必須同步改用 x64 替換表（x64 Java 配 arm64 natives 會炸；
-                // 且 Rosetta 下仍需換 LWJGL 修 GLFW service port 崩潰）
-                if used_arch != requested_arch {
-                    warn!(
-                        "arm64 Java unavailable, fell back to x86_64, switching to x64 library replacement (Rosetta mode)"
-                    );
-                    compat = crate::mc_compat::macos_override_for(&version, false);
-                }
-                path
+            // 1.13–1.18 不走 arm64 原生模式（LWJGL 3.3.1）：這些版本在開機階段
+            // 無條件呼叫 glfwSetWindowIcon（macOS guard 是 1.19 改用 3.3.1 時
+            // 才加入），而 3.3.1 內建 GLFW 3.4 dev 對此回報 error 65548，
+            // boot error callback 直接視為致命 → 遊戲必定開不起來。
+            // 一律改用 x86_64 Java（Rosetta）＋ LWJGL 3.2.3
+            //（GLFW 3.3.1 對 setIcon 靜默忽略，MultiMC 標準解法）
+            let os_arch = if is_arm_mac && !supports_arm64 {
+                info!("Version lacks arm64-safe libraries, fetching x86_64 Java instead (Rosetta)");
+                "mac-os"
             } else {
-                let os_arch = if is_arm_mac && !supports_arm64 {
-                    // 舊版需 Java 8，Mojang 無 arm64 版 → Rosetta
-                    info!(
-                        "This version lacks arm64 natives and arm64 Java, fetching x86_64 Java instead (Rosetta)"
-                    );
-                    "mac-os"
-                } else {
-                    crate::mc_parser::get_mojang_os_arch()
-                };
-                // x86_64 Java：1.13 以上換 LWJGL 3.2.3（修新版 macOS 的 GLFW
-                // service port 崩潰，Intel Mac 也適用）；≤1.12（LWJGL2）維持原版
-                compat = if cfg!(target_os = "macos") && !supports_arm64 {
-                    crate::mc_compat::macos_override_for(&version, false)
-                } else {
-                    None
-                };
-                if let Some(ov) = compat {
-                    info!(
-                        name = ov.name,
-                        "macOS compatibility mode (library replacement)"
-                    );
-                }
-                actual_java_major = required_java_major;
-                let (path, _) =
-                    install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
-                path
+                crate::mc_parser::get_mojang_os_arch()
+            };
+            // x86_64 Java：1.13 以上換 LWJGL 3.2.3（修新版 macOS 的 GLFW
+            // service port 崩潰，Intel Mac 也適用）；≤1.12（LWJGL2）維持原版
+            compat = if cfg!(target_os = "macos") && !supports_arm64 {
+                crate::mc_compat::macos_override_for(&version, false)
+            } else {
+                None
+            };
+            if let Some(ov) = compat {
+                info!(
+                    name = ov.name,
+                    "macOS compatibility mode (library replacement)"
+                );
             }
+            actual_java_major = required_java_major;
+            let (path, _) =
+                install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
+            path
         }
     };
 
@@ -515,16 +499,28 @@ pub fn setup_launch_logic(
     let logic = ui.global::<InstanceLogic>();
     let master_for_search = Arc::clone(&master_configs);
     let ui_weak_for_search = ui.as_weak();
+    let running_procs_for_search = Arc::clone(&running_procs);
     logic.on_search_changed(move |text| {
         let Some(ui) = ui_weak_for_search.upgrade() else {
             return;
         };
         let logic = ui.global::<InstanceLogic>();
         let configs = master_for_search.lock().unwrap();
+        let running_ids: std::collections::HashSet<String> = running_procs_for_search
+            .lock()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
+        let needle = text.to_lowercase();
         let filtered: Vec<InstanceData> = configs
             .iter()
-            .filter(|c| text.is_empty() || c.name.to_lowercase().contains(&text.to_lowercase()))
-            .map(config_to_ui_data)
+            .filter(|c| needle.is_empty() || c.name.to_lowercase().contains(&needle))
+            .map(|c| {
+                let mut item = config_to_ui_data(c);
+                if running_ids.contains(&c.id) {
+                    item.status = "running".into();
+                }
+                item
+            })
             .collect();
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
     });
@@ -571,19 +567,21 @@ pub fn setup_launch_logic(
         let launching_procs = Arc::clone(&launching_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
-        if !running_procs.lock().unwrap().is_empty() {
+        let mut launching_lock = launching_procs.lock().unwrap();
+        if launching_lock.contains(&instance_id) {
+            return; // 同一個實例已在啟動中，不重複觸發
+        }
+        // 啟動（安裝）階段序列化：進度條是全域單一元件，兩個實例同時
+        // 走安裝流程會互搶進度顯示；已在執行中的遊戲不受此限（可多開）
+        if !launching_lock.is_empty() {
             set_install_state(
                 &ui_weak_for_launch,
                 true,
                 0.0,
-                "Please close the currently running game first",
+                "Another instance is launching, please wait for it to finish",
                 true,
             );
             return;
-        }
-        let mut launching_lock = launching_procs.lock().unwrap();
-        if !launching_lock.is_empty() {
-            return; // Already launching some instance
         }
         launching_lock.insert(instance_id.clone());
         drop(launching_lock);

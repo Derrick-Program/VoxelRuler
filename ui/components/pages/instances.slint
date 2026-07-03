@@ -5,6 +5,9 @@ import { InstanceLogic, InstanceData, InstanceDetailLogic } from "@global";
 
 export component InstanceCard inherits Rectangle {
     in property <InstanceData> data;
+    // 虛擬列表：捲動範圍外的卡片只保留佔位尺寸，不實例化內容
+    //（右鍵選單、按鈕、動畫等重元件），由父層依捲動位置計算
+    in property <bool> in-viewport: true;
 
     height: 260px;
     background: transparent;
@@ -16,7 +19,7 @@ export component InstanceCard inherits Rectangle {
     property <bool> is-running: root.data.status == "running";
 
     // ── 右鍵選單 ─────────────────────────────────────────────
-    ContextMenuArea {
+    if root.in-viewport: ContextMenuArea {
         enabled: root.is-valid;
         Menu {
             MenuItem {
@@ -77,7 +80,9 @@ export component InstanceCard inherits Rectangle {
         }
     }
 
-    content_root := Rectangle {
+    dummy-focus := FocusScope {}
+
+    if root.in-viewport: content_root := Rectangle {
         width: 100%;
         height: 100%;
         background: @linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
@@ -99,7 +104,10 @@ export component InstanceCard inherits Rectangle {
                 background: #1a1a1a;
                 height: 50%;
                 Image {
-                    source: root.is-valid ? root.data.image : @image-url("");
+                    // 自訂圖示（data.image）優先，未設定則用內嵌預設圖示
+                    source: !root.is-valid ? @image-url("")
+                        : root.data.image.width > 0 ? root.data.image
+                        : Assets.logo;
                     width: 100%;
                     height: 100%;
                     image-fit: cover;
@@ -269,11 +277,7 @@ export component InstanceCard inherits Rectangle {
 
                     btn-ta := TouchArea {
                         clicked => {
-                            // if (is-running) {
-                            //     InstanceLogic.kill_instance(root.data.id)
-                            // } else {
-                            //     InstanceLogic.launch_instance(root.data.id)
-                            // }
+                            dummy-focus.focus();
                             if (root.is-valid) {
                                 if (is-running) {
                                     InstanceLogic.kill_instance(root.data.id)
@@ -377,10 +381,12 @@ component Search inherits Rectangle {
                 font-size: 16px;
                 vertical-alignment: center;
                 accepted => {
+                    InstanceLogic.search-text = self.text;
                     InstanceLogic.search-changed(self.text);
                     root._clear-focus();
                 }
                 edited => {
+                    InstanceLogic.search-text = self.text;
                     InstanceLogic.search-changed(self.text);
                 }
             }
@@ -450,7 +456,7 @@ export component Instances inherits Rectangle {
             }
         }
 
-        ScrollView {
+        sv := ScrollView {
             viewport-width: parent.width;
             vertical-stretch: 1;
             viewport-height: grid.preferred-height;
@@ -461,15 +467,20 @@ export component Instances inherits Rectangle {
                 padding-bottom: 40px;
 
                 for data[i] in InstanceLogic.instance_list: InstanceCard {
-                    // width: root.calculated-card-width;
+                    property <int> grid-row: root.dynamic-column-count > 0 ? Math.floor(i / root.dynamic-column-count) : 0;
+                    // 卡片在 viewport 內的 y 座標（列高 = 卡高 260 + 間距 20）
+                    property <length> card-y: self.grid-row * (260px + grid.spacing);
+
                     visible: data.id != "";
                     width: data.id != "" ? root.calculated-card-width : 0px;
                     height: data.id != "" ? 260px : 0px;
-                    // row: Math.floor(i / root.dynamic-column-count);
-                    // col: Math.mod(i, root.dynamic-column-count);
-                    row: root.dynamic-column-count > 0 ? Math.floor(i / root.dynamic-column-count) : 0;
+                    row: self.grid-row;
                     col: root.dynamic-column-count > 0 ? Math.mod(i, root.dynamic-column-count) : 0;
                     data: data;
+                    // 虛擬列表：只實例化可視範圍（上下各預載一列）內的卡片內容
+                    in-viewport: data.id != ""
+                        && self.card-y < -sv.viewport-y + sv.visible-height + 280px
+                        && self.card-y + 260px > -sv.viewport-y - 280px;
                 }
             }
         }

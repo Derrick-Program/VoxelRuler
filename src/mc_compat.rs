@@ -16,10 +16,14 @@
 //! Mojang 從 1.19 起才提供 `natives-macos-arm64`；更舊的版本依「實際使用的 Java 架構」
 //! 由 [`macos_override_for`] 自動挑選替換表：
 //! - 1.13–1.18（LWJGL 3.2.x）＋ arm64 Java → 整組換成 LWJGL 3.3.1 arm64
-//!   （**全部來自 Mojang CDN**，即 1.19.2 版本 JSON 內的官方 artifact），原生執行
+//!   （**全部來自 Mojang CDN**，即 1.19.2 版本 JSON 內的官方 artifact）。
+//!   **注意**：原版 1.13–1.18 開機階段無條件呼叫 glfwSetWindowIcon（macOS
+//!   guard 1.19 才加入），3.3.1 內建 GLFW 3.4 dev 回報 error 65548 → 開機必炸；
+//!   此表僅在使用者自訂 arm64 Java 時使用（可能配合 mod 修補），
+//!   預設 Java 路徑一律走下面的 Rosetta 方案
 //! - 1.13–1.18 ＋ x86_64 Java（Rosetta / Intel Mac）→ 換成 LWJGL 3.2.3 x64 natives，
 //!   修內建 GLFW 3.2.x 在新版 macOS 的「service port for display」崩潰
-//!   （不能用 3.3.x：其 GLFW 3.4 dev 會在 1.13.x 觸發 error 65548，見下）
+//!   （不能用 3.3.x：其 GLFW 3.4 dev 會在 1.13–1.18 觸發 error 65548，見下）
 //! - ≤1.12（LWJGL 2）＋ arm64 Java → base jar 仍用 Mojang CDN 的 2.9.4，
 //!   natives 換成社群 arm64 編譯（與 Prism Launcher meta 相同來源）；
 //!   x86_64 Java 維持原版函式庫
@@ -224,8 +228,8 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
 /// - 原版 GLFW 3.2.x：新版 macOS 上「Failed to find service port for display」
 ///   崩潰（GLFW error 65544）→ 需要 GLFW 3.3.1+
 /// - LWJGL 3.3.x 內建 GLFW 3.4 dev：`glfwSetWindowIcon` 回報
-///   `GLFW_FEATURE_UNAVAILABLE`（error 65548），1.13.x 啟動期 error callback
-///   直接拋例外 → 不能用 3.4
+///   `GLFW_FEATURE_UNAVAILABLE`（error 65548），1.13–1.18 啟動期 error callback
+///   直接拋例外（macOS 不設 icon 的 guard 是 1.19 才加入）→ 不能用 3.4
 ///
 /// LWJGL 3.2.3（內建 GLFW 3.3.1）兩者皆避開，為 MultiMC 對此問題的標準解法。
 /// Mojang CDN 無 3.2.3，artifact 來自 Maven Central。
@@ -424,10 +428,10 @@ const ADVICE_MACOS_OLD_GLFW: &str = "the GLFW bundled with this Minecraft versio
     display'). The launcher normally substitutes updated LWJGL automatically — \
     try launching again; if it persists, check the instance log for library errors.";
 
-const ADVICE_MACOS_GLFW_TOO_NEW: &str = "this Minecraft version (1.13.x) sets a window \
+const ADVICE_MACOS_GLFW_TOO_NEW: &str = "this Minecraft version (1.13-1.18) sets a window \
     icon during startup, which LWJGL 3.3+ (GLFW 3.4) rejects on macOS and the game \
-    treats as fatal. Use the default Java for this instance (the launcher then picks \
-    LWJGL 3.2.3, which avoids this) instead of a custom arm64 Java.";
+    treats as fatal. Set this instance's Java to 'Follow Minecraft' (the launcher then \
+    picks Rosetta + LWJGL 3.2.3, which avoids this) instead of a custom arm64 Java.";
 
 static CRASH_SIGNATURES: &[CrashSignature] = &[
     // 1.13–1.16.5：Windows Intel HD 驅動無硬體加速
@@ -480,7 +484,7 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
         needles: &["GLFW error 65544", "service port for display"],
         advice: ADVICE_MACOS_OLD_GLFW,
     },
-    // macOS：1.13.x 配 LWJGL 3.3+（GLFW 3.4 的 FEATURE_UNAVAILABLE）
+    // macOS：1.13–1.18 配 LWJGL 3.3+（GLFW 3.4 的 FEATURE_UNAVAILABLE）
     CrashSignature {
         os: Some("macos"),
         needles: &["GLFW error 65548"],

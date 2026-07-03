@@ -59,6 +59,40 @@ impl ModLoaderType {
     }
 }
 
+/// 共用 HTTP client：重用連線池與 TLS session，避免每次請求重新握手
+fn http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
+const FORGE_METADATA_URL: &str =
+    "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+const NEOFORGE_METADATA_URL: &str =
+    "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+
+/// 整份 maven-metadata 版本清單快取（發佈的版本不會消失，程式生命週期內快取一次即可）
+type MetadataCache = std::sync::Mutex<Option<std::sync::Arc<Vec<String>>>>;
+static FORGE_METADATA_CACHE: MetadataCache = std::sync::Mutex::new(None);
+static NEOFORGE_METADATA_CACHE: MetadataCache = std::sync::Mutex::new(None);
+
+/// 各 Loader 對特定 MC 版本是否有可用版本
+#[derive(Debug, Clone, Copy)]
+pub struct LoaderAvailability {
+    pub fabric: bool,
+    pub forge: bool,
+    pub neoforge: bool,
+}
+
+impl LoaderAvailability {
+    pub fn supports(&self, loader_type: ModLoaderType) -> bool {
+        match loader_type {
+            ModLoaderType::Forge => self.forge,
+            ModLoaderType::NeoForge => self.neoforge,
+            ModLoaderType::Fabric => self.fabric,
+        }
+    }
+}
+
 pub struct ModLoaderApi;
 
 impl ModLoaderApi {
@@ -74,47 +108,83 @@ impl ModLoaderApi {
         }
     }
 
-    /// 從 Fabric Meta API 取得對應 MC 版本的 Loader 清單
+    /// 從 Fabric Meta API 取得對應 MC 版本的 Loader 清單。
+    /// 依 MC 版本快取成功結果：check_availability 與後續的版本清單抓取
+    /// 會查同一端點，避免每次切換 Loader 重複請求（失敗不快取，下次重試）
     async fn get_fabric_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
+        static CACHE: std::sync::Mutex<
+            std::collections::BTreeMap<String, std::sync::Arc<Vec<String>>>,
+        > = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+        if let Some(list) = CACHE.lock().unwrap().get(mc_version) {
+            return Ok(list.as_ref().clone());
+        }
+
         let url = format!(
             "https://meta.fabricmc.net/v2/versions/loader/{}",
             mc_version
         );
-        let client = reqwest::Client::new();
-        let entries: Vec<FabricLoaderEntry> = client
-            .get(&url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let resp = http().get(&url).send().await?;
 
-        Ok(entries
-            .into_iter()
-            .map(|e| {
-                if e.loader.stable {
-                    format!("{} (Stable)", e.loader.version)
-                } else {
-                    format!("{} (Beta)", e.loader.version)
-                }
-            })
-            .collect())
+        // Fabric Meta 對不支援的 MC 版本（如 1.12.2，無 intermediary）回 400 + 空陣列，
+        // 視為「無可用版本」而非錯誤，讓 UI 顯示正確提示
+        let versions: Vec<String> = if resp.status() == reqwest::StatusCode::BAD_REQUEST {
+            Vec::new()
+        } else {
+            let entries: Vec<FabricLoaderEntry> = resp.error_for_status()?.json().await?;
+            entries
+                .into_iter()
+                .map(|e| {
+                    if e.loader.stable {
+                        format!("{} (Stable)", e.loader.version)
+                    } else {
+                        format!("{} (Beta)", e.loader.version)
+                    }
+                })
+                .collect()
+        };
+
+        CACHE.lock().unwrap().insert(
+            mc_version.to_string(),
+            std::sync::Arc::new(versions.clone()),
+        );
+        Ok(versions)
+    }
+
+    /// 查詢三種 Loader 是否支援指定 MC 版本；網路失敗時回傳 true（視為可用），
+    /// 避免暫時性錯誤把選項鎖死
+    pub async fn check_availability(mc_version: &str) -> LoaderAvailability {
+        let forge_prefix = format!("{}-", mc_version);
+        let neo_prefix = Self::get_neoforge_prefix(mc_version);
+        let (fabric, forge, neoforge) = tokio::join!(
+            Self::get_fabric_versions(mc_version),
+            Self::cached_maven_versions(FORGE_METADATA_URL, &FORGE_METADATA_CACHE),
+            Self::cached_maven_versions(NEOFORGE_METADATA_URL, &NEOFORGE_METADATA_CACHE),
+        );
+        LoaderAvailability {
+            fabric: fabric.map(|v| !v.is_empty()).unwrap_or(true),
+            forge: forge
+                .map(|list| list.iter().any(|v| v.starts_with(&forge_prefix)))
+                .unwrap_or(true),
+            neoforge: neoforge
+                .map(|list| list.iter().any(|v| v.starts_with(&neo_prefix)))
+                .unwrap_or(true),
+        }
     }
 
     async fn get_forge_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
         let versions = Self::get_xml_versions(
-            "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
+            FORGE_METADATA_URL,
+            &FORGE_METADATA_CACHE,
             &format!("{}-", mc_version),
-            false,
         )
         .await?;
 
         let mut latest_suffix = String::new();
         let mut recommended_suffix = String::new();
-        let client = reqwest::Client::new();
         // 嘗試取得 Forge promotions，失敗則靜默略過
         if let Ok(json) = async {
-            let res = client
+            let res = http()
                 .get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
                 .send()
                 .await?;
@@ -151,9 +221,9 @@ impl ModLoaderApi {
 
     async fn get_neoforge_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
         let versions = Self::get_xml_versions(
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+            NEOFORGE_METADATA_URL,
+            &NEOFORGE_METADATA_CACHE,
             &Self::get_neoforge_prefix(mc_version),
-            true,
         )
         .await?;
 
@@ -179,36 +249,44 @@ impl ModLoaderApi {
         0
     }
 
-    /// 從官方 Maven 下載 XML，並根據前綴進行篩選
-    async fn get_xml_versions(
+    /// 下載並快取整份 maven-metadata 版本清單；已快取則直接回傳
+    async fn cached_maven_versions(
         url: &str,
-        prefix: &str,
-        needs_reverse: bool,
-    ) -> anyhow::Result<Vec<String>> {
-        let client = reqwest::Client::new();
-        let xml_str = client
+        cache: &MetadataCache,
+    ) -> anyhow::Result<std::sync::Arc<Vec<String>>> {
+        if let Some(list) = cache.lock().unwrap().clone() {
+            return Ok(list);
+        }
+
+        let xml_str = http()
             .get(url)
             .send()
             .await?
             .error_for_status()?
             .text()
             .await?;
-
         let metadata: MavenMetadata = from_str(&xml_str)?;
+        let list = std::sync::Arc::new(metadata.versioning.versions.list);
+        *cache.lock().unwrap() = Some(std::sync::Arc::clone(&list));
+        Ok(list)
+    }
 
-        // 篩選出符合該 MC 版本前綴的 Loader 版本
-        let mut filtered: Vec<String> = metadata
-            .versioning
-            .versions
-            .list
-            .into_iter()
+    /// 從快取的 maven-metadata 依前綴篩選，反轉為「最新在前」，
+    /// 與 Fabric Meta API 的排序一致，讓 UI 下拉選單行為統一
+    async fn get_xml_versions(
+        url: &str,
+        cache: &MetadataCache,
+        prefix: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let all = Self::cached_maven_versions(url, cache).await?;
+
+        // maven-metadata.xml 的版本列表為舊→新，篩選後反轉
+        let mut filtered: Vec<String> = all
+            .iter()
             .filter(|v| v.starts_with(prefix))
+            .cloned()
             .collect();
-
-        // 根據來源決定是否需要反轉順序
-        if needs_reverse {
-            filtered.reverse();
-        }
+        filtered.reverse();
 
         Ok(filtered)
     }
@@ -301,8 +379,7 @@ impl ModLoaderApi {
         let temp_dir = std::env::temp_dir();
         let installer_path = temp_dir.join(format!("installer-{}.jar", uuid::Uuid::new_v4()));
 
-        let client = reqwest::Client::new();
-        let resp = match client.get(&url).send().await {
+        let resp = match http().get(&url).send().await {
             Ok(r) => {
                 if r.status() == reqwest::StatusCode::NOT_FOUND {
                     tracing::warn!(
@@ -320,17 +397,16 @@ impl ModLoaderApi {
             Err(e) => return Err(e.into()),
         };
 
+        // Bytes 為引用計數，clone 僅複製指標，避免整包 installer（數 MB）重複拷貝
         let bytes = resp.bytes().await?;
         tokio::fs::write(&installer_path, &bytes).await?;
 
-        let raw: Vec<u8> = bytes.to_vec();
-        let raw_for_detect = raw.clone();
-
         // 讀取 install_profile.json：偵測格式，並取得舊版的真實 version_id
+        let bytes_for_detect = bytes.clone();
         let (is_old_format, old_version_id) =
             tokio::task::spawn_blocking(move || -> anyhow::Result<(bool, Option<String>)> {
                 use std::io::Read;
-                let cursor = std::io::Cursor::new(&raw_for_detect);
+                let cursor = std::io::Cursor::new(&bytes_for_detect);
                 let mut zip = zip::ZipArchive::new(cursor)?;
                 let mut file = zip.by_name("install_profile.json")?;
                 let mut content = String::new();
@@ -367,7 +443,7 @@ impl ModLoaderApi {
             // 舊版 Forge：不支援 --installClient，直接解析 JAR 手動安裝
             let mc_dir_owned = mc_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                Self::install_forge_old_format_sync(&raw, &mc_dir_owned)
+                Self::install_forge_old_format_sync(&bytes, &mc_dir_owned)
             })
             .await??
         } else {
@@ -482,8 +558,6 @@ impl ModLoaderApi {
             return Ok(effective_id);
         }
 
-        let http = reqwest::Client::new();
-
         // ── 嘗試 1：universal.zip ──────────────────────────────────
         let universal_url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-universal.zip",
@@ -493,7 +567,7 @@ impl ModLoaderApi {
             "Attempting to download Forge universal.zip: {}",
             universal_url
         );
-        let resp = http.get(&universal_url).send().await?;
+        let resp = http().get(&universal_url).send().await?;
         if resp.status().is_success() {
             let bytes = resp.bytes().await?;
 
@@ -551,7 +625,7 @@ impl ModLoaderApi {
             "universal.zip does not exist, trying client.zip: {}",
             client_url
         );
-        let resp = http.get(&client_url).send().await?;
+        let resp = http().get(&client_url).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!(
                 "Forge {} has no available installation package (tried installer.jar / universal.zip / client.zip)",
@@ -679,8 +753,7 @@ impl ModLoaderApi {
         let temp_dir = std::env::temp_dir();
         let installer_path = temp_dir.join(format!("installer-{}.jar", uuid::Uuid::new_v4()));
 
-        let client = reqwest::Client::new();
-        let bytes = client
+        let bytes = http()
             .get(url)
             .send()
             .await?
@@ -954,6 +1027,15 @@ mod tests {
             .unwrap();
         assert!(!versions.is_empty());
         println!("Fabric 1.20.4 versions: {:?}", versions);
+    }
+
+    #[tokio::test]
+    async fn test_get_fabric_versions_unsupported_mc_returns_empty() {
+        // Fabric 不支援 1.12.2（Meta API 回 400）→ 應回傳空清單而非錯誤
+        let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Fabric, "1.12.2")
+            .await
+            .unwrap();
+        assert!(versions.is_empty());
     }
 
     #[tokio::test]

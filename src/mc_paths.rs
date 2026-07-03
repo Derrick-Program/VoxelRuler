@@ -36,16 +36,11 @@ impl McPaths {
         Self::ensure_dir(self.versions_dir().join(version_id))
     }
 
+    /// 只回傳路徑，不建立檔案：空 JAR 會騙過 classpath 缺檔檢查，
+    /// 讓 install_client 誤以為已下載完成
     pub fn version_jar(&self, version_id: &str) -> PathBuf {
-        let d = self
-            .version_dir(version_id)
-            .join(format!("{}.jar", version_id));
-        if !d.exists()
-            && let Err(e) = std::fs::File::create(&d)
-        {
-            tracing::warn!(path = %d.display(), error = %e, "Failed to create version jar");
-        }
-        d
+        self.version_dir(version_id)
+            .join(format!("{}.jar", version_id))
     }
 
     pub fn libraries_dir(&self) -> PathBuf {
@@ -151,7 +146,10 @@ mod tests {
         let p = paths_in(&dir);
         let jar = p.version_jar("1.21.1");
         assert_eq!(jar.file_name().unwrap(), "1.21.1.jar");
-        assert!(jar.exists());
+        // 不得建立空 JAR，否則會被誤判為已安裝
+        assert!(!jar.exists());
+        // 但所屬版本目錄要存在
+        assert!(jar.parent().unwrap().exists());
     }
 
     #[test]

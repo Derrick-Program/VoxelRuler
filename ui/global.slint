@@ -585,11 +585,22 @@ export global InstanceCreateLogic {
 
     // State
     in-out property <string>   error-msg: "";
+    // MC 版本清單初次載入中（僅影響 MC 版本下拉選單）
     in-out property <bool>     is-loading: false;
+    // MC 版本清單載入失敗訊息（開啟對話框時不清除，直到重新抓取成功）
+    in-out property <string>   version-load-error: "";
 
     // Mod Loader Versions
     in-out property <[string]> mod-loader-versions: [];
     in-out property <string>   selected-mod-loader-version: "";
+    // Loader 版本清單載入中（獨立於 is-loading，避免切換 Loader 時 MC 版本選單消失）
+    in-out property <bool>     is-loader-loading: false;
+    // Loader 版本載入失敗 / 無可用版本的提示文字
+    in-out property <string>   loader-load-error: "";
+    // 各 Loader 對目前選擇的 MC 版本是否有可用版本（無則該選項禁用不可點）
+    in-out property <bool>     fabric-available: true;
+    in-out property <bool>     forge-available: true;
+    in-out property <bool>     neoforge-available: true;
     callback loader-changed();
 
     // Scroll-to-selection helpers (set alongside selected-*-version)

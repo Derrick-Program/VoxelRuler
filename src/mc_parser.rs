@@ -147,6 +147,22 @@ impl LaunchContext {
             // 去除互斥 flag 的衝突，保留最後（最高優先）那一筆
             let mut all_jvm = dedup_jvm_args(all_jvm);
 
+            // fix forge ignoreList for nosig jar
+            let nosig_jar_name = format!("{}-nosig.jar", self.version.id);
+            if self
+                .versions_dir
+                .join(&self.version.id)
+                .join(&nosig_jar_name)
+                .exists()
+            {
+                for arg in &mut all_jvm {
+                    if arg.starts_with("-DignoreList=") {
+                        arg.push(',');
+                        arg.push_str(&nosig_jar_name);
+                    }
+                }
+            }
+
             // compat args 插到 -cp 之前
             let mut compat = self.java_compat_args();
             if cfg!(target_os = "macos") {
@@ -189,6 +205,9 @@ impl LaunchContext {
 
             let mut compat = self.java_compat_args();
             if cfg!(target_os = "macos") {
+                // 不可加 -XstartOnFirstThread：此分支全為 LWJGL2（≤1.12），
+                // LWJGL2 依賴 AWT 接管 main thread，加了會白屏（有聲音無畫面）；
+                // LWJGL3（1.13+）走 arguments 分支，版本 JSON 自帶此 flag
                 let natives_str = self.natives_dir.to_string_lossy().into_owned();
                 compat.push(format!("-Djna.tmpdir={}", natives_str));
                 compat.push(format!(

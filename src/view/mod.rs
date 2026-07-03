@@ -97,8 +97,10 @@ fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
         let m = (config.play_time_secs % 3600) / 60;
         format!("{}h {}m", h, m)
     };
-    let icon_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/assets/icons/voxelruler.png");
-    let image = slint::Image::load_from_path(&icon_path).unwrap_or_default();
+    // 圖示不在此載入：預設圖示由 InstanceCard 直接用編譯內嵌的 Assets.logo。
+    // 從磁碟 load_from_path 會在每次列表重建（含搜尋每個按鍵）對每個實例
+    // 重新讀檔＋解碼 PNG，且 CARGO_MANIFEST_DIR 是編譯期路徑，發佈版不存在。
+    // image 留空給未來的每實例自訂圖示使用
     InstanceData {
         id: config.id.as_str().into(),
         name: config.name.as_str().into(),
@@ -106,7 +108,7 @@ fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
         mod_loader: config.mod_loader.as_str().into(),
         last_played: config.last_played.as_str().into(),
         play_time: play_time.into(),
-        image,
+        image: slint::Image::default(),
         status: "ready".into(),
     }
 }
@@ -163,8 +165,12 @@ pub async fn open_view() -> anyhow::Result<()> {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui_handle) = ui_weak.upgrade() {
                     let logic = ui_handle.global::<InstanceLogic>();
+                    let search_text = logic.get_search_text().to_string().to_lowercase();
                     let mut ui_items: Vec<InstanceData> = latest_configs
                         .iter()
+                        .filter(|c| {
+                            search_text.is_empty() || c.name.to_lowercase().contains(&search_text)
+                        })
                         .map(|c| {
                             let mut item = config_to_ui_data(c);
                             if running_ids.contains(&c.id) {
@@ -215,16 +221,23 @@ pub async fn open_view() -> anyhow::Result<()> {
                     if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         let create = ui.global::<InstanceCreateLogic>();
                         create.set_is_loading(false);
+                        create.set_version_load_error("".into());
                         create.invoke_filter_versions();
                     }
                 })
                 .ok();
             }
             Err(e) => {
-                eprintln!("Failed to fetch MC versions: {e}");
+                tracing::error!(error = %e, "Failed to fetch MC versions");
                 slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak_for_fetch.upgrade() {
-                        ui.global::<InstanceCreateLogic>().set_is_loading(false);
+                        let create = ui.global::<InstanceCreateLogic>();
+                        create.set_is_loading(false);
+                        // 讓對話框顯示失敗原因，而不是留下一個空的版本下拉選單
+                        create.set_version_load_error(
+                            "Failed to load Minecraft versions. Please check your network and restart."
+                                .into(),
+                        );
                     }
                 })
                 .ok();
@@ -249,7 +262,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             let show_alpha = logic.get_show_alpha();
             let show_experimental = logic.get_show_experimental();
 
-            let filtered: Vec<slint::SharedString> = versions
+            let mut filtered: Vec<&crate::mc_types::McVersion> = versions
                 .iter()
                 .filter(|v| {
                     if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
@@ -265,8 +278,15 @@ pub async fn open_view() -> anyhow::Result<()> {
                         _ => show_experimental,
                     }
                 })
-                .map(|v| v.id.clone().into())
                 .collect();
+
+            // 依發布時間新到舊。不能用版本號數字比較：snapshot（24w14a）與
+            // old_beta（b1.8.1）解析不出數字會集體錯排；releaseTime 為 ISO 8601
+            // 字串（時區固定 +00:00），字典序即時間序
+            filtered.sort_by(|a, b| b.release_time.cmp(&a.release_time));
+
+            let filtered: Vec<slint::SharedString> =
+                filtered.into_iter().map(|v| v.id.clone().into()).collect();
 
             let current_selected = logic.get_selected_version().to_string();
             let found = !current_selected.is_empty()
@@ -428,7 +448,12 @@ pub async fn open_view() -> anyhow::Result<()> {
         Arc::clone(&instance_logs),
     );
 
-    create::setup_create_logic(&ui, Arc::clone(&store), Arc::clone(&master_configs));
+    create::setup_create_logic(
+        &ui,
+        Arc::clone(&store),
+        Arc::clone(&master_configs),
+        Arc::clone(&running_procs),
+    );
 
     let mod_logic = ui.global::<ModLogic>();
     let raw_mods: Vec<ModData> = mod_logic.get_mod_list().iter().collect();
