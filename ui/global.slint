@@ -562,6 +562,8 @@ export global InstanceCreateLogic {
     in-out property <string>   name: "";
     in-out property <[string]> version-list: [];
     in-out property <string>   selected-version: "";
+    // manifest.latest.release 的版本 id，UI 據此顯示「Latest」徽章
+    in-out property <string>   latest-release-id: "";
     in-out property <string>   mod-loader: "None";
 
     // Version filtering

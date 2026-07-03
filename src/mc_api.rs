@@ -151,7 +151,7 @@ impl McAction<Unauthenticated> {
             .ok_or_else(|| anyhow::anyhow!("Failed to get username for UUID: {}", uuid))
     }
 
-    async fn get_mc_manifest(&self) -> anyhow::Result<McVersionInfo> {
+    pub async fn get_mc_manifest(&self) -> anyhow::Result<McVersionInfo> {
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         Ok(retry_get(&self.client, url)
             .await?

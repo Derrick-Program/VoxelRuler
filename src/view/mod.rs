@@ -214,14 +214,17 @@ pub async fn open_view() -> anyhow::Result<()> {
     let ui_weak_for_fetch = ui.as_weak();
     tokio::spawn(async move {
         let api = crate::mc_api::McAction::new();
-        match api.get_all_mc_versions().await {
-            Ok(versions) => {
-                *cache_for_fetch.lock().unwrap() = versions;
+        match api.get_mc_manifest().await {
+            Ok(manifest) => {
+                let latest_release = manifest.latest.release.clone();
+                *cache_for_fetch.lock().unwrap() = manifest.versions;
                 slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         let create = ui.global::<InstanceCreateLogic>();
                         create.set_is_loading(false);
                         create.set_version_load_error("".into());
+                        // 提供 UI 標記「Latest」徽章用（manifest.latest.release）
+                        create.set_latest_release_id(latest_release.into());
                         create.invoke_filter_versions();
                     }
                 })
@@ -320,6 +323,16 @@ pub async fn open_view() -> anyhow::Result<()> {
                     .unwrap_or_default();
                 logic.set_selected_version(best);
             }
+
+            // 同步 scroll-to-selection 索引：自動選版或重過濾後，清單內容已變，
+            // 沿用舊索引會讓下拉選單開啟時捲到上一次的位置
+            let selected_now = logic.get_selected_version();
+            let selected_idx = filtered
+                .iter()
+                .position(|f| f.as_str() == selected_now.as_str())
+                .map(|i| i as i32)
+                .unwrap_or(-1);
+            logic.set_selected_version_index(selected_idx);
 
             logic.set_version_list(ModelRc::from(Rc::new(VecModel::from(filtered))));
             logic.invoke_loader_changed();

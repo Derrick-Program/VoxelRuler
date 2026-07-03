@@ -208,15 +208,26 @@ impl ModLoaderApi {
         Ok(versions
             .into_iter()
             .map(|v| {
-                if !recommended_suffix.is_empty() && v.ends_with(&recommended_suffix) {
+                if Self::matches_promo(&v, mc_version, &recommended_suffix) {
                     format!("{} (Recommended)", v)
-                } else if !latest_suffix.is_empty() && v.ends_with(&latest_suffix) {
+                } else if Self::matches_promo(&v, mc_version, &latest_suffix) {
                     format!("{} (Latest)", v)
                 } else {
                     v
                 }
             })
             .collect())
+    }
+
+    /// Forge promotions 的值只有建置號（如 "47.4.10"），maven 版本為
+    /// "1.20.1-47.4.10"；舊版還帶分支後綴（"1.7.10-10.13.4.1614-1.7.10"），
+    /// 用 ends_with 比對會整批漏標，需比對「完整相等」或「其後接 '-' 分支」
+    fn matches_promo(version: &str, mc_version: &str, promo: &str) -> bool {
+        if promo.is_empty() {
+            return false;
+        }
+        let base = format!("{}-{}", mc_version, promo);
+        version == base || version.starts_with(&format!("{}-", base))
     }
 
     async fn get_neoforge_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
@@ -271,7 +282,7 @@ impl ModLoaderApi {
         Ok(list)
     }
 
-    /// 從快取的 maven-metadata 依前綴篩選，反轉為「最新在前」，
+    /// 從快取的 maven-metadata 依前綴篩選，排序為「最新在前」，
     /// 與 Fabric Meta API 的排序一致，讓 UI 下拉選單行為統一
     async fn get_xml_versions(
         url: &str,
@@ -280,15 +291,27 @@ impl ModLoaderApi {
     ) -> anyhow::Result<Vec<String>> {
         let all = Self::cached_maven_versions(url, cache).await?;
 
-        // maven-metadata.xml 的版本列表為舊→新，篩選後反轉
+        // Forge maven-metadata.xml 各 MC 版本區段的排序不一致（1.20.1 為新→舊、
+        // 1.16.5 為舊→新），不能單靠 reverse；依前綴後的數字組成做語意排序
         let mut filtered: Vec<String> = all
             .iter()
             .filter(|v| v.starts_with(prefix))
             .cloned()
             .collect();
-        filtered.reverse();
+        filtered.sort_by(|a, b| {
+            Self::version_sort_key(&b[prefix.len()..])
+                .cmp(&Self::version_sort_key(&a[prefix.len()..]))
+        });
 
         Ok(filtered)
+    }
+
+    /// 將版本字串拆為數字序列供比較（"47.4.10" → [47,4,10]），非數字片段忽略
+    fn version_sort_key(s: &str) -> Vec<u64> {
+        s.split(|c: char| !c.is_ascii_digit())
+            .filter(|p| !p.is_empty())
+            .map(|p| p.parse::<u64>().unwrap_or(u64::MAX))
+            .collect()
     }
 
     /// 計算 NeoForge 對應 MC 版本的前綴字串
@@ -855,6 +878,43 @@ mod tests {
 
         let versions = vec!["a".to_string(), "b".to_string()];
         assert_eq!(ModLoaderApi::default_version_index(&versions), 0);
+    }
+
+    #[test]
+    fn test_matches_promo() {
+        // 一般格式：MC 版本-建置號
+        assert!(ModLoaderApi::matches_promo(
+            "1.20.1-47.4.10",
+            "1.20.1",
+            "47.4.10"
+        ));
+        // 舊版帶分支後綴（1.7.10 系列），ends_with 會漏掉的情況
+        assert!(ModLoaderApi::matches_promo(
+            "1.7.10-10.13.4.1614-1.7.10",
+            "1.7.10",
+            "10.13.4.1614"
+        ));
+        // 建置號只是前綴相同不能誤判（47.4.1 vs 47.4.10）
+        assert!(!ModLoaderApi::matches_promo(
+            "1.20.1-47.4.10",
+            "1.20.1",
+            "47.4.1"
+        ));
+        // promo 為空（該 MC 版本無 recommended）不得全部命中
+        assert!(!ModLoaderApi::matches_promo("1.20.1-47.4.10", "1.20.1", ""));
+    }
+
+    #[test]
+    fn test_version_sort_key_ordering() {
+        // 語意排序：47.4.10 應大於 47.4.9（字串排序會錯）
+        assert!(
+            ModLoaderApi::version_sort_key("47.4.10") > ModLoaderApi::version_sort_key("47.4.9")
+        );
+        // 帶分支後綴的舊版也能穩定比較
+        assert!(
+            ModLoaderApi::version_sort_key("10.13.4.1614-1.7.10")
+                > ModLoaderApi::version_sort_key("10.13.2.1230-1.7.10")
+        );
     }
 
     #[test]

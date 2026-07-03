@@ -148,20 +148,6 @@ pub(crate) async fn do_launch(
                             name = ov.name,
                             "macOS compatibility mode (library replacement)"
                         );
-                        // 自訂 arm64 Java + 1.13–1.18 = LWJGL 3.3.1 arm64：
-                        // 原版無條件 setIcon → GLFW error 65548 開機必炸
-                        //（除非有 mod 修補）；預警並放行，崩潰後由
-                        // diagnose_graphics_crash 給出改用預設 Java 的建議
-                        if java_is_arm64
-                            && version
-                                .libraries
-                                .iter()
-                                .any(|l| l.name.starts_with("org.lwjgl:"))
-                        {
-                            warn!(
-                                "1.13-1.18 vanilla sets a window icon at boot; arm64 LWJGL 3.3.1 (GLFW 3.4) reports error 65548 and the game exits. Set this instance's Java to 'Follow Minecraft' to use Rosetta + LWJGL 3.2.3 instead."
-                            );
-                        }
                     }
                     None if java_is_arm64 && !archs.iter().any(|a| a == "x86_64") => {
                         anyhow::bail!(
@@ -204,20 +190,18 @@ pub(crate) async fn do_launch(
                 .map(|j| j.component.clone())
                 .unwrap_or_else(|| "jre-legacy".into());
 
-            // 1.13–1.18 不走 arm64 原生模式（LWJGL 3.3.1）：這些版本在開機階段
-            // 無條件呼叫 glfwSetWindowIcon（macOS guard 是 1.19 改用 3.3.1 時
-            // 才加入），而 3.3.1 內建 GLFW 3.4 dev 對此回報 error 65548，
-            // boot error callback 直接視為致命 → 遊戲必定開不起來。
-            // 一律改用 x86_64 Java（Rosetta）＋ LWJGL 3.2.3
-            //（GLFW 3.3.1 對 setIcon 靜默忽略，MultiMC 標準解法）
+            // 1.13–1.18 預設 Java 走 x86_64（Rosetta）：1.13–1.16 需要
+            // jre-legacy（Java 8），Mojang 沒有 arm64 版；1.17–1.18 為求
+            // 行為一致也同樣走 Rosetta（LWJGL 替換表已含 x64 natives）
             let os_arch = if is_arm_mac && !supports_arm64 {
                 info!("Version lacks arm64-safe libraries, fetching x86_64 Java instead (Rosetta)");
                 "mac-os"
             } else {
                 crate::mc_parser::get_mojang_os_arch()
             };
-            // x86_64 Java：1.13 以上換 LWJGL 3.2.3（修新版 macOS 的 GLFW
-            // service port 崩潰，Intel Mac 也適用）；≤1.12（LWJGL2）維持原版
+            // x86_64 Java：1.13 以上換 LWJGL 3.3.1 x64 + patched glfw bindings
+            //（修 macOS 26 的 GLFW 65544 與開機 setIcon 的 65548，Intel Mac
+            //  也適用）；≤1.12（LWJGL2）維持原版
             compat = if cfg!(target_os = "macos") && !supports_arm64 {
                 crate::mc_compat::macos_override_for(&version, false)
             } else {

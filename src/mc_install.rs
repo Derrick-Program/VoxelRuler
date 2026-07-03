@@ -13,15 +13,29 @@ use crate::mc_types::{McJavaFileEntry, McJavaManifest, McSpecificVersionDetail};
 
 const ASSET_CONCURRENCY: usize = 128;
 const LIBRARY_CONCURRENCY: usize = 64;
+const JAVA_CONCURRENCY: usize = 32;
 const MAX_RETRIES: u32 = 5;
 const RETRY_BASE_DELAY_MS: u64 = 1000;
+
+/// 共用 HTTP client：並行下載時重用連線池與 TLS session。
+/// `reqwest::get` 每次呼叫都新建 client，高並行下會反覆握手、吃不到 keep-alive
+fn http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
 
 /// 無 sha1/size 驗證的簡易下載（用於 Forge 等第三方函式庫）
 pub(crate) async fn download_best_effort(url: &str, dest: &Path) -> anyhow::Result<()> {
     if dest.exists() {
         return Ok(());
     }
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+    let bytes = http()
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
     anyhow::ensure!(!bytes.is_empty(), "Empty response: {url}");
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -72,7 +86,13 @@ async fn download_and_verify(
         }
 
         let result: anyhow::Result<()> = async {
-            let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+            let bytes = http()
+                .get(url)
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?;
             let actual = sha1_hex(&bytes);
             if actual != expected_sha1 {
                 anyhow::bail!(
@@ -107,47 +127,73 @@ pub async fn install_java(
     java_dir: &Path,
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
-    let entries: Vec<_> = manifest.files.iter().collect();
-    let total = entries.len().max(1);
-    for (i, (rel_path, entry)) in entries.iter().enumerate() {
-        let dest = java_dir.join(rel_path);
-        match entry {
-            McJavaFileEntry::Directory => {
-                tokio::fs::create_dir_all(&dest).await?;
-            }
+    let total = manifest.files.len().max(1);
+    let mut completed = 0usize;
+
+    // 目錄先建好，檔案下載才能無序並行
+    for (rel_path, entry) in &manifest.files {
+        if matches!(entry, McJavaFileEntry::Directory) {
+            tokio::fs::create_dir_all(java_dir.join(rel_path)).await?;
+            completed += 1;
+            on_progress(completed as f32 / total as f32);
+        }
+    }
+
+    let files: Vec<(PathBuf, bool, String, u64, String)> = manifest
+        .files
+        .iter()
+        .filter_map(|(rel_path, entry)| match entry {
             McJavaFileEntry::File {
                 executable,
                 downloads,
-            } => {
-                download_and_verify(
-                    &downloads.raw.url,
-                    &dest,
-                    downloads.raw.size,
-                    &downloads.raw.sha1,
-                )
-                .await?;
-                #[cfg(unix)]
-                if *executable {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mut perms = tokio::fs::metadata(&dest).await?.permissions();
-                    perms.set_mode(0o755);
-                    tokio::fs::set_permissions(&dest, perms).await?;
-                }
+            } => Some((
+                java_dir.join(rel_path),
+                *executable,
+                downloads.raw.url.clone(),
+                downloads.raw.size,
+                downloads.raw.sha1.clone(),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    let mut stream = stream::iter(files)
+        .map(|(dest, executable, url, size, sha1)| async move {
+            download_and_verify(&url, &dest, size, &sha1).await?;
+            #[cfg(unix)]
+            if executable {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = tokio::fs::metadata(&dest).await?.permissions();
+                perms.set_mode(0o755);
+                tokio::fs::set_permissions(&dest, perms).await?;
             }
-            McJavaFileEntry::Link { target } => {
-                #[cfg(unix)]
-                {
-                    if dest.is_symlink() || dest.exists() {
-                        tokio::fs::remove_file(&dest).await?;
-                    }
-                    if let Some(parent) = dest.parent() {
-                        tokio::fs::create_dir_all(parent).await?;
-                    }
-                    tokio::fs::symlink(target, &dest).await?;
+            anyhow::Ok(())
+        })
+        .buffer_unordered(JAVA_CONCURRENCY);
+
+    while let Some(result) = stream.next().await {
+        result?;
+        completed += 1;
+        on_progress(completed as f32 / total as f32);
+    }
+
+    // symlink 最後建立，確保指向的檔案已下載完成
+    for (rel_path, entry) in &manifest.files {
+        if let McJavaFileEntry::Link { target } = entry {
+            let dest = java_dir.join(rel_path);
+            #[cfg(unix)]
+            {
+                if dest.is_symlink() || dest.exists() {
+                    tokio::fs::remove_file(&dest).await?;
                 }
+                if let Some(parent) = dest.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::symlink(target, &dest).await?;
             }
+            completed += 1;
+            on_progress(completed as f32 / total as f32);
         }
-        on_progress((i + 1) as f32 / total as f32);
     }
     Ok(())
 }

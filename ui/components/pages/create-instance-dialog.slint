@@ -193,10 +193,28 @@ export component CreateInstanceDialog inherits Rectangle {
                                             for v[i] in InstanceCreateLogic.version-list: Rectangle {
                                                 height: 32px;
                                                 background: v == InstanceCreateLogic.selected-version ? #76bc51.with-alpha(0.15) : (v-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent);
-                                                Text {
-                                                    x: 12px; height: parent.height;
-                                                    text: v; color: #e0e0e0; font-size: 13px;
-                                                    vertical-alignment: center;
+                                                HorizontalLayout {
+                                                    padding-left: 12px; spacing: 8px;
+                                                    alignment: start;
+                                                    Text {
+                                                        text: v; color: #e0e0e0; font-size: 13px;
+                                                        vertical-alignment: center;
+                                                    }
+                                                    if v == InstanceCreateLogic.latest-release-id: VerticalLayout {
+                                                        alignment: center;
+                                                        Rectangle {
+                                                            height: 18px; border-radius: 9px;
+                                                            background: #76bc51.with-alpha(0.18);
+                                                            HorizontalLayout {
+                                                                padding-left: 8px; padding-right: 8px;
+                                                                Text {
+                                                                    text: "Latest"; color: #76bc51;
+                                                                    font-size: 10px; font-weight: 700;
+                                                                    vertical-alignment: center;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                                 v-ta := TouchArea {
                                                     clicked => {
@@ -212,12 +230,28 @@ export component CreateInstanceDialog inherits Rectangle {
 
                                 HorizontalLayout {
                                     padding-left: 12px; padding-right: 8px;
+                                    spacing: 8px;
                                     Text {
-                                        horizontal-stretch: 1;
                                         text: InstanceCreateLogic.selected-version == "" ? @tr("Select version...") : InstanceCreateLogic.selected-version;
                                         color: InstanceCreateLogic.selected-version == "" ? #555 : #e0e0e0;
                                         font-size: 13px; vertical-alignment: center;
                                     }
+                                    if InstanceCreateLogic.selected-version != "" && InstanceCreateLogic.selected-version == InstanceCreateLogic.latest-release-id: VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            height: 18px; border-radius: 9px;
+                                            background: #76bc51.with-alpha(0.18);
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px;
+                                                Text {
+                                                    text: "Latest"; color: #76bc51;
+                                                    font-size: 10px; font-weight: 700;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
                                     Text {
                                         text: "▾";
                                         color: #888; font-size: 12px; vertical-alignment: center;
@@ -458,7 +492,9 @@ export component CreateInstanceDialog inherits Rectangle {
                                     padding-left: 12px; padding-right: 8px;
                                     Text {
                                         horizontal-stretch: 1;
-                                        text: InstanceCreateLogic.selected-mod-loader-version == "" ? @tr("Select...") : InstanceCreateLogic.selected-mod-loader-version;
+                                        text: InstanceCreateLogic.is-loader-loading
+                                            ? @tr("Loading versions...")
+                                            : (InstanceCreateLogic.selected-mod-loader-version == "" ? @tr("Select...") : InstanceCreateLogic.selected-mod-loader-version);
                                         color: InstanceCreateLogic.selected-mod-loader-version == "" ? #555 : #e0e0e0;
                                         font-size: 13px; vertical-alignment: center;
                                     }
@@ -476,6 +512,10 @@ export component CreateInstanceDialog inherits Rectangle {
                                         loader-popup.show();
                                     }
                                 }
+                            }
+                            if InstanceCreateLogic.loader-load-error != "": Text {
+                                text: InstanceCreateLogic.loader-load-error;
+                                color: #e74c3c; font-size: 11px; wrap: word-wrap;
                             }
                         }
                     }

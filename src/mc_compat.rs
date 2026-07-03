@@ -14,16 +14,20 @@
 //! # macOS 函式庫替換
 //!
 //! Mojang 從 1.19 起才提供 `natives-macos-arm64`；更舊的版本依「實際使用的 Java 架構」
-//! 由 [`macos_override_for`] 自動挑選替換表：
-//! - 1.13–1.18（LWJGL 3.2.x）＋ arm64 Java → 整組換成 LWJGL 3.3.1 arm64
-//!   （**全部來自 Mojang CDN**，即 1.19.2 版本 JSON 內的官方 artifact）。
-//!   **注意**：原版 1.13–1.18 開機階段無條件呼叫 glfwSetWindowIcon（macOS
-//!   guard 1.19 才加入），3.3.1 內建 GLFW 3.4 dev 回報 error 65548 → 開機必炸；
-//!   此表僅在使用者自訂 arm64 Java 時使用（可能配合 mod 修補），
-//!   預設 Java 路徑一律走下面的 Rosetta 方案
-//! - 1.13–1.18 ＋ x86_64 Java（Rosetta / Intel Mac）→ 換成 LWJGL 3.2.3 x64 natives，
-//!   修內建 GLFW 3.2.x 在新版 macOS 的「service port for display」崩潰
-//!   （不能用 3.3.x：其 GLFW 3.4 dev 會在 1.13–1.18 觸發 error 65548，見下）
+//! 由 [`macos_override_for`] 自動挑選替換表。兩張 LWJGL3 表都升到 3.3.1 並把
+//! glfw bindings 換成 mmachina patched 版（setIcon 為 no-op），原因：
+//! - 原版 1.13–1.18 開機階段無條件呼叫 glfwSetWindowIcon（macOS guard 1.19
+//!   才加入；1.16.4 bytecode 實證），GLFW 3.4 對此回報 error 65548 → 開機必炸，
+//!   patched bindings 在 Java 層攔掉
+//! - GLFW 3.3.1 之前（含 LWJGL 3.2.3 內建的 2019-09 3.4.0-dev snapshot）在
+//!   macOS 26 Tahoe 於 glfwInit 期間發出「Failed to find service port for
+//!   display」（error 65544）→ 同樣被開機 error callback 視為致命；
+//!   LWJGL 3.3.1 的 GLFW 已重构 monitor 列舉，Tahoe 上 init 乾淨（本機 probe 實測）
+//!
+//! 替換表：
+//! - 1.13–1.18 ＋ arm64 Java → LWJGL 3.3.1 arm64（Mojang CDN）＋ patched glfw bindings
+//! - 1.13–1.18 ＋ x86_64 Java（Rosetta / Intel Mac）→ LWJGL 3.3.1 x64
+//!   （Mojang CDN）＋ patched glfw bindings
 //! - ≤1.12（LWJGL 2）＋ arm64 Java → base jar 仍用 Mojang CDN 的 2.9.4，
 //!   natives 換成社群 arm64 編譯（與 Prism Launcher meta 相同來源）；
 //!   x86_64 Java 維持原版函式庫
@@ -107,7 +111,9 @@ pub fn macos_override_for(
         .then_some(&LWJGL3_X64_OVERRIDE)
 }
 
-/// 1.13–1.18：LWJGL 3.2.x → 3.3.1（資料取自 Mojang 1.19.2 版本 JSON，全為官方 CDN）
+/// 1.13–1.18：LWJGL 3.2.x → 3.3.1（資料取自 Mojang 1.19.2 版本 JSON，全為官方
+/// CDN），glfw bindings 換 [`MMACHINA_GLFW_BINDINGS`]（setIcon no-op，
+/// 避開這些版本開機期無條件 setIcon 觸發 GLFW 3.4 error 65548 必炸）
 static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
     name: "lwjgl3-3.3.1-arm64",
     exclude_prefixes: &["org.lwjgl:", "ca.weblite:java-objc-bridge:"],
@@ -141,13 +147,7 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
             size: 921563,
             extract: false,
         },
-        CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1.jar",
-            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1.jar",
-            sha1: "cbac1b8d30cb4795149c1ef540f912671a8616d0",
-            size: 128801,
-            extract: false,
-        },
+        MMACHINA_GLFW_BINDINGS,
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1.jar",
@@ -223,119 +223,127 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
     ],
 };
 
-/// 1.13–1.18 + x86_64 Java（Rosetta 或 Intel Mac）：LWJGL → 3.2.3 的 x64 natives。
-/// 版本選擇是兩個 GLFW bug 的夾縫：
-/// - 原版 GLFW 3.2.x：新版 macOS 上「Failed to find service port for display」
-///   崩潰（GLFW error 65544）→ 需要 GLFW 3.3.1+
-/// - LWJGL 3.3.x 內建 GLFW 3.4 dev：`glfwSetWindowIcon` 回報
-///   `GLFW_FEATURE_UNAVAILABLE`（error 65548），1.13–1.18 啟動期 error callback
-///   直接拋例外（macOS 不設 icon 的 guard 是 1.19 才加入）→ 不能用 3.4
+/// mmachina 版 lwjgl-glfw bindings（3.3.1 fork）：`nglfwSetWindowIcon` 移除
+/// JNI 呼叫（bytecode 層 no-op，與 CPU 架構無關），
+/// 讓 1.13–1.18 開機期無條件的 `glfwSetWindowIcon` 不再進到 GLFW C 層，
+/// 從根本避開 GLFW 3.4 的 error 65548（Prism/ManyMC 對 osx-arm64 的標準方案）。
+/// 供 arm64 與 x64 兩張表共用。
+const MMACHINA_GLFW_BINDINGS: CompatArtifact = CompatArtifact {
+    rel_path: "org/lwjgl/lwjgl-glfw/3.3.1-mmachina.1/lwjgl-glfw-3.3.1-mmachina.1.jar",
+    url: "https://github.com/MinecraftMachina/lwjgl3/releases/download/3.3.1-mmachina.1/lwjgl-glfw.jar",
+    sha1: "e9a101bca4fa30d26b21b526ff28e7c2d8927f1b",
+    size: 130128,
+    extract: false,
+};
+
+/// 1.13–1.18 + x86_64 Java（Rosetta 或 Intel Mac）：LWJGL → 3.3.1 x64 natives
+/// ＋ mmachina patched glfw bindings。兩個 GLFW bug 的最終解：
+/// - 原版 GLFW 3.2.x 與 LWJGL 3.2.3 內建的 GLFW（2019-09 的 3.4.0-dev
+///   snapshot，早於 monitor 列舉重构）在 macOS 26 Tahoe 於 glfwInit 期間即發出
+///   「Failed to find service port for display」（error 65544）→ 開機 error
+///   callback 視為致命（2026-07-03 於 macOS 26.5.1 以 x64 probe 實測確認）
+/// - LWJGL 3.3.x 內建 GLFW 3.4：glfwInit 乾淨（同 probe 實測），但
+///   `glfwSetWindowIcon` 回報 error 65548；1.16.4 bytecode 證實開機期無條件
+///   呼叫 setIcon 且無 macOS guard → 由 patched bindings 在 Java 層 no-op 解決
 ///
-/// LWJGL 3.2.3（內建 GLFW 3.3.1）兩者皆避開，為 MultiMC 對此問題的標準解法。
-/// Mojang CDN 無 3.2.3，artifact 來自 Maven Central。
+/// base jars 與 x64 natives 取自 Mojang CDN（1.19.2 版本 JSON 的官方 metadata）。
 /// java-objc-bridge 保留原版（x64 dylib 可用）。
 static LWJGL3_X64_OVERRIDE: MacosArm64Override = MacosArm64Override {
-    name: "lwjgl3-3.2.3-x64",
+    name: "lwjgl3-3.3.1-x64",
     exclude_prefixes: &["org.lwjgl:"],
     artifacts: &[
-        // ── base jars（Maven Central；Mojang CDN 無 3.2.3）──
+        // ── base jars（Mojang CDN，與 arm64 表同一組；glfw 換 patched bindings）──
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3.jar",
-            sha1: "17a59ba0fe8d474ec9dbe0d5db40d2cfe59c4c08",
-            size: 552997,
+            rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+            sha1: "ae58664f88e18a9bb2c77b063833ca7aaec484cb",
+            size: 724243,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-jemalloc/3.2.3/lwjgl-jemalloc-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-jemalloc/3.2.3/lwjgl-jemalloc-3.2.3.jar",
-            sha1: "b6fd0932171ba3f2eaa4547beddca3a3e645342d",
-            size: 34130,
+            rel_path: "org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1.jar",
+            sha1: "a817bcf213db49f710603677457567c37d53e103",
+            size: 36601,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-openal/3.2.3/lwjgl-openal-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-openal/3.2.3/lwjgl-openal-3.2.3.jar",
-            sha1: "106742e805803ab9eab8e343f0fb31a3d263903c",
-            size: 79432,
+            rel_path: "org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1.jar",
+            sha1: "2623a6b8ae1dfcd880738656a9f0243d2e6840bd",
+            size: 88237,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-opengl/3.2.3/lwjgl-opengl-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-opengl/3.2.3/lwjgl-opengl-3.2.3.jar",
-            sha1: "bdd534a323d0c8f54969b95e424b6ac8984f7d6e",
-            size: 936589,
+            rel_path: "org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1.jar",
+            sha1: "831a5533a21a5f4f81bbc51bb13e9899319b5411",
+            size: 921563,
+            extract: false,
+        },
+        MMACHINA_GLFW_BINDINGS,
+        CompatArtifact {
+            rel_path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1.jar",
+            sha1: "b119297cf8ed01f247abe8685857f8e7fcf5980f",
+            size: 112380,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-glfw/3.2.3/lwjgl-glfw-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-glfw/3.2.3/lwjgl-glfw-3.2.3.jar",
-            sha1: "5e520d5c290c8b012545a8d34fa5db5ab051ea53",
-            size: 107999,
+            rel_path: "org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1.jar",
+            sha1: "0ff1914111ef2e3e0110ef2dabc8d8cdaad82347",
+            size: 6767,
+            extract: false,
+        },
+        // ── natives-macos（x86_64，Mojang CDN；上 classpath，LWJGL3 自行解壓）──
+        CompatArtifact {
+            rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.jar",
+            sha1: "fc6bb723dec2cd031557dccb2a95f0ab80acb9db",
+            size: 55706,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-stb/3.2.3/lwjgl-stb-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-stb/3.2.3/lwjgl-stb-3.2.3.jar",
-            sha1: "40eccaa4fa86fc815f2e17946a392fb5fdcc286a",
-            size: 104049,
+            rel_path: "org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1-natives-macos.jar",
+            sha1: "56424dc8db3cfb8e7b594aa6d59a4f4387b7f544",
+            size: 117480,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-tinyfd/3.2.3/lwjgl-tinyfd-3.2.3.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-tinyfd/3.2.3/lwjgl-tinyfd-3.2.3.jar",
-            sha1: "d5edf89c7b6ca1ea20865a6ba0a09bfc5efb29c1",
-            size: 6392,
-            extract: false,
-        },
-        // ── natives-macos（x86_64，上 classpath，LWJGL3 自行解壓）──
-        CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3-natives-macos.jar",
-            sha1: "35f506c5d368017a3cc5590da3d6d3a0760fb606",
-            size: 39767,
+            rel_path: "org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1-natives-macos.jar",
+            sha1: "3a57b8911835fb58b5e558d0ca0d28157e263d45",
+            size: 397196,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-jemalloc/3.2.3/lwjgl-jemalloc-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-jemalloc/3.2.3/lwjgl-jemalloc-3.2.3-natives-macos.jar",
-            sha1: "d6ffcb4224d3ccd3c31bd80093f71e69a7133a6a",
-            size: 118660,
+            rel_path: "org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1-natives-macos.jar",
+            sha1: "a0d12697ea019a7362eff26475b0531340e876a6",
+            size: 40709,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-openal/3.2.3/lwjgl-openal-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-openal/3.2.3/lwjgl-openal-3.2.3-natives-macos.jar",
-            sha1: "67ddd2a090589dfe6c4659d7f8b125b43f7b822b",
-            size: 528718,
+            rel_path: "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-macos.jar",
+            sha1: "9ec4ce1fc8c85fdef03ef4ff2aace6f5775fb280",
+            size: 131655,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-opengl/3.2.3/lwjgl-opengl-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-opengl/3.2.3/lwjgl-opengl-3.2.3-natives-macos.jar",
-            sha1: "efa3326c11336d3e74c9c8aeceb2420328d28e6b",
-            size: 40007,
+            rel_path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1-natives-macos.jar",
+            sha1: "def8879b8d38a47a4cc1d48b1f9a7b772e51258e",
+            size: 203582,
             extract: false,
         },
         CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-glfw/3.2.3/lwjgl-glfw-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-glfw/3.2.3/lwjgl-glfw-3.2.3-natives-macos.jar",
-            sha1: "0058661272eacb9116336c88b4aadccf1f17c09b",
-            size: 66201,
-            extract: false,
-        },
-        CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-stb/3.2.3/lwjgl-stb-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-stb/3.2.3/lwjgl-stb-3.2.3-natives-macos.jar",
-            sha1: "7eed8caff57c3f795af2e2d0049c43a6e4d56474",
-            size: 195308,
-            extract: false,
-        },
-        CompatArtifact {
-            rel_path: "org/lwjgl/lwjgl-tinyfd/3.2.3/lwjgl-tinyfd-3.2.3-natives-macos.jar",
-            url: "https://repo1.maven.org/maven2/org/lwjgl/lwjgl-tinyfd/3.2.3/lwjgl-tinyfd-3.2.3-natives-macos.jar",
-            sha1: "7cb8ad521749516ab87b47d737399845f1649eee",
-            size: 42659,
+            rel_path: "org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1-natives-macos.jar",
+            url: "https://libraries.minecraft.net/org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1-natives-macos.jar",
+            sha1: "78641a0fa5e9afa714adfdd152c357930c97a1ce",
+            size: 44821,
             extract: false,
         },
     ],
@@ -619,7 +627,7 @@ mod tests {
         );
         assert_eq!(
             macos_override_for(&load_version("data/1.14.4.json"), false).map(|o| o.name),
-            Some("lwjgl3-3.2.3-x64")
+            Some("lwjgl3-3.3.1-x64")
         );
         // ≤1.12：LWJGL2 只有 arm64 需要替換，x64 維持原版
         assert_eq!(

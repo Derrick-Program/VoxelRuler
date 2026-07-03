@@ -67,6 +67,8 @@ pub fn setup_create_logic(
         create.set_show_alpha(false);
         create.set_show_experimental(false);
         create.set_selected_version("".into());
+        create.set_selected_version_index(-1);
+        create.set_version_search_text("".into());
         // filter-versions 會選出預設版本，其結尾會 invoke loader-changed
         // 查詢各 Loader 對該版本的可用性，此處不需重複觸發
         create.invoke_filter_versions();
