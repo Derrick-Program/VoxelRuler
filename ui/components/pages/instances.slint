@@ -460,6 +460,14 @@ export component Instances inherits Rectangle {
             viewport-width: parent.width;
             vertical-stretch: 1;
             viewport-height: grid.preferred-height;
+
+            // 虛擬列表視窗量化成「列索引」：捲動時這兩個整數只在跨列邊界才改變，
+            // 卡片的 in-viewport 條件式（if 元素增減）不會被每個像素的捲動打擾，
+            // 每張卡片也不用各自做 length 運算（列高 = 卡高 260 + 間距 20，上下各預載一列）
+            property <length> row-pitch: 260px + grid.spacing;
+            property <int> first-live-row: Math.max(0, Math.floor((-self.viewport-y - self.row-pitch) / self.row-pitch));
+            property <int> last-live-row: Math.floor((-self.viewport-y + self.visible-height + self.row-pitch) / self.row-pitch);
+
             grid := GridLayout {
                 padding-left: 20px;
                 padding-right: 20px;
@@ -468,8 +476,6 @@ export component Instances inherits Rectangle {
 
                 for data[i] in InstanceLogic.instance_list: InstanceCard {
                     property <int> grid-row: root.dynamic-column-count > 0 ? Math.floor(i / root.dynamic-column-count) : 0;
-                    // 卡片在 viewport 內的 y 座標（列高 = 卡高 260 + 間距 20）
-                    property <length> card-y: self.grid-row * (260px + grid.spacing);
 
                     visible: data.id != "";
                     width: data.id != "" ? root.calculated-card-width : 0px;
@@ -477,10 +483,10 @@ export component Instances inherits Rectangle {
                     row: self.grid-row;
                     col: root.dynamic-column-count > 0 ? Math.mod(i, root.dynamic-column-count) : 0;
                     data: data;
-                    // 虛擬列表：只實例化可視範圍（上下各預載一列）內的卡片內容
+                    // 虛擬列表：只實例化可視列範圍內的卡片內容
                     in-viewport: data.id != ""
-                        && self.card-y < -sv.viewport-y + sv.visible-height + 280px
-                        && self.card-y + 260px > -sv.viewport-y - 280px;
+                        && self.grid-row >= sv.first-live-row
+                        && self.grid-row <= sv.last-live-row;
                 }
             }
         }

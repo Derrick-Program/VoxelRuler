@@ -119,5 +119,7 @@ debug = true
 codegen-units = 16
 lto = false
 
-# [profile.dev.package."*"]
-# opt-level = 3
+# 依賴（含 Slint 渲染器）以最佳化編譯：cargo run 的捲動/繪製效能接近 release。
+# 只影響首次編譯時間；自己的 crate 仍是 opt-level 0，增量編譯速度不變
+[profile.dev.package."*"]
+opt-level = 3

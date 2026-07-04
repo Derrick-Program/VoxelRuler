@@ -34,6 +34,41 @@ fn should_fetch_online_profile(authenticator: &str, token: &str) -> bool {
     authenticator != "Offline" && !token.is_empty()
 }
 
+/// 版本 JSON local-first：已下載過的版本直接讀本機快取（Mojang 的版本 JSON
+/// 發布後不會變動），讓已安裝的實例在離線時也能啟動，同時加快重複啟動。
+/// 本機沒有或解析失敗才走網路，成功後寫回快取。
+async fn load_or_fetch_version_detail(
+    api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
+    json_path: &Path,
+    version_id: &str,
+) -> anyhow::Result<McSpecificVersionDetail> {
+    if let Ok(cached) = tokio::fs::read_to_string(json_path).await {
+        match serde_json::from_str(&cached) {
+            Ok(v) => {
+                info!(version_id, "Using locally cached version JSON");
+                return Ok(v);
+            }
+            Err(e) => {
+                warn!(version_id, error = %e, "Local version JSON is corrupt, refetching");
+            }
+        }
+    }
+    let version = api
+        .get_specific_mc_version_detail(version_id)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to get version data for {version_id}. \
+                 If you are offline, launch this version once while online first."
+            )
+        })?;
+    if let Some(parent) = json_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(json_path, serde_json::to_string(&version)?).await?;
+    Ok(version)
+}
+
 /// 依線上查詢結果決定玩家名稱與 UUID；查不到時退回帳號名稱＋離線 UUID
 fn resolve_player_identity(
     username: &str,
@@ -100,8 +135,11 @@ pub(crate) async fn do_launch(
     set_install_state(&ui_weak, true, 0.0, "Fetching version data...", false);
 
     let api = crate::mc_api::McAction::new();
-    let mut version = api.get_specific_mc_version_detail(&version_id).await?;
     let paths = McPaths::new()?;
+    let vanilla_version_dir = paths.versions_dir().join(&version_id);
+    let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
+    let mut version =
+        load_or_fetch_version_detail(&api, &vanilla_json_path, &version_id).await?;
 
     // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
     let app_settings = AppSettings::load();
@@ -214,18 +252,39 @@ pub(crate) async fn do_launch(
                 );
             }
             actual_java_major = required_java_major;
-            let (path, _) =
-                install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await?;
-            path
+            match install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await {
+                Ok((path, _)) => path,
+                // 離線 fallback：Java manifest 抓不到，但本機已裝過該 runtime → 直接用。
+                // 候選目錄含 Apple Silicon 退回 Rosetta x64 時的帶後綴目錄名。
+                Err(e) => {
+                    let native_arch = crate::mc_parser::get_mojang_os_arch();
+                    let mut candidates =
+                        vec![java_runtime_dir_name(&component, os_arch, native_arch)];
+                    if os_arch == "mac-os-arm64" {
+                        candidates.push(java_runtime_dir_name(&component, "mac-os", native_arch));
+                    }
+                    match candidates
+                        .iter()
+                        .map(|d| paths.java_bin(d))
+                        .find(|p| p.is_file())
+                    {
+                        Some(bin) => {
+                            warn!(
+                                error = %e, java = ?bin,
+                                "Java manifest unavailable (offline?), using existing local runtime"
+                            );
+                            bin
+                        }
+                        None => return Err(e),
+                    }
+                }
+            }
         }
     };
 
-    // 預先下載原版客戶端 JAR 與儲存 JSON（Forge installer 需要用到原版 JAR 才能打補丁）
-    let vanilla_version_dir = paths.versions_dir().join(&version_id);
+    // 預先下載原版客戶端 JAR（Forge installer 需要用到原版 JAR 才能打補丁）；
+    // 版本 JSON 已由 load_or_fetch_version_detail 寫入快取
     tokio::fs::create_dir_all(&vanilla_version_dir).await?;
-    let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
-    let vanilla_json_str = serde_json::to_string(&version)?;
-    tokio::fs::write(&vanilla_json_path, vanilla_json_str).await?;
 
     info!(versions_dir = ?paths.versions_dir(), "Pre-installing vanilla Minecraft client for Mod Loader");
     mc_install::install_client(&version, &paths.versions_dir(), {

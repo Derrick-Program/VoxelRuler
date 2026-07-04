@@ -394,6 +394,18 @@ impl ModLoaderApi {
         java_path: &std::path::Path,
         mc_dir: &std::path::Path,
     ) -> anyhow::Result<String> {
+        // 已安裝過（新版 1.13+ 命名規則可直接推導 profile id）→ 不重抓 installer，
+        // 離線時也能啟動；舊版 Forge 的 id 來自 installer 內的 versionInfo，
+        // 無法預先推導，仍由下載後的 early-return 處理
+        let guessed_id = loader_version.replacen("-", "-forge-", 1);
+        let guessed_json = mc_dir
+            .join("versions")
+            .join(&guessed_id)
+            .join(format!("{}.json", guessed_id));
+        if guessed_json.exists() {
+            return Ok(guessed_id);
+        }
+
         let url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{}/forge-{}-installer.jar",
             loader_version, loader_version
@@ -955,6 +967,24 @@ mod tests {
         let result = ModLoaderApi::install_fabric("1.20.4", "0.15.7", tmp.path())
             .await
             .unwrap();
+        assert_eq!(result, profile_id);
+    }
+
+    #[tokio::test]
+    async fn test_install_forge_skips_when_profile_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let profile_id = "1.20.1-forge-47.2.0";
+        create_fake_profile(tmp.path(), profile_id);
+
+        // 新版命名規則可預先推導 profile id：已存在時不下載 installer（離線可啟動）
+        let result = ModLoaderApi::install_forge(
+            "1.20.1",
+            "1.20.1-47.2.0",
+            std::path::Path::new("/nonexistent/java"),
+            tmp.path(),
+        )
+        .await
+        .unwrap();
         assert_eq!(result, profile_id);
     }
 

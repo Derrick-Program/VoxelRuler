@@ -257,7 +257,10 @@ pub(crate) fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     instance_logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>>,
     ui_weak: slint::Weak<MainApp>,
 ) {
-    tokio::task::spawn_blocking(move || {
+    // 用獨立 OS thread 而非 tokio spawn_blocking：這個讀取會阻塞到遊戲結束（pipe EOF），
+    // 若掛在 tokio blocking pool，關閉視窗後 runtime shutdown 會等它結束 → 遊戲還在跑時
+    // App 行程永遠卡住無法退出。獨立 thread 在行程結束時直接被回收，遊戲繼續執行。
+    std::thread::spawn(move || {
         use std::io::BufRead;
         let buf = std::io::BufReader::new(reader);
         for line in buf.lines().map_while(Result::ok) {
@@ -621,7 +624,7 @@ mod tests {
             slint::Weak::default(),
         );
 
-        // spawn_blocking 在背景處理，輪詢等待完成
+        // 背景 thread 處理，輪詢等待完成
         for _ in 0..200 {
             if logs.lock().unwrap().get("inst").map(|d| d.len()) == Some(2) {
                 break;

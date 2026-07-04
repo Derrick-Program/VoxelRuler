@@ -522,17 +522,30 @@ pub async fn install_assets(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Version {} has no asset_index", version.id))?;
 
-    let objects = crate::mc_api::McAction::new()
-        .get_asset_index(&index.url)
-        .await?;
-
     let index_path = assets_dir
         .join("indexes")
         .join(format!("{}.json", index.id));
-    if let Some(parent) = index_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
+
+    // Asset index local-first：同一 index id 的內容不會變動，已下載過就直接讀本機，
+    // 讓離線啟動不會卡在這裡；本機沒有或解析失敗才走網路
+    let cached: Option<crate::mc_types::McAssetObjects> = match tokio::fs::read(&index_path).await
+    {
+        Ok(bytes) => serde_json::from_slice(&bytes).ok(),
+        Err(_) => None,
+    };
+    let objects = match cached {
+        Some(objects) => objects,
+        None => {
+            let objects = crate::mc_api::McAction::new()
+                .get_asset_index(&index.url)
+                .await?;
+            if let Some(parent) = index_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(&index_path, serde_json::to_vec(&objects)?).await?;
+            objects
+        }
+    };
 
     let objects_dir = assets_dir.join("objects");
     let total = objects.objects.len().max(1);
