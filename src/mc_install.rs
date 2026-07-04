@@ -528,8 +528,7 @@ pub async fn install_assets(
 
     // Asset index local-first：同一 index id 的內容不會變動，已下載過就直接讀本機，
     // 讓離線啟動不會卡在這裡；本機沒有或解析失敗才走網路
-    let cached: Option<crate::mc_types::McAssetObjects> = match tokio::fs::read(&index_path).await
-    {
+    let cached: Option<crate::mc_types::McAssetObjects> = match tokio::fs::read(&index_path).await {
         Ok(bytes) => serde_json::from_slice(&bytes).ok(),
         Err(_) => None,
     };

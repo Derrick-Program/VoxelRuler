@@ -138,8 +138,7 @@ pub(crate) async fn do_launch(
     let paths = McPaths::new()?;
     let vanilla_version_dir = paths.versions_dir().join(&version_id);
     let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
-    let mut version =
-        load_or_fetch_version_detail(&api, &vanilla_json_path, &version_id).await?;
+    let mut version = load_or_fetch_version_detail(&api, &vanilla_json_path, &version_id).await?;
 
     // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
     let app_settings = AppSettings::load();
