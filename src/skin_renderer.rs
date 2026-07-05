@@ -239,28 +239,16 @@ impl SkinRenderer {
                 });
             };
 
-        // For cape, the outward face (Back face of the box, p5, p4, p7, p6) should get u=1 (which is u+d in standard)
-        // And the inward face (Front face of the box, p0, p1, p2, p3) should get u=12 (which is u+d+w+d in standard)
-
-        // Front face (inward, touching body)
         add_face(p0, p1, p2, p3, u + d + w + d, v + d, w, h);
 
-        // Back face (outward, with logo)
-        // BUT WAIT! If we look at the back face (p5, p4, p7, p6) from the outside, p5 is on the left, p4 is on the right.
-        // If we map it with u+d, p5 gets u+d, p4 gets u+d+w.
-        // This is correct.
         add_face(p5, p4, p7, p6, u + d, v + d, w, h);
 
-        // Top face
         add_face(p4, p5, p1, p0, u + d, v, w, d);
 
-        // Bottom face
         add_face(p3, p2, p6, p7, u + d + w, v, w, d);
 
-        // Right face
         add_face(p4, p0, p3, p7, u, v + d, d, h);
 
-        // Left face
         add_face(p1, p5, p6, p2, u + d + w, v + d, d, h);
     }
 
@@ -284,10 +272,10 @@ impl SkinRenderer {
 
         self.add_box(
             &mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 0.0, 0.0, 64.0, 64.0, 0.0, identity,
-        ); // Head
+        );
         self.add_box(
             &mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 16.0, 64.0, 64.0, 0.0, identity,
-        ); // Body
+        );
 
         let rotate_x = |anchor: Vec3, angle: f32| {
             move |v: Vec3| -> Vec3 {
@@ -319,25 +307,25 @@ impl SkinRenderer {
             64.0,
             0.0,
             r_arm_tx,
-        ); // Right Arm
+        );
         self.add_box(
             &mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 32.0, 48.0, 64.0, 64.0, 0.0, l_arm_tx,
-        ); // Left Arm
+        );
 
         self.add_box(
             &mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 16.0, 64.0, 64.0, 0.0, r_leg_tx,
-        ); // Right Leg
+        );
         self.add_box(
             &mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 16.0, 48.0, 64.0, 64.0, 0.0, l_leg_tx,
-        ); // Left Leg
+        );
 
         let inf = 0.25;
         self.add_box(
             &mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 32.0, 0.0, 64.0, 64.0, inf, identity,
-        ); // Head Overlay
+        );
         self.add_box(
             &mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 32.0, 64.0, 64.0, inf, identity,
-        ); // Body Overlay
+        );
         self.add_box(
             &mut tris,
             0,
@@ -353,16 +341,16 @@ impl SkinRenderer {
             64.0,
             inf,
             r_arm_tx,
-        ); // Right Arm Overlay
+        );
         self.add_box(
             &mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 48.0, 48.0, 64.0, 64.0, inf, l_arm_tx,
-        ); // Left Arm Overlay
+        );
         self.add_box(
             &mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 32.0, 64.0, 64.0, inf, r_leg_tx,
-        ); // Right Leg Overlay
+        );
         self.add_box(
             &mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 48.0, 64.0, 64.0, inf, l_leg_tx,
-        ); // Left Leg Overlay
+        );
 
         if self.cape.is_some() {
             let cape_tx = rotate_x(
@@ -511,22 +499,18 @@ mod tests {
         let v1 = Vec3::new(1.0, 0.0, 0.0);
         let v2 = Vec3::new(0.0, 1.0, 0.0);
 
-        // Dot product
         assert_eq!(v1.dot(&v2), 0.0);
 
-        // Cross product
         let cross = v1.cross(&v2);
         assert_eq!(cross.x, 0.0);
         assert_eq!(cross.y, 0.0);
         assert_eq!(cross.z, 1.0);
 
-        // Subtraction
         let sub = v1.sub(&v2);
         assert_eq!(sub.x, 1.0);
         assert_eq!(sub.y, -1.0);
         assert_eq!(sub.z, 0.0);
 
-        // Normalize
         let v3 = Vec3::new(3.0, 4.0, 0.0);
         let norm = v3.normalize();
         assert_eq!(norm.x, 3.0 / 5.0);

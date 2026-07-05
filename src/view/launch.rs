@@ -16,11 +16,8 @@ use std::process::Child;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info, warn};
 
-/// 離線帳號 / 無法取得線上 profile 時使用的 UUID
 const OFFLINE_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
-/// Java 安裝目錄名稱：與原生架構相同時直接用 component 名，
-/// 跨架構（如 Apple Silicon 退回 Rosetta x64）時加上 os_arch 後綴避免混用
 fn java_runtime_dir_name(component: &str, os_arch: &str, native_arch: &str) -> String {
     if os_arch == native_arch {
         component.to_string()
@@ -29,14 +26,10 @@ fn java_runtime_dir_name(component: &str, os_arch: &str, native_arch: &str) -> S
     }
 }
 
-/// 是否需要向 Mojang 查詢線上 profile：離線帳號或無 token 時不查
 fn should_fetch_online_profile(authenticator: &str, token: &str) -> bool {
     authenticator != "Offline" && !token.is_empty()
 }
 
-/// 版本 JSON local-first：已下載過的版本直接讀本機快取（Mojang 的版本 JSON
-/// 發布後不會變動），讓已安裝的實例在離線時也能啟動，同時加快重複啟動。
-/// 本機沒有或解析失敗才走網路，成功後寫回快取。
 async fn load_or_fetch_version_detail(
     api: &crate::mc_api::McAction<crate::mc_api::Unauthenticated>,
     json_path: &Path,
@@ -69,7 +62,6 @@ async fn load_or_fetch_version_detail(
     Ok(version)
 }
 
-/// 依線上查詢結果決定玩家名稱與 UUID；查不到時退回帳號名稱＋離線 UUID
 fn resolve_player_identity(
     username: &str,
     online_profile: Option<(String, String)>,
@@ -93,8 +85,6 @@ pub(crate) async fn install_java_runtime(
         .get_java_runtime_manifest_for_platform(component, &os_arch)
         .await;
 
-    // 官方目錄缺漏保險：Apple Silicon 目錄沒有該 component（如 java-runtime-beta
-    // 只有 x64 版）→ 自動改抓 x64 經 Rosetta 執行
     if manifest.is_err() && os_arch == "mac-os-arm64" {
         warn!(
             component,
@@ -140,7 +130,6 @@ pub(crate) async fn do_launch(
     let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
     let mut version = load_or_fetch_version_detail(&api, &vanilla_json_path, &version_id).await?;
 
-    // Java 解析：instance（path > runtime）→ 全域（path > runtime）→ 版本預設
     let app_settings = AppSettings::load();
     let java_source = resolve_java_source(&config, &app_settings);
     info!(?java_source, instance = %config.name, "Java source parsing result");
@@ -148,9 +137,6 @@ pub(crate) async fn do_launch(
     let required_java_major = version.java_version.as_ref().map(|j| j.major_version);
     let mut actual_java_major: Option<i32> = None;
 
-    // Apple Silicon：1.19 之前的版本只有 x86_64 natives。
-    // 若實際使用 arm64 Java，改用 Prism 式函式庫替換（compat）原生執行；
-    // 若使用 x86_64 Java（Rosetta），維持原版函式庫。
     let is_arm_mac = cfg!(target_os = "macos") && std::env::consts::ARCH == "aarch64";
     let supports_arm64 = crate::mc_parser::version_supports_macos_arm64(&version);
     let mut compat: Option<&'static crate::mc_compat::MacosArm64Override> = None;
@@ -176,8 +162,6 @@ pub(crate) async fn do_launch(
                 info!(?archs, "Custom Java architecture detection");
                 let java_is_arm64 =
                     is_arm_mac && (archs.is_empty() || archs.iter().any(|a| a == "arm64"));
-                // x86_64 Java（Rosetta / Intel Mac）也要換 LWJGL 3.3.1：
-                // 內建 GLFW 3.2.x 在新版 macOS 會以 service port 錯誤崩潰
                 compat = crate::mc_compat::macos_override_for(&version, java_is_arm64);
                 match compat {
                     Some(ov) => {
@@ -196,7 +180,6 @@ pub(crate) async fn do_launch(
                 }
             }
 
-            // 偵測實際 Java 版本：compat flags 依此決定，過舊則提前給明確錯誤
             let probe = p.clone();
             actual_java_major = tokio::task::spawn_blocking(move || {
                 crate::mc_parser::detect_java_major_version(&probe)
@@ -227,18 +210,13 @@ pub(crate) async fn do_launch(
                 .map(|j| j.component.clone())
                 .unwrap_or_else(|| "jre-legacy".into());
 
-            // 1.13–1.18 預設 Java 走 x86_64（Rosetta）：1.13–1.16 需要
-            // jre-legacy（Java 8），Mojang 沒有 arm64 版；1.17–1.18 為求
-            // 行為一致也同樣走 Rosetta（LWJGL 替換表已含 x64 natives）
             let os_arch = if is_arm_mac && !supports_arm64 {
                 info!("Version lacks arm64-safe libraries, fetching x86_64 Java instead (Rosetta)");
                 "mac-os"
             } else {
                 crate::mc_parser::get_mojang_os_arch()
             };
-            // x86_64 Java：1.13 以上換 LWJGL 3.3.1 x64 + patched glfw bindings
-            //（修 macOS 26 的 GLFW 65544 與開機 setIcon 的 65548，Intel Mac
-            //  也適用）；≤1.12（LWJGL2）維持原版
+            // 修 macOS 26 的 GLFW 65544 與開機 setIcon 的 65548
             compat = if cfg!(target_os = "macos") && !supports_arm64 {
                 crate::mc_compat::macos_override_for(&version, false)
             } else {
@@ -253,8 +231,6 @@ pub(crate) async fn do_launch(
             actual_java_major = required_java_major;
             match install_java_runtime(&api, &paths, &component, os_arch, &ui_weak).await {
                 Ok((path, _)) => path,
-                // 離線 fallback：Java manifest 抓不到，但本機已裝過該 runtime → 直接用。
-                // 候選目錄含 Apple Silicon 退回 Rosetta x64 時的帶後綴目錄名。
                 Err(e) => {
                     let native_arch = crate::mc_parser::get_mojang_os_arch();
                     let mut candidates =
@@ -281,8 +257,6 @@ pub(crate) async fn do_launch(
         }
     };
 
-    // 預先下載原版客戶端 JAR（Forge installer 需要用到原版 JAR 才能打補丁）；
-    // 版本 JSON 已由 load_or_fetch_version_detail 寫入快取
     tokio::fs::create_dir_all(&vanilla_version_dir).await?;
 
     info!(versions_dir = ?paths.versions_dir(), "Pre-installing vanilla Minecraft client for Mod Loader");
@@ -333,7 +307,6 @@ pub(crate) async fn do_launch(
         version = version.merge(modded_version);
         version_id = profile_id;
 
-        // 為了相容 Legacy Forge，將原版 client.jar 複製到 modded 資料夾下作為 classpath 使用
         let vanilla_jar_path = vanilla_version_dir.join(format!("{}.jar", config.version));
         let modded_version_dir = paths.versions_dir().join(&version_id);
         tokio::fs::create_dir_all(&modded_version_dir).await?;
@@ -344,7 +317,6 @@ pub(crate) async fn do_launch(
     }
 
     info!(versions_dir = ?paths.versions_dir(), "Checking Minecraft client installation");
-    // 已在前置步驟或是由 modloader 準備好，這裡再次確認或補全（通常會瞬間完成）
     mc_install::install_client(&version, &paths.versions_dir(), {
         let ui_weak = ui_weak.clone();
         move |p| {
@@ -355,9 +327,7 @@ pub(crate) async fn do_launch(
     .await
     .context("Failed to install Minecraft client")?;
 
-    // Forge (launchwrapper) 需剝除 Minecraft JAR 的 code signing，
-    // 否則 ASM bytecode 轉換時 JVM 會因 package seal 驗證拋出 SecurityException。
-    // 原版 JAR 保持原大小（避免 download_and_verify 重複下載）；classpath 改用 nosig copy。
+    // Forge (launchwrapper) 需剝除 JAR code signing，否則 ASM bytecode 轉換時 JVM 會拋出 SecurityException
     if config.mod_loader == "Forge" {
         let version_jar = paths
             .versions_dir()
@@ -372,8 +342,6 @@ pub(crate) async fn do_launch(
             .context("Failed to strip Forge JAR signature")?;
     }
 
-    // 舊版 Forge（≤1.6.4）需要額外的 FML 依賴（deobfuscation data、bcprov、asm 等），
-    // 這些依賴不在版本 JSON 中，由 FML bootstrap 在執行時動態載入。
     if config.mod_loader == "Forge" {
         set_install_state(
             &ui_weak,
@@ -398,7 +366,6 @@ pub(crate) async fn do_launch(
     .await
     .context("Failed to install libraries")?;
 
-    // Copy downloaded legacy fmllibs to the game_dir/lib folder before launch
     if config.mod_loader == "Forge" {
         crate::mc_legacy_fml::copy_fmllibs_to_game_dir(
             &version_id,
@@ -469,7 +436,6 @@ pub(crate) async fn do_launch(
         java_major_version: actual_java_major,
         compat_override: compat,
     };
-    // 啟動前缺檔檢查：避免 Java 端丟出難排查的 ClassNotFound / UnsatisfiedLinkError
     let missing = ctx.missing_classpath_files();
     if !missing.is_empty() {
         let list = missing
@@ -611,10 +577,8 @@ pub fn setup_launch_logic(
         let logs = Arc::clone(&instance_logs_for_launch);
         let mut launching_lock = launching_procs.lock().unwrap();
         if launching_lock.contains(&instance_id) {
-            return; // 同一個實例已在啟動中，不重複觸發
+            return;
         }
-        // 啟動（安裝）階段序列化：進度條是全域單一元件，兩個實例同時
-        // 走安裝流程會互搶進度顯示；已在執行中的遊戲不受此限（可多開）
         if !launching_lock.is_empty() {
             set_install_state(
                 &ui_weak_for_launch,
@@ -660,8 +624,6 @@ pub fn setup_launch_logic(
                                     map.remove(&id_watch);
                                     drop(map);
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
-                                    // 異常退出：比對已知圖形/函式庫錯誤特徵，給出可行建議
-                                    // （使用者按停止的情況已先從 map 移除，不會走到這裡）
                                     if !status.success() {
                                         let lines: Vec<String> = logs_watch
                                             .lock()
@@ -713,7 +675,6 @@ pub fn setup_launch_logic(
         }
     });
 
-    // 「編輯實例」→ 開啟詳細視窗的「設定」分頁（tab 9）
     let master_for_edit_open = Arc::clone(&master_configs);
     let running_for_edit_open = Arc::clone(&running_procs);
     let logs_for_edit_open = Arc::clone(&instance_logs);
@@ -775,12 +736,10 @@ pub fn setup_launch_logic(
             c.xmx = if xmx.is_empty() { "2G".into() } else { xmx };
             c.xms = if xms.is_empty() { "512M".into() } else { xms };
             c.java_mode = java_mode.to_string();
-            // 路徑文字保留，切換模式時不清掉使用者輸入
             c.java_path = java_path;
             c.clone()
         };
 
-        // 寫入 instance.toml；watcher 會自動同步 UI 列表
         match store_for_edit.lock().unwrap().save_one(&updated_config) {
             Ok(()) => {
                 edit.set_error_msg("".into());
@@ -856,7 +815,6 @@ pub fn setup_launch_logic(
         }
     });
 
-    // ── 右鍵選單：開啟資料夾 / 複製 / 重新命名 / 刪除 ─────────────────────
     logic.on_open_instance_folder(move |id| {
         if let Ok(paths) = McPaths::new() {
             let _ = open::that(paths.instance_dir(id.as_str()));
@@ -874,7 +832,6 @@ pub fn setup_launch_logic(
         let Some(config) = config else { return };
         let store = Arc::clone(&store_for_dup);
         let ui_weak = ui_weak_for_dup.clone();
-        // 實例資料夾可能很大（worlds / mods），放 blocking thread 複製
         tokio::task::spawn_blocking(move || {
             let result = (|| -> anyhow::Result<()> {
                 let paths = McPaths::new()?;
@@ -886,7 +843,6 @@ pub fn setup_launch_logic(
                 let src = paths.instance_dir(&config.id);
                 let dst = paths.instance_dir(&new_config.id);
                 crate::instance_assets::copy_dir_recursive(&src, &dst)?;
-                // 覆寫複製來的 instance.toml（換 id / 名稱）；watcher 會同步列表
                 store.lock().unwrap().save_one(&new_config)?;
                 Ok(())
             })();
@@ -941,7 +897,6 @@ pub fn setup_launch_logic(
         };
         let logic = ui.global::<InstanceLogic>();
         let id = logic.get_delete_id().to_string();
-        // 執行中先停止
         if let Some(mut child) = running_for_del.lock().unwrap().remove(&id) {
             let _ = child.kill();
         }
@@ -949,7 +904,6 @@ pub fn setup_launch_logic(
             error!("Failed to delete instance: {e:#}");
         }
         logic.set_show_delete_confirm(false);
-        // 詳細視窗若開著同一實例，順手關閉
         let detail = ui.global::<InstanceDetailLogic>();
         if detail.get_instance_id().as_str() == id {
             detail.set_show_dialog(false);
@@ -971,7 +925,6 @@ mod tests {
 
     #[test]
     fn test_java_runtime_dir_name_cross_arch_gets_suffix() {
-        // Apple Silicon 退回 Rosetta x64 時，目錄需帶 os_arch 後綴避免與原生版混用
         assert_eq!(
             java_runtime_dir_name("java-runtime-beta", "mac-os", "mac-os-arm64"),
             "java-runtime-beta-mac-os"
@@ -981,9 +934,7 @@ mod tests {
     #[test]
     fn test_should_fetch_online_profile() {
         assert!(should_fetch_online_profile("Microsoft", "some-token"));
-        // 離線帳號不查線上 profile
         assert!(!should_fetch_online_profile("Offline", "some-token"));
-        // 無 token 不查
         assert!(!should_fetch_online_profile("Microsoft", ""));
     }
 

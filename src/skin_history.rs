@@ -17,7 +17,6 @@ pub struct SkinHistory {
 }
 
 impl SkinHistory {
-    /// 讀取皮膚歷史紀錄，失敗時回傳預設值並記錄警告
     pub fn load(path: &Path) -> Self {
         if path.exists() {
             match std::fs::read_to_string(path) {
@@ -40,7 +39,6 @@ impl SkinHistory {
         history
     }
 
-    /// 儲存皮膚歷史紀錄
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -50,7 +48,6 @@ impl SkinHistory {
         Ok(())
     }
 
-    /// 加入一筆新的皮膚紀錄，若 URL 已存在則忽略 (Deduplication)
     pub fn add_skin(&mut self, entry: SkinEntry) {
         if !self.skins.iter().any(|s| s.url == entry.url) {
             self.skins.push(entry);
@@ -78,7 +75,6 @@ mod tests {
         let path = dir.path().join("index.json");
         let h = SkinHistory::load(&path);
         assert!(h.skins.is_empty());
-        // load creates the file on first call
         assert!(path.exists());
     }
 

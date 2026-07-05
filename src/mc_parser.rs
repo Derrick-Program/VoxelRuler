@@ -13,12 +13,9 @@ use crate::mc_types::{
     McSpecificVersionDetail,
 };
 
-/// macOS（特別是 Apple Silicon）上，過舊的 jna 5.x 會導致原生函式庫載入問題，
-/// 統一升級到此版本。install 與 classpath 兩端都以此為準，確保檔案一定存在。
+// macOS（尤其 Apple Silicon）上過舊的 jna 5.x 會導致原生函式庫載入失敗，故統一升級到此版本
 pub const JNA_COMPAT_VERSION: &str = "5.13.0";
 
-/// 若該 library 在 macOS 上需要把 jna 升到 [`JNA_COMPAT_VERSION`]，
-/// 回傳 artifact 名稱（`"jna"` or `"jna-platform"`）。
 pub fn jna_needs_bump(name: &str) -> Option<&'static str> {
     let mut parts = name.split(':');
     if parts.next()? != "net.java.dev.jna" {
@@ -35,7 +32,6 @@ pub fn jna_needs_bump(name: &str) -> Option<&'static str> {
     (major == 5 && minor < 13).then_some(artifact)
 }
 
-/// jna 升級後在 libraries 目錄下的相對路徑
 pub fn jna_compat_rel_path(artifact: &str) -> PathBuf {
     PathBuf::from(format!(
         "net/java/dev/jna/{artifact}/{v}/{artifact}-{v}.jar",
@@ -43,12 +39,6 @@ pub fn jna_compat_rel_path(artifact: &str) -> PathBuf {
     ))
 }
 
-/// 取得目前 OS 對應的 natives classifier key。
-///
-/// 新版格式（約 1.19+）natives 是獨立的 artifact library，不會走到這裡；
-/// 舊版格式則透過 `natives` 欄位（OS → key，可能含 `${arch}`）指定。
-/// 若 JSON 缺 `natives` 欄位（例如經過正規化的測試資料），
-/// 退而求其次直接在 classifiers 中猜標準命名。
 pub fn native_classifier_key(lib: &McLibrary) -> Option<String> {
     let os_keys = match OS {
         "windows" => vec!["windows"],
@@ -84,31 +74,19 @@ pub fn native_classifier_key(lib: &McLibrary) -> Option<String> {
 pub struct LaunchContext {
     pub version: McSpecificVersionDetail,
     pub java_path: PathBuf,
-    /// Per-instance game directory (saves, configs, resource packs, …)
     pub game_dir: PathBuf,
-    /// Shared libraries directory
     pub libraries_dir: PathBuf,
-    /// Shared assets directory
     pub assets_dir: PathBuf,
-    /// Per-instance extracted native libraries directory
     pub natives_dir: PathBuf,
-    /// Shared versions directory; JAR lives at `<versions_dir>/<id>/<id>.jar`
     pub versions_dir: PathBuf,
     pub auth_player_name: String,
     pub auth_uuid: String,
     pub auth_access_token: String,
-    /// Microsoft launcher client ID (empty string for offline mode)
     pub client_id: String,
-    /// Xbox Live user ID (empty string for offline mode)
     pub xuid: String,
-    /// Maximum heap size passed to JVM, e.g. `"2G"`
     pub xmx: String,
-    /// Initial heap size passed to JVM, e.g. `"512M"`
     pub xms: String,
-    /// 實際使用的 Java major 版本（自訂 Java 時偵測而得）。
-    /// `None` 時 fallback 至版本 JSON 的 javaVersion.majorVersion。
     pub java_major_version: Option<i32>,
-    /// macOS Apple Silicon 原生模式的函式庫替換表（Prism 式）
     pub compat_override: Option<&'static crate::mc_compat::MacosArm64Override>,
 }
 
@@ -120,14 +98,11 @@ impl LaunchContext {
         cmd.current_dir(&self.game_dir);
 
         if cfg!(target_os = "linux") {
-            // ≤1.12（LWJGL2/AWT）在 tiling WM 與 XWayland 下的灰屏/焦點問題緩解；
-            // 對 LWJGL3 版本無作用、無害
+            // ≤1.12（LWJGL2/AWT）在 tiling WM 與 XWayland 下的灰屏/焦點問題緩解；對 LWJGL3 版本無作用、無害
             cmd.env("_JAVA_AWT_WM_NONREPARENTING", "1");
         }
 
         if let Some(arguments) = &self.version.arguments {
-            // 優先序（後加 = 高優先，dedup 保留最後一筆）：
-            //   版本 JSON jvm < default_user_jvm < 明確指定的 Xmx/Xms
             let mut all_jvm: Vec<String> = collect_args(&arguments.jvm, &vars);
 
             if let Some(defaults) = &arguments.default_user_jvm {
@@ -144,10 +119,8 @@ impl LaunchContext {
             all_jvm.push("-Dfml.ignoreInvalidMinecraftCertificates=true".to_string());
             all_jvm.push("-Dfml.earlyprogresswindow=false".to_string());
 
-            // 去除互斥 flag 的衝突，保留最後（最高優先）那一筆
             let mut all_jvm = dedup_jvm_args(all_jvm);
 
-            // fix forge ignoreList for nosig jar
             let nosig_jar_name = format!("{}-nosig.jar", self.version.id);
             if self
                 .versions_dir
@@ -163,7 +136,6 @@ impl LaunchContext {
                 }
             }
 
-            // compat args 插到 -cp 之前
             let mut compat = self.java_compat_args();
             if cfg!(target_os = "macos") {
                 let natives_str = self.natives_dir.to_string_lossy().into_owned();
@@ -188,7 +160,6 @@ impl LaunchContext {
             cmd.arg(&self.version.main_class);
             cmd.args(collect_args(&arguments.game, &vars));
         } else {
-            // 舊版格式（無 arguments 欄位）：直接加，不會有重複問題
             cmd.arg(format!("-Xmx{}", self.xmx));
             cmd.arg(format!("-Xms{}", self.xms));
             cmd.arg(format!(
@@ -205,9 +176,7 @@ impl LaunchContext {
 
             let mut compat = self.java_compat_args();
             if cfg!(target_os = "macos") {
-                // 不可加 -XstartOnFirstThread：此分支全為 LWJGL2（≤1.12），
-                // LWJGL2 依賴 AWT 接管 main thread，加了會白屏（有聲音無畫面）；
-                // LWJGL3（1.13+）走 arguments 分支，版本 JSON 自帶此 flag
+                // 不可加 -XstartOnFirstThread：此分支全為 LWJGL2（≤1.12）依賴 AWT 接管 main thread，加了會白屏（有聲音無畫面）；LWJGL3（1.13+）走 arguments 分支，版本 JSON 自帶此 flag
                 let natives_str = self.natives_dir.to_string_lossy().into_owned();
                 compat.push(format!("-Djna.tmpdir={}", natives_str));
                 compat.push(format!(
@@ -233,7 +202,6 @@ impl LaunchContext {
         cmd
     }
 
-    /// classpath 上所有 JAR 的絕對路徑（最後一項為版本 JAR）
     pub fn classpath_paths(&self) -> Vec<PathBuf> {
         let mut parts: Vec<PathBuf> = Vec::new();
 
@@ -244,14 +212,12 @@ impl LaunchContext {
                 continue;
             }
 
-            // Apple Silicon 原生模式：被替換的 lib 不上 classpath
             if let Some(ov) = self.compat_override
                 && ov.excludes(&lib.name)
             {
                 continue;
             }
 
-            // macOS：過舊 jna 一律改指向相容版本（install 端會下載對應檔案）
             if cfg!(target_os = "macos")
                 && let Some(artifact) = jna_needs_bump(&lib.name)
             {
@@ -266,11 +232,8 @@ impl LaunchContext {
                         .as_ref()
                         .map(PathBuf::from)
                         .or_else(|| maven_coord_to_path(&lib.name)),
-                    // 只有 classifiers（natives-only）的 lib：jar 走解壓流程，不上 classpath
                     None => None,
                 },
-                // 無 downloads 資訊（如第三方 loader 的 lib）：以 maven 座標推路徑
-                // 但若有 natives 欄位，這是舊版格式的 natives-only 函式庫，不上 classpath
                 None => {
                     if lib.natives.is_some() {
                         None
@@ -284,7 +247,6 @@ impl LaunchContext {
             }
         }
 
-        // Apple Silicon 原生模式：替換用的 jar 上 classpath
         if let Some(ov) = self.compat_override {
             for art in ov.artifacts.iter().filter(|a| !a.extract) {
                 parts.push(self.libraries_dir.join(art.rel_path));
@@ -305,7 +267,6 @@ impl LaunchContext {
             version_jar
         });
 
-        // 同名 lib 可能因規則重複通過（如 1.18.x 的 lwjgl）→ 去重保留首見順序
         let mut seen = std::collections::HashSet::new();
         parts.retain(|p| seen.insert(p.clone()));
 
@@ -321,7 +282,6 @@ impl LaunchContext {
             .join(sep)
     }
 
-    /// 啟動前檢查：回傳 classpath 上實際不存在的檔案清單
     pub fn missing_classpath_files(&self) -> Vec<PathBuf> {
         self.classpath_paths()
             .into_iter()
@@ -330,9 +290,7 @@ impl LaunchContext {
     }
 
     fn java_compat_args(&self) -> Vec<String> {
-        // compat flags 必須依「實際執行的 Java」決定：
-        // 例如 1.18.1（建議 Java 17）配自訂 Java 8 時，
-        // 不能塞 --add-modules=jdk.incubator.vector（Java 8 不認識 → JVM 起不來）
+        // compat flags 必須依「實際執行的 Java」決定，而非版本建議值：例如自訂 Java 8 執行 1.18.1 時，塞 --add-modules=jdk.incubator.vector 會導致 JVM 無法啟動（Java 8 不認識該參數）
         let major = self.java_major_version.unwrap_or_else(|| {
             self.version
                 .java_version
@@ -361,8 +319,7 @@ impl LaunchContext {
         m.insert("clientid", self.client_id.clone());
         m.insert("auth_xuid", self.xuid.clone());
         m.insert("user_type", "msa".into());
-        // 1.7.x–1.8.x 的 --userProperties：必須是合法 JSON（空物件），
-        // 給空字串會讓舊版 Main.main 的 gson 解析回傳 null → NPE
+        // 1.7.x–1.8.x 的 --userProperties 必須是合法 JSON（空物件）；給空字串會讓舊版 Main.main 的 gson 解析回傳 null 而 NPE
         m.insert("user_properties", "{}".into());
         m.insert("user_property_map", "{}".into());
         m.insert("version_name", self.version.id.clone());
@@ -402,12 +359,6 @@ impl LaunchContext {
     }
 }
 
-/// 去除 JVM 參數中的互斥衝突，對每種「只能有一個」的 flag 保留最後（優先序最高）那筆。
-///
-/// 規則：
-/// - GC 選擇器（`-XX:+UseZGC` 等）彼此互斥，整組只保留最後一個
-/// - 前綴唯一型（`-Xmx`、`-Xms`、`-Xss`、`-Xmn`）每種前綴只保留最後一個
-/// - 其餘 flag 全部保留
 fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
     const GC_FLAGS: &[&str] = &[
         "-XX:+UseG1GC",
@@ -420,7 +371,6 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
     ];
     const UNIQUE_PREFIXES: &[&str] = &["-Xmx", "-Xms", "-Xss", "-Xmn"];
 
-    // Pass 1：找出每種互斥類型的「最後出現位置」
     let mut last_gc: Option<usize> = None;
     let mut last_prefix: Vec<Option<usize>> = vec![None; UNIQUE_PREFIXES.len()];
 
@@ -437,7 +387,6 @@ fn dedup_jvm_args(args: Vec<String>) -> Vec<String> {
         }
     }
 
-    // Pass 2：過濾，重複的非最後那筆記錄 warning 並移除
     args.into_iter()
         .enumerate()
         .filter_map(|(i, arg)| {
@@ -602,9 +551,6 @@ pub fn maven_coord_to_path(coord: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-/// 此版本是否提供 macOS arm64（Apple Silicon）原生函式庫。
-/// 1.19+ 的版本 JSON 會包含 `natives-macos-arm64` 的 lwjgl 條目；
-/// 1.18.x 以前只有 x86_64，必須用 x64 Java 透過 Rosetta 執行。
 pub fn version_supports_macos_arm64(version: &McSpecificVersionDetail) -> bool {
     version.libraries.iter().any(|lib| {
         lib.name.contains("natives-macos-arm64")
@@ -616,7 +562,6 @@ pub fn version_supports_macos_arm64(version: &McSpecificVersionDetail) -> bool {
     })
 }
 
-/// 偵測 Mach-O 執行檔支援的架構（macOS；透過 `lipo -archs`）
 #[cfg(target_os = "macos")]
 pub fn detect_java_archs(java_path: &std::path::Path) -> Vec<String> {
     Command::new("/usr/bin/lipo")
@@ -633,10 +578,8 @@ pub fn detect_java_archs(java_path: &std::path::Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// 執行 `java -version` 偵測實際 Java major 版本（如 8 / 17 / 21）
 pub fn detect_java_major_version(java_path: &std::path::Path) -> Option<i32> {
     let output = Command::new(java_path).arg("-version").output().ok()?;
-    // `java -version` 輸出在 stderr；保險起見 stdout 也試
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let text = if stderr.contains("version") {
         stderr
@@ -646,14 +589,12 @@ pub fn detect_java_major_version(java_path: &std::path::Path) -> Option<i32> {
     parse_java_major_version(&text)
 }
 
-/// 解析 `version "..."` string: `"1.8.0_392"` → 8、`"17.0.2"` → 17、`"21"` → 21
 fn parse_java_major_version(text: &str) -> Option<i32> {
     let start = text.find("version \"")? + "version \"".len();
     let quoted = text[start..].split('"').next()?;
     let mut nums = quoted.split(['.', '_', '-', '+']);
     let first: i32 = nums.next()?.trim().parse().ok()?;
     if first == 1 {
-        // 舊式 1.x 命名（Java 8 以前）
         nums.next()?.trim().parse().ok()
     } else {
         Some(first)
@@ -1163,7 +1104,6 @@ mod test {
 
     #[test]
     fn test_compat_args_follow_actual_java_not_version_requirement() {
-        // 1.21 建議 Java 21，但實際用 Java 8 → 不得出現 compat flags
         let mut ctx = make_ctx(load_version("data/1.21.json"));
         ctx.java_major_version = Some(8);
         let args = cmd_args(&ctx.build_command());
@@ -1176,7 +1116,6 @@ mod test {
             "Actual Java 8 should not have native-access"
         );
 
-        // 實際 Java 22 → 應有完整 compat flags (含 sun-misc)
         ctx.java_major_version = Some(22);
         let args = cmd_args(&ctx.build_command());
         assert!(args.contains(&"--add-modules=jdk.incubator.vector".into()));
@@ -1259,10 +1198,8 @@ mod test {
             jna_needs_bump("net.java.dev.jna:jna-platform:5.8.0"),
             Some("jna-platform")
         );
-        // 已是相容版本以上 → 不升
         assert_eq!(jna_needs_bump("net.java.dev.jna:jna:5.13.0"), None);
         assert_eq!(jna_needs_bump("net.java.dev.jna:jna:5.14.0"), None);
-        // 3.x / 4.x 太舊，API 不相容，不做替換
         assert_eq!(jna_needs_bump("net.java.dev.jna:jna:4.4.0"), None);
         assert_eq!(jna_needs_bump("net.java.dev.jna:jna:3.4.0"), None);
         assert_eq!(jna_needs_bump("net.java.dev.jna:platform:3.4.0"), None);
@@ -1305,7 +1242,6 @@ mod test {
 
     #[test]
     fn test_native_classifier_key_fallback_to_classifiers() {
-        // 1.12.2 測試資料經過正規化，natives 欄位遺失 → 走 classifiers 猜測
         let v = load_version("data/1.12.2.json");
         let with_natives: Vec<&str> = v
             .libraries
@@ -1323,7 +1259,6 @@ mod test {
 
     #[test]
     fn test_new_format_has_no_classifier_natives() {
-        // 1.21 的 natives 是獨立 artifact library，不應誤判為 classifier natives
         let v = load_version("data/1.21.json");
         assert!(
             v.libraries

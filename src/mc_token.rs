@@ -39,7 +39,7 @@ pub struct SessionData {
     mc_uuid: String,
 }
 
-/// Windows: DPAPI + 本地加密檔案（規避 Credential Manager 2560 字元上限）
+// Windows: DPAPI + 本地加密檔案（規避 Credential Manager 2560 字元上限）
 #[cfg(target_os = "windows")]
 mod windows_session {
     use anyhow::Result;
@@ -392,7 +392,6 @@ mod tests {
 
     #[test]
     fn test_session_data_deserialization_defaults() {
-        // Test backwards compatibility where mc_username and mc_uuid might be missing
         let json = r#"{
             "microsoft_refresh_token": "refresh",
             "minecraft_access_token": "access",

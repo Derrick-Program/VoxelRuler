@@ -33,12 +33,10 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 
-/// 下拉選單顯示文字（同時也是 Rust 端比對用的哨兵值）
 const JAVA_MODE_LABEL_GLOBAL: &str = "Use Global Settings";
 const JAVA_MODE_LABEL_MINECRAFT: &str = "Use Minecraft Runtime";
 const JAVA_MODE_LABEL_CUSTOM: &str = "Use Custom Java";
 
-/// 設定檔中儲存的 java_mode 值
 const JAVA_MODE_GLOBAL: &str = "global";
 const JAVA_MODE_MINECRAFT: &str = "minecraft";
 const JAVA_MODE_CUSTOM: &str = "custom";
@@ -47,7 +45,6 @@ fn java_mode_to_label(mode: &str, is_instance: bool) -> &'static str {
     match mode {
         JAVA_MODE_CUSTOM => JAVA_MODE_LABEL_CUSTOM,
         JAVA_MODE_MINECRAFT => JAVA_MODE_LABEL_MINECRAFT,
-        // 空字串 = 預設：instance 跟隨全域、全域跟隨 Minecraft
         _ if is_instance => JAVA_MODE_LABEL_GLOBAL,
         _ => JAVA_MODE_LABEL_MINECRAFT,
     }
@@ -61,24 +58,18 @@ fn java_label_to_mode(label: &str) -> &'static str {
     }
 }
 
-/// 啟動時實際使用的 Java 來源
 #[derive(Debug)]
 enum JavaSource {
-    /// 使用者自訂的 java 執行檔路徑
     CustomPath(PathBuf),
-    /// 跟隨版本 JSON 的 javaVersion.component（Minecraft 提供）
     VersionDefault,
 }
 
-/// Java 解析優先序：
-/// instance（custom / minecraft / global）→ 全域（custom / minecraft）→ Minecraft 版本預設
 fn resolve_java_source(instance: &InstanceConfig, settings: &AppSettings) -> JavaSource {
     match instance.java_mode.as_str() {
         JAVA_MODE_CUSTOM if !instance.java_path.trim().is_empty() => {
             return JavaSource::CustomPath(PathBuf::from(instance.java_path.trim()));
         }
         JAVA_MODE_MINECRAFT => return JavaSource::VersionDefault,
-        // "global" / 空字串 / 其他 → 跟隨全域
         _ => {}
     }
     match settings.java_mode.as_str() {
@@ -97,10 +88,6 @@ fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
         let m = (config.play_time_secs % 3600) / 60;
         format!("{}h {}m", h, m)
     };
-    // 圖示不在此載入：預設圖示由 InstanceCard 直接用編譯內嵌的 Assets.logo。
-    // 從磁碟 load_from_path 會在每次列表重建（含搜尋每個按鍵）對每個實例
-    // 重新讀檔＋解碼 PNG，且 CARGO_MANIFEST_DIR 是編譯期路徑，發佈版不存在。
-    // image 留空給未來的每實例自訂圖示使用
     InstanceData {
         id: config.id.as_str().into(),
         name: config.name.as_str().into(),
@@ -131,9 +118,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
     }
 
-    // running_procs 在 watcher callback 中也需要讀取，因此提前定義。
-    // 這樣在重建 instance list 時，可以保留正在執行中的實例狀態，
-    // 避免 watcher 刷新列表時把 "running" status overridden to "ready"。
     let running_procs: Arc<Mutex<HashMap<String, Child>>> = Arc::new(Mutex::new(HashMap::new()));
     let launching_procs: Arc<Mutex<std::collections::HashSet<String>>> =
         Arc::new(Mutex::new(std::collections::HashSet::new()));
@@ -155,8 +139,6 @@ pub async fn open_view() -> anyhow::Result<()> {
             if let Ok(mut master) = master_for_watch.lock() {
                 *master = latest_configs.clone();
             }
-            // 在進入 event loop 前取得目前正在執行的實例 ID 集合，
-            // 保留這些實例的 "running" 狀態，不被重建列表覆蓋。
             let running_ids: std::collections::HashSet<String> = running_procs_for_watch
                 .lock()
                 .map(|m| m.keys().cloned().collect())
@@ -223,7 +205,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                         let create = ui.global::<InstanceCreateLogic>();
                         create.set_is_loading(false);
                         create.set_version_load_error("".into());
-                        // 提供 UI 標記「Latest」徽章用（manifest.latest.release）
                         create.set_latest_release_id(latest_release.into());
                         create.invoke_filter_versions();
                     }
@@ -236,7 +217,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                     if let Some(ui) = ui_weak_for_fetch.upgrade() {
                         let create = ui.global::<InstanceCreateLogic>();
                         create.set_is_loading(false);
-                        // 讓對話框顯示失敗原因，而不是留下一個空的版本下拉選單
                         create.set_version_load_error(
                             "Failed to load Minecraft versions. Please check your network and restart."
                                 .into(),
@@ -283,9 +263,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                 })
                 .collect();
 
-            // 依發布時間新到舊。不能用版本號數字比較：snapshot（24w14a）與
-            // old_beta（b1.8.1）解析不出數字會集體錯排；releaseTime 為 ISO 8601
-            // 字串（時區固定 +00:00），字典序即時間序
             filtered.sort_by(|a, b| b.release_time.cmp(&a.release_time));
 
             let filtered: Vec<slint::SharedString> =
@@ -296,7 +273,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                 && filtered.iter().any(|f| f.as_str() == current_selected);
 
             if !found {
-                // Pick latest by priority: release > snapshot > old_beta > old_alpha > experimental
                 let priority: &[(&str, bool)] = &[
                     ("release", show_release),
                     ("snapshot", show_snapshot),
@@ -324,8 +300,6 @@ pub async fn open_view() -> anyhow::Result<()> {
                 logic.set_selected_version(best);
             }
 
-            // 同步 scroll-to-selection 索引：自動選版或重過濾後，清單內容已變，
-            // 沿用舊索引會讓下拉選單開啟時捲到上一次的位置
             let selected_now = logic.get_selected_version();
             let selected_idx = filtered
                 .iter()
@@ -338,8 +312,6 @@ pub async fn open_view() -> anyhow::Result<()> {
             logic.invoke_loader_changed();
         });
 
-    // ── 網路狀態偵測（footer status）────────────────────────────────────
-    // 每 15 秒 HEAD 一次 Mojang 端點：對 launcher 而言「連得上 Mojang」才算 online
     let ui_weak_for_net = ui.as_weak();
     tokio::spawn(async move {
         let client = reqwest::Client::builder()
@@ -363,13 +335,12 @@ pub async fn open_view() -> anyhow::Result<()> {
             })
             .is_err()
             {
-                break; // event loop 已結束
+                break;
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
     });
 
-    // ── Java 模式選單 + 全域設定載入 ─────────────────────────────────────
     {
         let edit_items: Vec<slint::SharedString> = vec![
             JAVA_MODE_LABEL_GLOBAL.into(),
@@ -390,7 +361,6 @@ pub async fn open_view() -> anyhow::Result<()> {
         sl.set_java_path(app_settings.java_path.as_str().into());
     }
 
-    // ── 掃描系統 Java 安裝（背景執行，完成後填入兩處清單）────────────────
     let ui_weak_for_scan = ui.as_weak();
     tokio::spawn(async move {
         let javas = tokio::task::spawn_blocking(crate::java_scan::scan_system_javas)
@@ -409,9 +379,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         });
     });
 
-    // ── 系統檔案選擇框 ───────────────────────────────────────────────────
-    // rfd 使用 xdg-portal 後端（Linux 不連結 GTK，AppImage 友善），
-    // 該後端僅提供 async API，因此用 slint::spawn_local 在 UI 執行緒上等待。
+    // rfd 在 Linux 用 xdg-portal 後端（免 GTK 依賴，AppImage 友善）僅提供 async API，故用 spawn_local 等待
     let ui_weak_for_edit_browse = ui.as_weak();
     ui.global::<InstanceEditLogic>().on_browse_java(move || {
         let ui_weak = ui_weak_for_edit_browse.clone();
@@ -494,7 +462,6 @@ pub async fn open_view() -> anyhow::Result<()> {
 
     appearance::setup_appearance_window(&ui);
 
-    // slint::select_bundled_translation("zh_TW").unwrap();
     slint::select_bundled_translation("en_US").unwrap();
     ui.run()?;
     Ok(())
@@ -525,7 +492,6 @@ fn set_instance_status(ui_weak: &slint::Weak<MainApp>, instance_id: &str, status
     let ui_weak = ui_weak.clone();
     let _ = slint::invoke_from_event_loop(move || {
         let Some(ui) = ui_weak.upgrade() else { return };
-        // 詳細視窗開著同一實例時，同步 running 狀態指示
         let detail = ui.global::<InstanceDetailLogic>();
         if detail.get_instance_id().as_str() == id {
             detail.set_instance_running(status == "running");
@@ -554,7 +520,6 @@ mod tests {
 
     #[test]
     fn test_java_mode_to_label() {
-        // Instance tests
         assert_eq!(
             java_mode_to_label(JAVA_MODE_CUSTOM, true),
             JAVA_MODE_LABEL_CUSTOM
@@ -569,7 +534,6 @@ mod tests {
         );
         assert_eq!(java_mode_to_label("", true), JAVA_MODE_LABEL_GLOBAL);
 
-        // Global tests
         assert_eq!(
             java_mode_to_label(JAVA_MODE_CUSTOM, false),
             JAVA_MODE_LABEL_CUSTOM

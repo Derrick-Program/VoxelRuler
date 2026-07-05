@@ -1,8 +1,6 @@
 use quick_xml::de::from_str;
 use serde::Deserialize;
 
-// === XML 解析結構 (用於 Forge / NeoForge) ===
-
 #[derive(Debug, Deserialize)]
 struct MavenMetadata {
     versioning: Versioning,
@@ -18,8 +16,6 @@ struct Versions {
     #[serde(rename = "version", default)]
     list: Vec<String>,
 }
-
-// === JSON 解析結構 (用於 Fabric) ===
 
 #[derive(Debug, Deserialize)]
 pub struct FabricLoaderEntry {
@@ -48,7 +44,6 @@ impl ModLoaderType {
         }
     }
 
-    /// UI 顯示名稱（InstanceConfig.mod_loader）→ ModLoaderType；"None" 或未知回傳 None
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "Forge" => Some(ModLoaderType::Forge),
@@ -59,7 +54,6 @@ impl ModLoaderType {
     }
 }
 
-/// 共用 HTTP client：重用連線池與 TLS session，避免每次請求重新握手
 fn http() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(reqwest::Client::new)
@@ -70,12 +64,10 @@ const FORGE_METADATA_URL: &str =
 const NEOFORGE_METADATA_URL: &str =
     "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
 
-/// 整份 maven-metadata 版本清單快取（發佈的版本不會消失，程式生命週期內快取一次即可）
 type MetadataCache = std::sync::Mutex<Option<std::sync::Arc<Vec<String>>>>;
 static FORGE_METADATA_CACHE: MetadataCache = std::sync::Mutex::new(None);
 static NEOFORGE_METADATA_CACHE: MetadataCache = std::sync::Mutex::new(None);
 
-/// 各 Loader 對特定 MC 版本是否有可用版本
 #[derive(Debug, Clone, Copy)]
 pub struct LoaderAvailability {
     pub fabric: bool,
@@ -96,7 +88,6 @@ impl LoaderAvailability {
 pub struct ModLoaderApi;
 
 impl ModLoaderApi {
-    /// 取得特定 Loader 的所有可用版本（針對特定 MC 版本進行篩選）
     pub async fn get_loader_versions(
         loader_type: ModLoaderType,
         mc_version: &str,
@@ -108,9 +99,6 @@ impl ModLoaderApi {
         }
     }
 
-    /// 從 Fabric Meta API 取得對應 MC 版本的 Loader 清單。
-    /// 依 MC 版本快取成功結果：check_availability 與後續的版本清單抓取
-    /// 會查同一端點，避免每次切換 Loader 重複請求（失敗不快取，下次重試）
     async fn get_fabric_versions(mc_version: &str) -> anyhow::Result<Vec<String>> {
         static CACHE: std::sync::Mutex<
             std::collections::BTreeMap<String, std::sync::Arc<Vec<String>>>,
@@ -126,8 +114,6 @@ impl ModLoaderApi {
         );
         let resp = http().get(&url).send().await?;
 
-        // Fabric Meta 對不支援的 MC 版本（如 1.12.2，無 intermediary）回 400 + 空陣列，
-        // 視為「無可用版本」而非錯誤，讓 UI 顯示正確提示
         let versions: Vec<String> = if resp.status() == reqwest::StatusCode::BAD_REQUEST {
             Vec::new()
         } else {
@@ -151,8 +137,6 @@ impl ModLoaderApi {
         Ok(versions)
     }
 
-    /// 查詢三種 Loader 是否支援指定 MC 版本；網路失敗時回傳 true（視為可用），
-    /// 避免暫時性錯誤把選項鎖死
     pub async fn check_availability(mc_version: &str) -> LoaderAvailability {
         let forge_prefix = format!("{}-", mc_version);
         let neo_prefix = Self::get_neoforge_prefix(mc_version);
@@ -182,7 +166,6 @@ impl ModLoaderApi {
 
         let mut latest_suffix = String::new();
         let mut recommended_suffix = String::new();
-        // 嘗試取得 Forge promotions，失敗則靜默略過
         if let Ok(json) = async {
             let res = http()
                 .get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
@@ -219,9 +202,6 @@ impl ModLoaderApi {
             .collect())
     }
 
-    /// Forge promotions 的值只有建置號（如 "47.4.10"），maven 版本為
-    /// "1.20.1-47.4.10"；舊版還帶分支後綴（"1.7.10-10.13.4.1614-1.7.10"），
-    /// 用 ends_with 比對會整批漏標，需比對「完整相等」或「其後接 '-' 分支」
     fn matches_promo(version: &str, mc_version: &str, promo: &str) -> bool {
         if promo.is_empty() {
             return false;
@@ -250,7 +230,6 @@ impl ModLoaderApi {
             .collect())
     }
 
-    /// 依標記挑選預設版本索引：Recommended > Stable > Latest > 第一項
     pub fn default_version_index(versions: &[String]) -> usize {
         for marker in ["(Recommended)", "(Stable)", "(Latest)"] {
             if let Some(i) = versions.iter().position(|v| v.ends_with(marker)) {
@@ -260,7 +239,6 @@ impl ModLoaderApi {
         0
     }
 
-    /// 下載並快取整份 maven-metadata 版本清單；已快取則直接回傳
     async fn cached_maven_versions(
         url: &str,
         cache: &MetadataCache,
@@ -282,8 +260,6 @@ impl ModLoaderApi {
         Ok(list)
     }
 
-    /// 從快取的 maven-metadata 依前綴篩選，排序為「最新在前」，
-    /// 與 Fabric Meta API 的排序一致，讓 UI 下拉選單行為統一
     async fn get_xml_versions(
         url: &str,
         cache: &MetadataCache,
@@ -291,8 +267,6 @@ impl ModLoaderApi {
     ) -> anyhow::Result<Vec<String>> {
         let all = Self::cached_maven_versions(url, cache).await?;
 
-        // Forge maven-metadata.xml 各 MC 版本區段的排序不一致（1.20.1 為新→舊、
-        // 1.16.5 為舊→新），不能單靠 reverse；依前綴後的數字組成做語意排序
         let mut filtered: Vec<String> = all
             .iter()
             .filter(|v| v.starts_with(prefix))
@@ -306,7 +280,6 @@ impl ModLoaderApi {
         Ok(filtered)
     }
 
-    /// 將版本字串拆為數字序列供比較（"47.4.10" → [47,4,10]），非數字片段忽略
     fn version_sort_key(s: &str) -> Vec<u64> {
         s.split(|c: char| !c.is_ascii_digit())
             .filter(|p| !p.is_empty())
@@ -314,22 +287,18 @@ impl ModLoaderApi {
             .collect()
     }
 
-    /// 計算 NeoForge 對應 MC 版本的前綴字串
     fn get_neoforge_prefix(mc_version: &str) -> String {
         if mc_version.starts_with("1.") {
             let mut parts = mc_version.splitn(4, '.');
-            let _ = parts.next(); // skip "1"
+            let _ = parts.next();
             let minor = parts.next().unwrap_or("0");
             let patch = parts.next().unwrap_or("0");
             format!("{}.{}.", minor, patch)
         } else {
-            // 未來的 26.1 格式
             format!("{}.", mc_version)
         }
     }
 
-    /// 執行 Mod Loader 安裝流程
-    /// 回傳安裝完成後的 profile version_id（例如 "1.20.4-forge-49.0.50" or "fabric-loader-0.15.7-1.20.4"）
     pub async fn install_modloader(
         loader_type: ModLoaderType,
         mc_version: &str,
@@ -394,9 +363,6 @@ impl ModLoaderApi {
         java_path: &std::path::Path,
         mc_dir: &std::path::Path,
     ) -> anyhow::Result<String> {
-        // 已安裝過（新版 1.13+ 命名規則可直接推導 profile id）→ 不重抓 installer，
-        // 離線時也能啟動；舊版 Forge 的 id 來自 installer 內的 versionInfo，
-        // 無法預先推導，仍由下載後的 early-return 處理
         let guessed_id = loader_version.replacen("-", "-forge-", 1);
         let guessed_json = mc_dir
             .join("versions")
@@ -432,11 +398,9 @@ impl ModLoaderApi {
             Err(e) => return Err(e.into()),
         };
 
-        // Bytes 為引用計數，clone 僅複製指標，避免整包 installer（數 MB）重複拷貝
         let bytes = resp.bytes().await?;
         tokio::fs::write(&installer_path, &bytes).await?;
 
-        // 讀取 install_profile.json：偵測格式，並取得舊版的真實 version_id
         let bytes_for_detect = bytes.clone();
         let (is_old_format, old_version_id) =
             tokio::task::spawn_blocking(move || -> anyhow::Result<(bool, Option<String>)> {
@@ -456,8 +420,6 @@ impl ModLoaderApi {
             })
             .await??;
 
-        // 早期返回：若目標版本 JSON 已存在
-        // 舊版：用 versionInfo.id；新版：用推導出的 profile_id
         let effective_id = if is_old_format {
             old_version_id
                 .clone()
@@ -475,14 +437,12 @@ impl ModLoaderApi {
         }
 
         let result = if is_old_format {
-            // 舊版 Forge：不支援 --installClient，直接解析 JAR 手動安裝
             let mc_dir_owned = mc_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
                 Self::install_forge_old_format_sync(&bytes, &mc_dir_owned)
             })
             .await??
         } else {
-            // 新版 Forge（1.13+）：執行 installer --installClient
             let profiles_json = mc_dir.join("launcher_profiles.json");
             if !profiles_json.exists() {
                 tokio::fs::write(&profiles_json, "{}").await?;
@@ -515,9 +475,6 @@ impl ModLoaderApi {
         Ok(result)
     }
 
-    /// 舊版 Forge installer（≤1.12）：install_profile.json 含 versionInfo，
-    /// 直接從 JAR 解出版本 JSON 與內嵌的 Forge JAR，不需執行任何子程序。
-    /// 回傳 versionInfo.id（即實際安裝後的版本目錄名稱）。
     fn install_forge_old_format_sync(
         bytes: &[u8],
         mc_dir: &std::path::Path,
@@ -543,7 +500,6 @@ impl ModLoaderApi {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("versionInfo missing id"))?;
 
-        // 寫入版本 JSON
         let version_dir = mc_dir.join("versions").join(version_id);
         std::fs::create_dir_all(&version_dir)?;
         std::fs::write(
@@ -551,7 +507,6 @@ impl ModLoaderApi {
             serde_json::to_string_pretty(version_info)?,
         )?;
 
-        // 取出 installer 中內嵌的 Forge JAR（filePath 是 JAR 內部路徑，path 是 Maven 座標）
         let embedded_jar = profile.get("install").and_then(|inst| {
             let file_path = inst.get("filePath").and_then(|v| v.as_str())?;
             let maven_coords = inst.get("path").and_then(|v| v.as_str())?;
@@ -574,9 +529,6 @@ impl ModLoaderApi {
         Ok(version_id.to_owned())
     }
 
-    /// 針對沒有 installer.jar 的早期 Forge，依序嘗試：
-    ///   1. universal.zip（1.3.x 部分版本）→ 加入 libraries 陣列
-    ///   2. client.zip（1.0–1.2.5）→ 解出 minecraft.jar 置為版本 JAR
     async fn install_legacy_forge_without_installer(
         mc_version: &str,
         loader_version: &str,
@@ -584,7 +536,6 @@ impl ModLoaderApi {
     ) -> anyhow::Result<String> {
         let effective_id = loader_version.replacen("-", "-forge-", 1);
 
-        // 已安裝則直接回傳
         let json_path = mc_dir
             .join("versions")
             .join(&effective_id)
@@ -593,7 +544,6 @@ impl ModLoaderApi {
             return Ok(effective_id);
         }
 
-        // ── 嘗試 1：universal.zip ──────────────────────────────────
         let universal_url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-universal.zip",
             loader_version
@@ -651,7 +601,6 @@ impl ModLoaderApi {
             return Ok(effective_id);
         }
 
-        // ── 嘗試 2：client.zip（1.0–1.2.5 無 universal.zip）─────────
         let client_url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{0}/forge-{0}-client.zip",
             loader_version
@@ -679,9 +628,6 @@ impl ModLoaderApi {
         .await
     }
 
-    /// client.zip 安裝路徑（1.0–1.2.5）：
-    /// 從 zip 中解出 minecraft.jar，置為版本 JAR；版本 JSON 的 downloads 設為空物件，
-    /// 讓 install_client 偵測到 client URL 為 None 後跳過下載，保留此 JAR。
     async fn install_legacy_client_zip(
         mc_version: &str,
         loader_version: &str,
@@ -693,7 +639,6 @@ impl ModLoaderApi {
         let version_dir = mc_dir.join("versions").join(effective_id);
         tokio::fs::create_dir_all(&version_dir).await?;
 
-        // 從 zip 取出 minecraft.jar（支援根目錄或 bin/ 子目錄）
         let bytes_owned = bytes.to_vec();
         let jar_bytes = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
             use std::io::Read;
@@ -713,8 +658,7 @@ impl ModLoaderApi {
         let jar_path = version_dir.join(format!("{}.jar", effective_id));
         tokio::fs::write(&jar_path, jar_bytes).await?;
 
-        // "downloads": {} → McVersionDownloads { client: None, server: None }
-        // → install_client 偵測到 client = None 後跳過，不覆蓋我們放好的 JAR
+        // "downloads": {} makes install_client treat this version as having no client download and skip overwriting the JAR written above
         let profile = serde_json::json!({
             "id": effective_id,
             "inheritsFrom": mc_version,
@@ -731,7 +675,6 @@ impl ModLoaderApi {
         Ok(effective_id.to_owned())
     }
 
-    /// Maven 座標（`group:artifact:version[:classifier]`）→ 相對於 libraries/ 的路徑
     fn maven_coords_to_path(coords: &str) -> std::path::PathBuf {
         let mut parts = coords.splitn(4, ':');
         let (Some(group), Some(artifact), Some(version)) =
@@ -779,7 +722,6 @@ impl ModLoaderApi {
         java_path: &std::path::Path,
         mc_dir: &std::path::Path,
     ) -> anyhow::Result<()> {
-        // Installer 需要 launcher_profiles.json，否則拒絕安裝
         let profiles_json = mc_dir.join("launcher_profiles.json");
         if !profiles_json.exists() {
             tokio::fs::write(&profiles_json, "{}").await?;
@@ -828,7 +770,6 @@ impl ModLoaderApi {
 mod tests {
     use super::*;
 
-    /// 在 mc_dir 下預先建立 versions/<id>/<id>.json，模擬「已安裝」狀態
     fn create_fake_profile(mc_dir: &std::path::Path, profile_id: &str) -> std::path::PathBuf {
         let dir = mc_dir.join("versions").join(profile_id);
         std::fs::create_dir_all(&dir).unwrap();
@@ -837,7 +778,6 @@ mod tests {
         json_path
     }
 
-    /// 建立一個記憶體中的 zip，內含指定路徑的檔案
     fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         use std::io::Write;
         let mut buf = std::io::Cursor::new(Vec::new());
@@ -852,8 +792,6 @@ mod tests {
         }
         buf.into_inner()
     }
-
-    // === 純函式（同步）===
 
     #[test]
     fn test_from_name() {
@@ -871,12 +809,11 @@ mod tests {
         );
         assert_eq!(ModLoaderType::from_name("None"), None);
         assert_eq!(ModLoaderType::from_name(""), None);
-        assert_eq!(ModLoaderType::from_name("forge"), None); // 大小寫敏感
+        assert_eq!(ModLoaderType::from_name("forge"), None);
     }
 
     #[test]
     fn test_default_version_index_priority() {
-        // Recommended > Stable > Latest > 第一項
         let versions = vec![
             "49.0.50".to_string(),
             "49.0.30 (Latest)".to_string(),
@@ -894,35 +831,29 @@ mod tests {
 
     #[test]
     fn test_matches_promo() {
-        // 一般格式：MC 版本-建置號
         assert!(ModLoaderApi::matches_promo(
             "1.20.1-47.4.10",
             "1.20.1",
             "47.4.10"
         ));
-        // 舊版帶分支後綴（1.7.10 系列），ends_with 會漏掉的情況
         assert!(ModLoaderApi::matches_promo(
             "1.7.10-10.13.4.1614-1.7.10",
             "1.7.10",
             "10.13.4.1614"
         ));
-        // 建置號只是前綴相同不能誤判（47.4.1 vs 47.4.10）
         assert!(!ModLoaderApi::matches_promo(
             "1.20.1-47.4.10",
             "1.20.1",
             "47.4.1"
         ));
-        // promo 為空（該 MC 版本無 recommended）不得全部命中
         assert!(!ModLoaderApi::matches_promo("1.20.1-47.4.10", "1.20.1", ""));
     }
 
     #[test]
     fn test_version_sort_key_ordering() {
-        // 語意排序：47.4.10 應大於 47.4.9（字串排序會錯）
         assert!(
             ModLoaderApi::version_sort_key("47.4.10") > ModLoaderApi::version_sort_key("47.4.9")
         );
-        // 帶分支後綴的舊版也能穩定比較
         assert!(
             ModLoaderApi::version_sort_key("10.13.4.1614-1.7.10")
                 > ModLoaderApi::version_sort_key("10.13.2.1230-1.7.10")
@@ -948,14 +879,11 @@ mod tests {
             ModLoaderApi::maven_coords_to_path("org.lwjgl:lwjgl:3.2.3:natives-macos"),
             std::path::Path::new("org/lwjgl/lwjgl/3.2.3/lwjgl-3.2.3-natives-macos.jar")
         );
-        // 格式不完整時原樣回傳
         assert_eq!(
             ModLoaderApi::maven_coords_to_path("broken"),
             std::path::Path::new("broken")
         );
     }
-
-    // === 安裝流程（非同步，不需網路）===
 
     #[tokio::test]
     async fn test_install_fabric_skips_when_profile_exists() {
@@ -963,7 +891,6 @@ mod tests {
         let profile_id = "fabric-loader-0.15.7-1.20.4";
         create_fake_profile(tmp.path(), profile_id);
 
-        // 已存在時應直接回傳，不發出任何網路請求
         let result = ModLoaderApi::install_fabric("1.20.4", "0.15.7", tmp.path())
             .await
             .unwrap();
@@ -976,7 +903,6 @@ mod tests {
         let profile_id = "1.20.1-forge-47.2.0";
         create_fake_profile(tmp.path(), profile_id);
 
-        // 新版命名規則可預先推導 profile id：已存在時不下載 installer（離線可啟動）
         let result = ModLoaderApi::install_forge(
             "1.20.1",
             "1.20.1-47.2.0",
@@ -994,7 +920,6 @@ mod tests {
         let profile_id = "neoforge-20.4.237";
         create_fake_profile(tmp.path(), profile_id);
 
-        // 已存在時應直接回傳，不下載 installer、不執行 Java
         let result = ModLoaderApi::install_neoforge(
             "1.20.4",
             "20.4.237",
@@ -1009,7 +934,6 @@ mod tests {
     #[tokio::test]
     async fn test_install_legacy_forge_skips_when_profile_exists() {
         let tmp = tempfile::tempdir().unwrap();
-        // loader_version "1.4.7-6.6.2.534" → effective_id "1.4.7-forge-6.6.2.534"
         let profile_id = "1.4.7-forge-6.6.2.534";
         create_fake_profile(tmp.path(), profile_id);
 
@@ -1026,7 +950,6 @@ mod tests {
     #[tokio::test]
     async fn test_install_modloader_strips_display_suffix() {
         let tmp = tempfile::tempdir().unwrap();
-        // UI 傳入的版本字串帶有 " (Stable)" 標記，install_modloader 應先清理
         let profile_id = "fabric-loader-0.15.7-1.20.4";
         create_fake_profile(tmp.path(), profile_id);
 
@@ -1067,7 +990,6 @@ mod tests {
         .unwrap();
         assert_eq!(result, effective_id);
 
-        // 版本 JAR 應為 zip 內的 minecraft.jar
         let jar_path = tmp
             .path()
             .join("versions")
@@ -1075,7 +997,6 @@ mod tests {
             .join(format!("{}.jar", effective_id));
         assert_eq!(std::fs::read(&jar_path).unwrap(), jar_content);
 
-        // 版本 JSON：inheritsFrom 正確、downloads 為空物件（避免覆蓋 JAR）
         let profile: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
         assert_eq!(profile["id"], effective_id);
@@ -1108,8 +1029,6 @@ mod tests {
         assert!(err.to_string().contains("minecraft.jar"));
     }
 
-    // === 版本清單 API（需網路）===
-
     #[tokio::test]
     async fn test_get_fabric_versions() {
         let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Fabric, "1.20.4")
@@ -1121,7 +1040,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fabric_versions_unsupported_mc_returns_empty() {
-        // Fabric 不支援 1.12.2（Meta API 回 400）→ 應回傳空清單而非錯誤
         let versions = ModLoaderApi::get_loader_versions(ModLoaderType::Fabric, "1.12.2")
             .await
             .unwrap();

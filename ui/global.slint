@@ -36,7 +36,6 @@ export struct LogLine {
 
 export global AppData {
     in property <string> version: @tr("version not found");
-    // 網路狀態（footer status）：checking = 尚未完成第一次偵測
     in-out property <bool> network-checking: true;
     in-out property <bool> is-online: false;
 }
@@ -172,28 +171,20 @@ export global InstanceLogic {
     callback open-log(string);
     callback close-log();
 
-    // ── 右鍵選單操作 ─────────────────────────────────────────────
     callback open-instance-folder(string);
     callback duplicate-instance(string);
 
-    // 重新命名對話框
     in-out property <bool> show-rename: false;
     in-out property <string> rename-id: "";
     in-out property <string> rename-text: "";
     in-out property <string> rename-error: "";
     callback confirm-rename();
 
-    // 刪除確認對話框
     in-out property <bool> show-delete-confirm: false;
     in-out property <string> delete-id: "";
     in-out property <string> delete-name: "";
     callback confirm-delete();
 }
-
-// ── 實例詳細視窗（Prism 式側欄分頁）────────────────────────────────
-
-// 分頁索引：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
-//          5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
 
 export struct InstanceFileEntry {
     file-name: string,
@@ -224,52 +215,42 @@ export global InstanceDetailLogic {
     in-out property <int> active-tab: 0;
     in-out property <string> status-msg: "";
 
-    // 0：Minecraft 紀錄檔（live）
     in-out property <[LogLine]> live-log-lines: [];
     in-out property <bool> instance-running: false;
 
-    // 1：版本
     in-out property <string> version: "";
     in-out property <string> mod-loader: "";
     in-out property <[string]> version-list: [];
     in-out property <string> selected-version: "";
     callback save-version();
 
-    // 2/3/4：模組 / 資源包 / 光影包（category key："mods" / "resourcepacks" / "shaderpacks"）
     in-out property <[InstanceFileEntry]> mods: [];
     in-out property <[InstanceFileEntry]> resource-packs: [];
     in-out property <[InstanceFileEntry]> shader-packs: [];
-    callback toggle-entry(string, string);  // category, file-name
-    callback delete-entry(string, string);  // category, file-name（世界/截圖也共用）
-    callback add-entry(string);             // category → 檔案選擇框
-    // 兩段式刪除確認："category/file-name"，再點一次才真的刪
+    callback toggle-entry(string, string);
+    callback delete-entry(string, string);
+    callback add-entry(string);
     in-out property <string> pending-delete-key: "";
 
-    // 5：筆記
     in-out property <string> notes: "";
     in-out property <string> notes-status: "";
     callback save-notes();
 
-    // 6：世界
     in-out property <[WorldRow]> worlds: [];
 
-    // 7：伺服器
     in-out property <[ServerRow]> servers: [];
 
-    // 8：螢幕擷取畫面
     in-out property <[ScreenshotRow]> screenshots: [];
 
-    // 10：其他紀錄檔
     in-out property <[string]> other-logs: [];
     in-out property <string> viewing-log-name: "";
     in-out property <[string]> other-log-content: [];
     callback view-log-file(string);
 
-    // 視窗控制與導航
-    callback open-detail(string, int);  // instance-id, tab
+    callback open-detail(string, int);
     callback close-detail();
     callback tab-changed(int);
-    callback open-subfolder(string);    // category key（"root" = 實例根目錄）
+    callback open-subfolder(string);
 }
 
 export struct ModData {
@@ -442,42 +423,30 @@ export global PageAccountLogic {
 }
 
 export global InstanceEditLogic {
-    // Dialog control
     in-out property <bool>     show-dialog: false;
-    // 目標實例
     in-out property <string>   instance-id: "";
     in-out property <string>   instance-name: "";
-    // 記憶體
     in-out property <string>   xmx: "2G";
     in-out property <string>   xms: "512M";
-    // Java 模式：使用全域 / 使用 Minecraft runtime / 使用自訂 Java
     in-out property <[string]> java-mode-list: [];
     in-out property <string>   selected-java-mode: "";
-    // 系統掃描到的 Java 安裝路徑
     in-out property <[string]> detected-java-list: [];
-    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
     in-out property <string>   java-path: "";
-    // State
     in-out property <string>   error-msg: "";
 
     callback confirm-edit();
     callback cancel-edit();
-    // 開啟系統檔案選擇框
     callback browse-java();
 }
 
 export global SettingsLogic {
-    // 全域 Java 模式：使用 Minecraft runtime / 使用自訂 Java
     in-out property <[string]> java-mode-list: [];
     in-out property <string>   selected-java-mode: "";
-    // 系統掃描到的 Java 安裝路徑
     in-out property <[string]> detected-java-list: [];
-    // 自訂 Java 路徑（僅「使用自訂 Java」時生效）
     in-out property <string>   java-path: "";
     in-out property <string>   status-msg: "";
 
     callback save-settings();
-    // 開啟系統檔案選擇框
     callback browse-java();
 }
 export struct CapeData {
@@ -555,18 +524,14 @@ export global AppearanceLogic {
 }
 
 export global InstanceCreateLogic {
-    // Dialog control
     in-out property <bool>     show-dialog: false;
     in-out property <int>      active-tab: 0;
-    // Basic Tab
     in-out property <string>   name: "";
     in-out property <[string]> version-list: [];
     in-out property <string>   selected-version: "";
-    // manifest.latest.release 的版本 id，UI 據此顯示「Latest」徽章
     in-out property <string>   latest-release-id: "";
     in-out property <string>   mod-loader: "None";
 
-    // Version filtering
     in-out property <string>   version-search-text: "";
     in-out property <bool>     show-release: true;
     in-out property <bool>     show-snapshot: false;
@@ -575,37 +540,27 @@ export global InstanceCreateLogic {
     in-out property <bool>     show-experimental: false;
     callback filter-versions();
 
-    // Advanced Tab
     in-out property <string>   xmx: "2G";
     in-out property <string>   xms: "512M";
     in-out property <bool>     logs-enabled: true;
 
-    // Resources Tab
     in-out property <string>   world-path: "";
     in-out property <string>   resource-pack: "";
     in-out property <string>   shader-pack: "";
 
-    // State
     in-out property <string>   error-msg: "";
-    // MC 版本清單初次載入中（僅影響 MC 版本下拉選單）
     in-out property <bool>     is-loading: false;
-    // MC 版本清單載入失敗訊息（開啟對話框時不清除，直到重新抓取成功）
     in-out property <string>   version-load-error: "";
 
-    // Mod Loader Versions
     in-out property <[string]> mod-loader-versions: [];
     in-out property <string>   selected-mod-loader-version: "";
-    // Loader 版本清單載入中（獨立於 is-loading，避免切換 Loader 時 MC 版本選單消失）
     in-out property <bool>     is-loader-loading: false;
-    // Loader 版本載入失敗 / 無可用版本的提示文字
     in-out property <string>   loader-load-error: "";
-    // 各 Loader 對目前選擇的 MC 版本是否有可用版本（無則該選項禁用不可點）
     in-out property <bool>     fabric-available: true;
     in-out property <bool>     forge-available: true;
     in-out property <bool>     neoforge-available: true;
     callback loader-changed();
 
-    // Scroll-to-selection helpers (set alongside selected-*-version)
     in-out property <int> selected-version-index: -1;
     in-out property <int> selected-loader-index: -1;
 

@@ -1,7 +1,6 @@
 use super::*;
 
 pub fn setup_appearance_window(ui: &MainApp) {
-    // ── Appearance / Skin Management ─────────────────────────────────────────
     let appearance_win_rc: std::rc::Rc<std::cell::RefCell<Option<AppearanceWindow>>> =
         std::rc::Rc::new(std::cell::RefCell::new(None));
     let ap_rc_manage = appearance_win_rc.clone();
@@ -419,7 +418,6 @@ pub fn setup_appearance_window(ui: &MainApp) {
                                     Err(e) => (format!("Upload failed: {e}"), true),
                                 };
 
-                                // Re-fetch avatar directly from Mojang (no CDN delay)
                                 let fetch_result: Option<(std::path::PathBuf, String)> = if !is_error && !username.is_empty() {
                                     fetch_avatar_from_mojang(&token, &username, false).await
                                 } else {

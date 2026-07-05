@@ -17,14 +17,11 @@ const JAVA_CONCURRENCY: usize = 32;
 const MAX_RETRIES: u32 = 5;
 const RETRY_BASE_DELAY_MS: u64 = 1000;
 
-/// 共用 HTTP client：並行下載時重用連線池與 TLS session。
-/// `reqwest::get` 每次呼叫都新建 client，高並行下會反覆握手、吃不到 keep-alive
 fn http() -> &'static reqwest::Client {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     CLIENT.get_or_init(reqwest::Client::new)
 }
 
-/// 無 sha1/size 驗證的簡易下載（用於 Forge 等第三方函式庫）
 pub(crate) async fn download_best_effort(url: &str, dest: &Path) -> anyhow::Result<()> {
     if dest.exists() {
         return Ok(());
@@ -44,7 +41,6 @@ pub(crate) async fn download_best_effort(url: &str, dest: &Path) -> anyhow::Resu
     Ok(())
 }
 
-/// Forge / 模組化版本 JSON 中常見的函式庫倉庫，按優先序嘗試
 const FALLBACK_REPOS: &[&str] = &[
     "https://maven.minecraftforge.net/",
     "https://libraries.minecraft.net/",
@@ -74,7 +70,7 @@ async fn download_and_verify(
     let mut last_err: anyhow::Error = anyhow::anyhow!("Download not attempted yet");
     for attempt in 0..MAX_RETRIES {
         if attempt > 0 {
-            let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1)); // 1s, 2s, 4s, 8s
+            let delay = RETRY_BASE_DELAY_MS * (1u64 << (attempt - 1));
             warn!(
                 attempt,
                 max = MAX_RETRIES - 1,
@@ -130,7 +126,6 @@ pub async fn install_java(
     let total = manifest.files.len().max(1);
     let mut completed = 0usize;
 
-    // 目錄先建好，檔案下載才能無序並行
     for (rel_path, entry) in &manifest.files {
         if matches!(entry, McJavaFileEntry::Directory) {
             tokio::fs::create_dir_all(java_dir.join(rel_path)).await?;
@@ -177,7 +172,6 @@ pub async fn install_java(
         on_progress(completed as f32 / total as f32);
     }
 
-    // symlink 最後建立，確保指向的檔案已下載完成
     for (rel_path, entry) in &manifest.files {
         if let McJavaFileEntry::Link { target } = entry {
             let dest = java_dir.join(rel_path);
@@ -204,7 +198,6 @@ pub async fn install_client(
     on_progress: impl Fn(f32) + Send,
 ) -> anyhow::Result<()> {
     let Some(info) = version.downloads.as_ref().and_then(|d| d.client.as_ref()) else {
-        // client.zip 安裝路徑已預先放置 JAR（如早期 Forge 1.0–1.3.x），直接跳過下載
         on_progress(1.0);
         return Ok(());
     };
@@ -225,7 +218,6 @@ pub async fn install_libraries(
 ) -> anyhow::Result<()> {
     let excluded = |name: &str| -> bool { compat.is_some_and(|ov| ov.excludes(name)) };
 
-    // 舊版格式（約 ≤1.18）的原生函式庫以 classifiers 提供，與一般 artifact 合併一次遍歷。
     let mut applicable: Vec<(PathBuf, String, u64, String)> = version
         .libraries
         .iter()
@@ -276,10 +268,9 @@ pub async fn install_libraries(
         })
         .collect();
 
-    // macOS：classpath 端會把過舊的 jna 5.x 改指向 JNA_COMPAT_VERSION，
-    // 這裡必須下載對應檔案，否則 classpath 會指向不存在的 jar。
     #[cfg(target_os = "macos")]
     {
+        // macOS: classpath 端會把過舊的 jna 5.x 改指向 JNA_COMPAT_VERSION，這裡必須下載對應檔案，否則 classpath 會指向不存在的 jar
         const JNA_FIXUPS: &[(&str, &str, u64, &str)] = &[
             (
                 "jna",
@@ -319,7 +310,6 @@ pub async fn install_libraries(
         }
     }
 
-    // Apple Silicon 原生模式：下載替換用的 artifacts
     if let Some(ov) = compat {
         warn!(
             name = ov.name,
@@ -349,8 +339,6 @@ pub async fn install_libraries(
         on_progress(completed as f32 / total as f32);
     }
 
-    // Pass A：Forge / modded 版本 JSON 中無 downloads 資訊的一般函式庫（非 natives-only）
-    // 依序嘗試各個已知倉庫下載。
     let fallback_libs: Vec<(PathBuf, String, Option<String>)> = version
         .libraries
         .iter()
@@ -404,8 +392,6 @@ pub async fn install_libraries(
         while fallback_stream.next().await.is_some() {}
     }
 
-    // Pass B：舊版格式 natives-only（downloads: None, natives: Some）
-    // base jar 不存在，改下載平台對應的 classifier jar 供 extract_natives 使用。
     let old_native_libs: Vec<(PathBuf, String)> = version
         .libraries
         .iter()
@@ -449,8 +435,6 @@ fn should_skip_native_entry(name: &str, excludes: &[String]) -> bool {
     name.starts_with("META-INF/") || excludes.iter().any(|e| name.starts_with(e.as_str()))
 }
 
-/// 將舊版格式的 natives classifier jar 解壓到 natives_dir。
-/// 必須在 [`install_libraries`] 之後呼叫（jar 需已存在於 libraries_dir）。
 pub async fn extract_natives(
     version: &McSpecificVersionDetail,
     libraries_dir: &Path,
@@ -488,7 +472,6 @@ pub async fn extract_natives(
         jobs.push((jar, excludes));
     }
 
-    // Apple Silicon 原生模式：解壓替換用的 natives jar（LWJGL2）
     if let Some(ov) = compat {
         for art in ov.artifacts.iter().filter(|a| a.extract) {
             jobs.push((libraries_dir.join(art.rel_path), Vec::new()));
@@ -526,8 +509,6 @@ pub async fn install_assets(
         .join("indexes")
         .join(format!("{}.json", index.id));
 
-    // Asset index local-first：同一 index id 的內容不會變動，已下載過就直接讀本機，
-    // 讓離線啟動不會卡在這裡；本機沒有或解析失敗才走網路
     let cached: Option<crate::mc_types::McAssetObjects> = match tokio::fs::read(&index_path).await {
         Ok(bytes) => serde_json::from_slice(&bytes).ok(),
         Err(_) => None,
@@ -567,10 +548,6 @@ pub async fn install_assets(
     Ok(())
 }
 
-/// Forge (launchwrapper) 需剝除 JAR 中的 META-INF 簽名檔（*.SF / *.RSA / *.DSA），
-/// 否則 ASM bytecode 轉換時 JVM 會因 package seal 驗證失敗拋出 SecurityException。
-/// 原始 src 維持不動；stripped copy 寫入 dst。
-/// 若 dst 已存在則跳過（冪等）。
 pub async fn create_nosig_jar(src: &Path, dst: &Path) -> anyhow::Result<()> {
     if dst.exists() {
         return Ok(());
@@ -801,8 +778,6 @@ mod test {
 
     #[tokio::test]
     async fn test_install_client_skips_when_no_downloads() {
-        // downloads.client = None 代表 JAR 已由 client.zip 預先放置（1.0–1.2.5 Forge 安裝路徑），
-        // 應直接回傳 Ok 而非報錯。
         let dir = TempDir::new().unwrap();
         let version = empty_version();
         let result = install_client(&version, dir.path(), |_| {}).await;
@@ -889,7 +864,6 @@ mod test {
         let libs = dir.path().join("libraries");
         let natives = dir.path().join("natives");
 
-        // 準備一個假的 natives jar
         let jar_rel = "test/native/1.0/native-1.0-natives-key.jar";
         let jar_path = libs.join(jar_rel);
         std::fs::create_dir_all(jar_path.parent().unwrap()).unwrap();

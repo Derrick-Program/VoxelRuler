@@ -120,8 +120,6 @@ impl McAction<Unauthenticated> {
         }
     }
 
-    // === Public APIs (no token needed) ===
-
     pub async fn get_player_uuid(&self, username: &str) -> anyhow::Result<String> {
         let url = format!(
             "{}/minecraft/profile/lookup/name/{}",
@@ -228,8 +226,7 @@ impl McAction<Unauthenticated> {
         .await
     }
 
-    /// 指定 Mojang 平台字串（如 `mac-os` / `mac-os-arm64`）取得 Java runtime manifest。
-    /// Apple Silicon 跑 1.18.x 以前的版本時需強制抓 x64（`mac-os`）經 Rosetta 執行。
+    // Apple Silicon 跑 1.18.x 以前的版本時需強制抓 x64（`mac-os`）經 Rosetta 執行。
     pub async fn get_java_runtime_manifest_for_platform(
         &self,
         component: &str,
@@ -313,8 +310,6 @@ impl McAction<Unauthenticated> {
 }
 
 impl McAction<Authenticated> {
-    // === Authenticated APIs (Bearer token required) ===
-
     pub async fn get_user_profile(&self) -> anyhow::Result<crate::mc_types::McProfile> {
         let url = format!("{}/minecraft/profile", NEW_MC_SERVER);
         Ok(self

@@ -5,8 +5,6 @@ import { InstanceLogic, InstanceData, InstanceDetailLogic } from "@global";
 
 export component InstanceCard inherits Rectangle {
     in property <InstanceData> data;
-    // 虛擬列表：捲動範圍外的卡片只保留佔位尺寸，不實例化內容
-    //（右鍵選單、按鈕、動畫等重元件），由父層依捲動位置計算
     in property <bool> in-viewport: true;
 
     height: 260px;
@@ -18,7 +16,6 @@ export component InstanceCard inherits Rectangle {
     property <bool> is-valid: root.data.id != "";
     property <bool> is-running: root.data.status == "running";
 
-    // ── 右鍵選單 ─────────────────────────────────────────────
     if root.in-viewport: ContextMenuArea {
         enabled: root.is-valid;
         Menu {
@@ -104,7 +101,6 @@ export component InstanceCard inherits Rectangle {
                 background: #1a1a1a;
                 height: 50%;
                 Image {
-                    // 自訂圖示（data.image）優先，未設定則用內嵌預設圖示
                     source: !root.is-valid ? @image-url("")
                         : root.data.image.width > 0 ? root.data.image
                         : Assets.logo;
@@ -218,7 +214,6 @@ export component InstanceCard inherits Rectangle {
                             width: 8px;
                             height: 8px;
                             border-radius: 4px;
-                            // background: root.data.status == "running" ? #50fa7b : (root.data.status == "updating" ? #8be9fd : #6272a4);
                             background: !root.is-valid ? #6272a4 : (root.data.status == "running" ? #50fa7b : (root.data.status == "updating" ? #8be9fd : #6272a4));
                         }
                     }
@@ -461,9 +456,7 @@ export component Instances inherits Rectangle {
             vertical-stretch: 1;
             viewport-height: grid.preferred-height;
 
-            // 虛擬列表視窗量化成「列索引」：捲動時這兩個整數只在跨列邊界才改變，
-            // 卡片的 in-viewport 條件式（if 元素增減）不會被每個像素的捲動打擾，
-            // 每張卡片也不用各自做 length 運算（列高 = 卡高 260 + 間距 20，上下各預載一列）
+            // Quantized to row index (not raw scroll-y) so in-viewport only flips at row boundaries, avoiding per-pixel re-instantiation of card content.
             property <length> row-pitch: 260px + grid.spacing;
             property <int> first-live-row: Math.max(0, Math.floor((-self.viewport-y - self.row-pitch) / self.row-pitch));
             property <int> last-live-row: Math.floor((-self.viewport-y + self.visible-height + self.row-pitch) / self.row-pitch);
@@ -483,7 +476,6 @@ export component Instances inherits Rectangle {
                     row: self.grid-row;
                     col: root.dynamic-column-count > 0 ? Math.mod(i, root.dynamic-column-count) : 0;
                     data: data;
-                    // 虛擬列表：只實例化可視列範圍內的卡片內容
                     in-viewport: data.id != ""
                         && self.grid-row >= sv.first-live-row
                         && self.grid-row <= sv.last-live-row;

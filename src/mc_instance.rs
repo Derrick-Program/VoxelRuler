@@ -24,14 +24,10 @@ pub struct InstanceConfig {
     pub shader_pack: String,
     pub last_played: String,
     pub play_time_secs: u64,
-    /// Java 來源模式：`"global"` (Follow global, default) / `"minecraft"` (Follow Minecraft provided) / `"custom"`（自訂路徑）
-    /// 空字串視同 `"global"`（向下相容）
     #[serde(default)]
     pub java_mode: String,
-    /// 自訂 Java 執行檔路徑（僅 java_mode = "custom" 時生效）
     #[serde(default)]
     pub java_path: String,
-    /// 建立時間（Unix 秒）。0 表示舊實例缺此欄位，排序時 fallback 檔案時間
     #[serde(default)]
     pub created_at: i64,
 }
@@ -98,9 +94,7 @@ impl InstanceStore {
 
             match toml::from_str::<InstanceConfig>(&content) {
                 Ok(config) => {
-                    // 排序鍵優先用持久化的 created_at；舊實例（0）fallback 檔案時間。
-                    // 不能只靠檔案時間：save_one 每次編輯都重寫 TOML，
-                    // 在 created() 不支援的檔案系統會 fallback mtime，編輯後排序會跳動
+                    // 不能只靠檔案時間排序：save_one 每次編輯都重寫 TOML，會更新 mtime 導致排序跳動
                     let sort_key = if config.created_at > 0 {
                         config.created_at
                     } else {
@@ -119,7 +113,6 @@ impl InstanceStore {
             }
         }
 
-        // 依建立時間新到舊；UI 各更新路徑直接使用此順序，不得再反轉
         instances.sort_by(|a, b| b.1.cmp(&a.1));
         Ok(instances.into_iter().map(|(c, _)| c).collect())
     }
@@ -154,9 +147,6 @@ impl InstanceStore {
             Duration::from_millis(200),
             move |res: notify_debouncer_mini::DebounceEventResult| match res {
                 Ok(events) => {
-                    // 只有 instance.toml 變動才通知 UI 重建列表。
-                    // 遊戲執行期間寫入的 logs / saves / options.txt 等檔案
-                    // 不屬於 instance.toml，不會觸發不必要的列表刷新。
                     let relevant = events.iter().any(|e| {
                         e.path
                             .file_name()
@@ -279,7 +269,6 @@ mod tests {
 
     #[test]
     fn test_instance_config_backward_compat_without_java_fields() {
-        // 既有 instance.toml 沒有 java 欄位 → 應解析成功且為空字串
         let toml_str = r#"
             id = "old-id"
             name = "Old Instance"

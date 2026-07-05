@@ -175,7 +175,6 @@ pub(crate) async fn fetch_avatar_from_mojang(
         "classic".to_string()
     };
 
-    // Save to local skins folder and update history
     if let Ok(paths) = crate::mc_paths::McPaths::new() {
         let history_file = paths.skins_history_file();
         let mut history = crate::skin_history::SkinHistory::load(&history_file);
@@ -220,7 +219,6 @@ pub(crate) async fn fetch_avatar_from_mojang(
         }
 
         if add_to_library {
-            // Avoid adding duplicate if it already exists (check SHA-1 of pixels or exact URL)
             let already_exists = history.skins.iter().any(|s| {
                 s.url == url
                     || s.url.ends_with(&format!("{}.png", pixel_hash))
@@ -237,7 +235,7 @@ pub(crate) async fn fetch_avatar_from_mojang(
                     cape_id: "".to_string(),
                     model: variant,
                     name: username.to_string(),
-                    url, // Store the Mojang URL
+                    url,
                 });
                 let _ = history.save(&history_file);
             }
@@ -284,18 +282,15 @@ mod tests {
 
     #[test]
     fn test_detect_is_slim() {
-        // 32 height is never slim (classic 64x32)
         let img_32 = DynamicImage::ImageRgba8(RgbaImage::new(64, 32));
         assert!(!detect_is_slim(&img_32));
 
-        // 64 height - if pixel at (54,20) is transparent, it's slim
         let mut img_64_slim = RgbaImage::new(64, 64);
-        img_64_slim.put_pixel(54, 20, image::Rgba([0, 0, 0, 0])); // transparent
+        img_64_slim.put_pixel(54, 20, image::Rgba([0, 0, 0, 0]));
         assert!(detect_is_slim(&DynamicImage::ImageRgba8(img_64_slim)));
 
-        // 64 height - if pixel at (54,20) is opaque, it's classic (wide)
         let mut img_64_wide = RgbaImage::new(64, 64);
-        img_64_wide.put_pixel(54, 20, image::Rgba([255, 255, 255, 255])); // opaque
+        img_64_wide.put_pixel(54, 20, image::Rgba([255, 255, 255, 255]));
         assert!(!detect_is_slim(&DynamicImage::ImageRgba8(img_64_wide)));
     }
 }

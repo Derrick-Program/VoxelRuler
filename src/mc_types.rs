@@ -111,18 +111,14 @@ impl McSpecificVersionDetail {
             self.logging = Some(log);
         }
 
-        // 優先讀取 ModLoader 的 libraries，原版墊後
         let mut new_libs = modded.libraries;
         new_libs.extend(self.libraries);
         self.libraries = new_libs;
 
-        // 合併 arguments
         match (self.arguments.as_mut(), modded.arguments) {
             (Some(vanilla_args), Some(modded_args)) => {
                 vanilla_args.game.extend(modded_args.game);
                 vanilla_args.jvm.extend(modded_args.jvm);
-                // 這裡我們簡單把 modded args 放在後面
-                // 通常 modloader 會把必要的參數放到 jvm args，所以直接 append 是沒問題的
             }
             (None, Some(modded_args)) => {
                 self.arguments = Some(modded_args);
@@ -182,10 +178,7 @@ pub struct McLibrary {
     pub url: Option<String>,
     pub downloads: Option<McLibraryDownloads>,
     pub rules: Option<Vec<McRule>>,
-    /// 舊版格式（約 ≤1.18）：OS 名稱 → classifier key（可能含 `${arch}`），
-    /// 例如 `{"osx": "natives-osx", "windows": "natives-windows-${arch}"}`
     pub natives: Option<HashMap<String, String>>,
-    /// 舊版格式：natives jar 解壓規則
     pub extract: Option<McExtract>,
 }
 
@@ -365,8 +358,6 @@ impl McAssetObject {
 mod tests {
     use super::*;
 
-    // ── McAssetObject ────────────────────────────────────────────────────────
-
     #[test]
     fn test_asset_download_url_uses_first_two_chars_as_prefix() {
         let obj = McAssetObject {
@@ -390,8 +381,6 @@ mod tests {
             format!("https://resources.download.minecraft.net/da/{}", hash)
         );
     }
-
-    // ── McSpecificVersionDetail::merge ───────────────────────────────────────
 
     fn bare_version(id: &str, main_class: &str) -> McSpecificVersionDetail {
         McSpecificVersionDetail {

@@ -7,7 +7,6 @@ export component LogDialog inherits Rectangle {
     in property <[LogLine]> lines;
     callback closed();
 
-    // 阻擋點擊穿透到下層
     TouchArea { }
 
     Rectangle {
@@ -22,7 +21,6 @@ export component LogDialog inherits Rectangle {
         clip: true;
 
         VerticalLayout {
-            // ── Header ──────────────────────────────────────────────
             Rectangle {
                 height: 52px;
                 HorizontalLayout {
@@ -56,7 +54,6 @@ export component LogDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Log Content ─────────────────────────────────────────
             Rectangle {
                 vertical-stretch: 1;
                 background: #1a1a1a;

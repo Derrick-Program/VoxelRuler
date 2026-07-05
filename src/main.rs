@@ -83,7 +83,6 @@ static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(DashMap::
 static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
 
-/// 設定應用程式日誌系統
 fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -122,18 +121,15 @@ fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // ── Deep Link 處理與單一實例 (Single Instance) IPC ────────────────────
     let (deep_link_tx, mut deep_link_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     let is_main = ipc::setup_ipc(deep_link_tx.clone()).await;
     if !is_main {
-        // 如果是第二個執行個體，已經把 deeplink 傳遞給第一個了，直接關閉即可
         std::process::exit(0);
     }
 
     #[cfg(target_os = "macos")]
     {
-        // macOS：URL scheme 透過 Apple Events 傳遞。
         let mut mac_rx = url_handler::register();
         let tx_clone = deep_link_tx.clone();
         tokio::spawn(async move {
@@ -145,14 +141,12 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        // Windows / Linux：cargo-packager 會將 URL 以 argv[1] 傳入
         let args: Vec<String> = std::env::args().collect();
         if args.len() > 1 && args[1].starts_with("voxelruler://") {
             let _ = deep_link_tx.send(args[1].clone());
         }
     }
 
-    // 集中處理所有來源的 Deep Link
     tokio::spawn(async move {
         while let Some(url) = deep_link_rx.recv().await {
             debug!(url = %url, "deep link channel received URL");
@@ -163,7 +157,6 @@ async fn main() -> anyhow::Result<()> {
                         state = ?auth_data.state,
                         "Received Microsoft OAuth deep link"
                     );
-                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
                 }
                 DeepLinkAction::Unknown => {
                     debug!("Received unknown VoxelRuler deep link, skipping");
@@ -171,7 +164,6 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     });
-    // 初始化日誌系統
     let _file_guard = setup_logging();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
@@ -195,7 +187,6 @@ async fn main() -> anyhow::Result<()> {
     info!(authenticated = has_token, "token 狀態載入完成");
     open_view().await?;
 
-    // Clean up the IPC socket so the next launch doesn't hit a stale file.
     #[cfg(unix)]
     ipc::cleanup();
 

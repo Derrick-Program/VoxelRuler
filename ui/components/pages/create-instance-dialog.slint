@@ -5,7 +5,7 @@ import { ScrollView, ListView } from "std-widgets.slint";
 export component CreateInstanceDialog inherits Rectangle {
     background: #000000.with-alpha(0.6);
 
-    // Block all pointer and scroll events on the backdrop
+    // Must also capture scroll-event (not just clicks) or wheel input bleeds through to whatever is behind this modal.
     TouchArea {
         scroll-event(e) => { return accept; }
     }
@@ -21,7 +21,6 @@ export component CreateInstanceDialog inherits Rectangle {
         border-color: #ffffff.with-alpha(0.1);
 
         VerticalLayout {
-            // ── Header ──────────────────────────────────────────────
             Rectangle {
                 height: 52px;
                 HorizontalLayout {
@@ -54,7 +53,6 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Tab bar ─────────────────────────────────────────────
             Rectangle {
                 height: 44px;
                 HorizontalLayout {
@@ -121,11 +119,9 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Tab content ─────────────────────────────────────────
             Rectangle {
                 vertical-stretch: 1;
 
-                // Basic
                 if InstanceCreateLogic.active-tab == 0: ScrollView {
                     VerticalLayout {
                         padding: 20px; spacing: 16px; alignment: start;
@@ -166,7 +162,7 @@ export component CreateInstanceDialog inherits Rectangle {
                                 }
                             }
 
-                            // Version dropdown — uses PopupWindow to avoid nested-ScrollView trackpad issue on macOS
+                            // Uses PopupWindow (not a nested ScrollView) for this dropdown to avoid a trackpad scroll bug on macOS.
                             if !InstanceCreateLogic.is-loading: version-trigger := Rectangle {
                                 property <length> scroll-y: 0px;
                                 property <length> row-h: 32px;
@@ -186,8 +182,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                         border-radius: 6px;
                                         border-width: 1px; border-color: #ffffff.with-alpha(0.15);
                                         clip: true;
-                                        // ListView 只實例化可視列（虛擬列表）：
-                                        // 開啟 snapshot 過濾後清單近 800 項，全量實例化會卡
                                         ListView {
                                             viewport-y <=> version-trigger.scroll-y;
                                             for v[i] in InstanceCreateLogic.version-list: Rectangle {
@@ -259,7 +253,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                 }
                                 TouchArea {
                                     clicked => {
-                                        // 捲到選中項前一格，clamp 在可捲範圍內（避免底部出現空白）
                                         version-trigger.scroll-y = -min(
                                             max(0px, (InstanceCreateLogic.selected-version-index - 1) * version-trigger.row-h),
                                             max(0px, version-trigger.content-h - version-trigger.popup-max-h));
@@ -378,7 +371,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                     Text { text: "None"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
 
-                                // ── Fabric ──────────────────────────────────────
                                 HorizontalLayout {
                                     spacing: 8px;
                                     opacity: InstanceCreateLogic.fabric-available ? 1.0 : 0.35;
@@ -399,7 +391,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                     Text { text: "Fabric"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
 
-                                // ── Forge ───────────────────────────────────────
                                 HorizontalLayout {
                                     spacing: 8px;
                                     opacity: InstanceCreateLogic.forge-available ? 1.0 : 0.35;
@@ -420,7 +411,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                     Text { text: "Forge"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
                                 }
 
-                                // ── NeoForge ────────────────────────────────────
                                 HorizontalLayout {
                                     spacing: 8px;
                                     opacity: InstanceCreateLogic.neoforge-available ? 1.0 : 0.35;
@@ -443,7 +433,6 @@ export component CreateInstanceDialog inherits Rectangle {
                             }
                         }
 
-                        // Loader version dropdown — uses PopupWindow to avoid nested-ScrollView trackpad issue on macOS
                         if InstanceCreateLogic.mod-loader != "None": VerticalLayout {
                             spacing: 6px;
                             Text { text: @tr("Mod Loader Version"); font-size: 12px; color: #9e9e9e; }
@@ -466,7 +455,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                         border-radius: 6px;
                                         border-width: 1px; border-color: #ffffff.with-alpha(0.15);
                                         clip: true;
-                                        // 同 MC 版本下拉：ListView 虛擬列表
                                         ListView {
                                             viewport-y <=> loader-trigger.scroll-y;
                                             for v[i] in InstanceCreateLogic.mod-loader-versions: Rectangle {
@@ -505,7 +493,6 @@ export component CreateInstanceDialog inherits Rectangle {
                                 }
                                 TouchArea {
                                     clicked => {
-                                        // 與 MC 版本下拉相同：捲到選中項前一格並 clamp
                                         loader-trigger.scroll-y = -min(
                                             max(0px, (InstanceCreateLogic.selected-loader-index - 1) * loader-trigger.row-h),
                                             max(0px, loader-trigger.content-h - loader-trigger.popup-max-h));
@@ -521,7 +508,6 @@ export component CreateInstanceDialog inherits Rectangle {
                     }
                 }
 
-                // Advanced
                 if InstanceCreateLogic.active-tab == 1: VerticalLayout {
                     padding: 20px; spacing: 16px; alignment: start;
 
@@ -593,7 +579,6 @@ export component CreateInstanceDialog inherits Rectangle {
                     }
                 }
 
-                // Resources
                 if InstanceCreateLogic.active-tab == 2: VerticalLayout {
                     padding: 20px; spacing: 16px; alignment: start;
 
@@ -661,7 +646,6 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Footer ──────────────────────────────────────────────
             Rectangle {
                 min-height: 64px;
                 VerticalLayout {

@@ -14,7 +14,6 @@ impl McPaths {
         Ok(Self { base })
     }
 
-    /// 確保目錄存在，若建立失敗則記錄警告，避免錯誤被完全遮蔽 (Robustness)
     fn ensure_dir(path: PathBuf) -> PathBuf {
         if !path.exists()
             && let Err(e) = std::fs::create_dir_all(&path)
@@ -36,8 +35,7 @@ impl McPaths {
         Self::ensure_dir(self.versions_dir().join(version_id))
     }
 
-    /// 只回傳路徑，不建立檔案：空 JAR 會騙過 classpath 缺檔檢查，
-    /// 讓 install_client 誤以為已下載完成
+    // 只回傳路徑，不建立檔案：空 JAR 會讓 install_client 誤判為已下載完成，騙過 classpath 缺檔檢查
     pub fn version_jar(&self, version_id: &str) -> PathBuf {
         self.version_dir(version_id)
             .join(format!("{}.jar", version_id))
@@ -108,7 +106,6 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// Build an McPaths rooted at a temporary directory without relying on PROJECT_DIR.
     fn paths_in(dir: &TempDir) -> McPaths {
         McPaths {
             base: dir.path().to_path_buf(),
@@ -146,9 +143,7 @@ mod tests {
         let p = paths_in(&dir);
         let jar = p.version_jar("1.21.1");
         assert_eq!(jar.file_name().unwrap(), "1.21.1.jar");
-        // 不得建立空 JAR，否則會被誤判為已安裝
         assert!(!jar.exists());
-        // 但所屬版本目錄要存在
         assert!(jar.parent().unwrap().exists());
     }
 

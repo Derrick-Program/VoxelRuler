@@ -2,10 +2,6 @@ use std::path::Path;
 
 const PRISM_FMLLIBS_BASE: &str = "https://files.prismlauncher.org/fmllibs/";
 
-/// Returns the list of FML lib filenames required for the given Forge version_id.
-///
-/// version_id is the Forge profile ID, e.g. "1.5.2-Forge9.11.1.965".
-/// The MC version is extracted by splitting on '-' and taking the first segment.
 pub fn get_fmllib_filenames(version_id: &str) -> &'static [&'static str] {
     let mc_ver = version_id.split('-').next().unwrap_or(version_id);
 
@@ -74,9 +70,6 @@ pub fn get_fmllib_filenames(version_id: &str) -> &'static [&'static str] {
     }
 }
 
-/// Downloads all required FML libs for the given Forge version into `libraries_dir/fmllibs/`.
-/// Validates that each file is a real JAR/ZIP (PK magic bytes); deletes and re-downloads if
-/// a previously cached file turns out to be an HTML error page.
 pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::Result<()> {
     let filenames = get_fmllib_filenames(version_id);
     if filenames.is_empty() {
@@ -88,7 +81,6 @@ pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::
         let url = format!("{}{}", PRISM_FMLLIBS_BASE, filename);
         let dest = fmllib_dir.join(filename);
 
-        // If a previously cached file is not a valid ZIP/JAR, delete it so it gets re-fetched.
         if dest.exists() {
             let header = tokio::fs::read(&dest).await.unwrap_or_default();
             if header.len() < 2 || &header[..2] != b"PK" {
@@ -103,7 +95,6 @@ pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::
         tracing::info!(filename, "Downloading legacy FML dependencies");
         crate::mc_install::download_best_effort(&url, &dest).await?;
 
-        // Verify the downloaded file is a real JAR/ZIP, not an HTML error page.
         let content = tokio::fs::read(&dest).await?;
         if content.len() < 2 || &content[..2] != b"PK" {
             tokio::fs::remove_file(&dest).await.ok();
@@ -118,8 +109,6 @@ pub async fn install_fmllibs(version_id: &str, libraries_dir: &Path) -> anyhow::
     Ok(())
 }
 
-/// Copies downloaded FML libs from `libraries_dir/fmllibs/` into `game_dir/lib/`
-/// so that Forge's FML bootstrap can find them at launch time.
 pub async fn copy_fmllibs_to_game_dir(
     version_id: &str,
     libraries_dir: &Path,
@@ -208,7 +197,6 @@ mod tests {
 
     #[test]
     fn test_plain_version_id_without_dash_is_handled() {
-        // If no dash present, the whole string is treated as the mc version
         assert!(get_fmllib_filenames("1.99").is_empty());
     }
 }

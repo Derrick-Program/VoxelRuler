@@ -1,56 +1,18 @@
-//! 跨版本圖形／函式庫相容性：
-//! 1. macOS Apple Silicon 原生啟動支援（Prism Launcher 式函式庫替換）
-//! 2. 遊戲異常退出時的已知圖形錯誤診斷（[`diagnose_graphics_crash`]）
-//!
-//! # 渲染堆疊世代（診斷特徵表的分區依據）
-//!
-//! | 版本 | 堆疊 | 已知平台問題 |
-//! |------|------|--------------|
-//! | ≤1.12.2 | LWJGL 2.9.x + fixed-function GL | macOS 指標崩潰、Wayland 焦點問題 |
-//! | 1.13–1.16.5 | LWJGL 3.x + 早期 Blaze3D | Windows Intel HD「Pixel format not accelerated」 |
-//! | 1.17–1.20.x | OpenGL 3.2+ Core Profile 硬性需求 | 舊 GPU 完全不支援 |
-//! | 26.2+ | 實驗性 Vulkan 後端（可選，GL 仍在） | 需 Vulkan 1.2；macOS 經 MoltenVK |
-//!
-//! # macOS 函式庫替換
-//!
-//! Mojang 從 1.19 起才提供 `natives-macos-arm64`；更舊的版本依「實際使用的 Java 架構」
-//! 由 [`macos_override_for`] 自動挑選替換表。兩張 LWJGL3 表都升到 3.3.1 並把
-//! glfw bindings 換成 mmachina patched 版（setIcon 為 no-op），原因：
-//! - 原版 1.13–1.18 開機階段無條件呼叫 glfwSetWindowIcon（macOS guard 1.19
-//!   才加入；1.16.4 bytecode 實證），GLFW 3.4 對此回報 error 65548 → 開機必炸，
-//!   patched bindings 在 Java 層攔掉
-//! - GLFW 3.3.1 之前（含 LWJGL 3.2.3 內建的 2019-09 3.4.0-dev snapshot）在
-//!   macOS 26 Tahoe 於 glfwInit 期間發出「Failed to find service port for
-//!   display」（error 65544）→ 同樣被開機 error callback 視為致命；
-//!   LWJGL 3.3.1 的 GLFW 已重构 monitor 列舉，Tahoe 上 init 乾淨（本機 probe 實測）
-//!
-//! 替換表：
-//! - 1.13–1.18 ＋ arm64 Java → LWJGL 3.3.1 arm64（Mojang CDN）＋ patched glfw bindings
-//! - 1.13–1.18 ＋ x86_64 Java（Rosetta / Intel Mac）→ LWJGL 3.3.1 x64
-//!   （Mojang CDN）＋ patched glfw bindings
-//! - ≤1.12（LWJGL 2）＋ arm64 Java → base jar 仍用 Mojang CDN 的 2.9.4，
-//!   natives 換成社群 arm64 編譯（與 Prism Launcher meta 相同來源）；
-//!   x86_64 Java 維持原版函式庫
-
 use crate::mc_parser::version_supports_macos_arm64;
 use crate::mc_types::McSpecificVersionDetail;
 
 #[derive(Debug)]
 pub struct CompatArtifact {
-    /// libraries 目錄下的相對路徑
     pub rel_path: &'static str,
     pub url: &'static str,
     pub sha1: &'static str,
     pub size: u64,
-    /// true：natives jar，解壓至 natives_dir（LWJGL2）；
-    /// false：直接上 classpath（LWJGL3 natives 由其 loader 自行從 classpath 解壓）
     pub extract: bool,
 }
 
 #[derive(Debug)]
 pub struct MacosArm64Override {
     pub name: &'static str,
-    /// 名稱符合這些前綴的原始 lib 一律跳過（不下載、不上 classpath、不解壓）
     pub exclude_prefixes: &'static [&'static str],
     pub artifacts: &'static [CompatArtifact],
 }
@@ -63,37 +25,29 @@ impl MacosArm64Override {
     }
 }
 
-/// 若此版本可用函式庫替換在 Apple Silicon 上原生執行，回傳替換表。
-/// 呼叫端需自行確認平台為 macOS aarch64 且實際使用 arm64 Java。
 pub fn arm64_override_for(
     version: &McSpecificVersionDetail,
 ) -> Option<&'static MacosArm64Override> {
     if version_supports_macos_arm64(version) {
-        return None; // 1.19+ 原生支援，不需替換
+        return None;
     }
     if version
         .libraries
         .iter()
         .any(|l| l.name.starts_with("org.lwjgl:"))
     {
-        return Some(&LWJGL3_OVERRIDE); // 1.13–1.18
+        return Some(&LWJGL3_OVERRIDE);
     }
     if version
         .libraries
         .iter()
         .any(|l| l.name.starts_with("org.lwjgl.lwjgl:"))
     {
-        return Some(&LWJGL2_OVERRIDE); // ≤1.12
+        return Some(&LWJGL2_OVERRIDE);
     }
     None
 }
 
-/// 依實際 Java 架構挑選 macOS 函式庫替換表（1.19+ 原生支援一律回傳 `None`）。
-///
-/// - arm64 Java → 同 [`arm64_override_for`]（原生執行）
-/// - x86_64 Java（Rosetta / Intel Mac）→ 1.13–1.18 換 LWJGL 3.2.3 x64 natives，
-///   修內建 GLFW 3.2.x 在新版 macOS 的「service port for display」崩潰；
-///   ≤1.12（LWJGL 2）維持原版 natives-osx，不替換
 pub fn macos_override_for(
     version: &McSpecificVersionDetail,
     arm64_java: bool,
@@ -111,14 +65,10 @@ pub fn macos_override_for(
         .then_some(&LWJGL3_X64_OVERRIDE)
 }
 
-/// 1.13–1.18：LWJGL 3.2.x → 3.3.1（資料取自 Mojang 1.19.2 版本 JSON，全為官方
-/// CDN），glfw bindings 換 [`MMACHINA_GLFW_BINDINGS`]（setIcon no-op，
-/// 避開這些版本開機期無條件 setIcon 觸發 GLFW 3.4 error 65548 必炸）
 static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
     name: "lwjgl3-3.3.1-arm64",
     exclude_prefixes: &["org.lwjgl:", "ca.weblite:java-objc-bridge:"],
     artifacts: &[
-        // ── base jars ──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
@@ -162,7 +112,6 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
             size: 6767,
             extract: false,
         },
-        // ── natives-macos-arm64（上 classpath，LWJGL3 自行解壓）──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos-arm64.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos-arm64.jar",
@@ -212,7 +161,6 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
             size: 41380,
             extract: false,
         },
-        // ── java-objc-bridge 1.0.0（僅 x64 dylib）→ 1.1（Mojang CDN，內含 universal dylib）──
         CompatArtifact {
             rel_path: "ca/weblite/java-objc-bridge/1.1/java-objc-bridge-1.1.jar",
             url: "https://libraries.minecraft.net/ca/weblite/java-objc-bridge/1.1/java-objc-bridge-1.1.jar",
@@ -223,11 +171,6 @@ static LWJGL3_OVERRIDE: MacosArm64Override = MacosArm64Override {
     ],
 };
 
-/// mmachina 版 lwjgl-glfw bindings（3.3.1 fork）：`nglfwSetWindowIcon` 移除
-/// JNI 呼叫（bytecode 層 no-op，與 CPU 架構無關），
-/// 讓 1.13–1.18 開機期無條件的 `glfwSetWindowIcon` 不再進到 GLFW C 層，
-/// 從根本避開 GLFW 3.4 的 error 65548（Prism/ManyMC 對 osx-arm64 的標準方案）。
-/// 供 arm64 與 x64 兩張表共用。
 const MMACHINA_GLFW_BINDINGS: CompatArtifact = CompatArtifact {
     rel_path: "org/lwjgl/lwjgl-glfw/3.3.1-mmachina.1/lwjgl-glfw-3.3.1-mmachina.1.jar",
     url: "https://github.com/MinecraftMachina/lwjgl3/releases/download/3.3.1-mmachina.1/lwjgl-glfw.jar",
@@ -236,23 +179,10 @@ const MMACHINA_GLFW_BINDINGS: CompatArtifact = CompatArtifact {
     extract: false,
 };
 
-/// 1.13–1.18 + x86_64 Java（Rosetta 或 Intel Mac）：LWJGL → 3.3.1 x64 natives
-/// ＋ mmachina patched glfw bindings。兩個 GLFW bug 的最終解：
-/// - 原版 GLFW 3.2.x 與 LWJGL 3.2.3 內建的 GLFW（2019-09 的 3.4.0-dev
-///   snapshot，早於 monitor 列舉重构）在 macOS 26 Tahoe 於 glfwInit 期間即發出
-///   「Failed to find service port for display」（error 65544）→ 開機 error
-///   callback 視為致命（2026-07-03 於 macOS 26.5.1 以 x64 probe 實測確認）
-/// - LWJGL 3.3.x 內建 GLFW 3.4：glfwInit 乾淨（同 probe 實測），但
-///   `glfwSetWindowIcon` 回報 error 65548；1.16.4 bytecode 證實開機期無條件
-///   呼叫 setIcon 且無 macOS guard → 由 patched bindings 在 Java 層 no-op 解決
-///
-/// base jars 與 x64 natives 取自 Mojang CDN（1.19.2 版本 JSON 的官方 metadata）。
-/// java-objc-bridge 保留原版（x64 dylib 可用）。
 static LWJGL3_X64_OVERRIDE: MacosArm64Override = MacosArm64Override {
     name: "lwjgl3-3.3.1-x64",
     exclude_prefixes: &["org.lwjgl:"],
     artifacts: &[
-        // ── base jars（Mojang CDN，與 arm64 表同一組；glfw 換 patched bindings）──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
@@ -296,7 +226,6 @@ static LWJGL3_X64_OVERRIDE: MacosArm64Override = MacosArm64Override {
             size: 6767,
             extract: false,
         },
-        // ── natives-macos（x86_64，Mojang CDN；上 classpath，LWJGL3 自行解壓）──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.jar",
@@ -349,13 +278,10 @@ static LWJGL3_X64_OVERRIDE: MacosArm64Override = MacosArm64Override {
     ],
 };
 
-/// ≤1.12：LWJGL 2 base jar 用 Mojang CDN 2.9.4，natives 用社群 arm64 編譯
-/// （來源與 Prism Launcher meta 相同：MinecraftMachina / r58Playz）
 static LWJGL2_OVERRIDE: MacosArm64Override = MacosArm64Override {
     name: "lwjgl2-2.9.4-arm64",
     exclude_prefixes: &["org.lwjgl.lwjgl:", "net.java.jinput:jinput-platform:"],
     artifacts: &[
-        // ── base jars（Mojang CDN）──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/lwjgl/2.9.4-nightly-20150209/lwjgl-2.9.4-nightly-20150209.jar",
             url: "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl/2.9.4-nightly-20150209/lwjgl-2.9.4-nightly-20150209.jar",
@@ -370,7 +296,6 @@ static LWJGL2_OVERRIDE: MacosArm64Override = MacosArm64Override {
             size: 173887,
             extract: false,
         },
-        // ── arm64 natives（社群編譯，解壓至 natives_dir）──
         CompatArtifact {
             rel_path: "org/lwjgl/lwjgl/lwjgl-platform/2.9.4-nightly-20150209/lwjgl-platform-2.9.4-nightly-20150209-natives-osx-arm64.jar",
             url: "https://github.com/MinecraftMachina/lwjgl/releases/download/2.9.4-20150209-mmachina.2/lwjgl-platform-2.9.4-nightly-20150209-natives-osx.jar",
@@ -388,13 +313,7 @@ static LWJGL2_OVERRIDE: MacosArm64Override = MacosArm64Override {
     ],
 };
 
-// ─── 崩潰診斷：各渲染世代的已知圖形／函式庫錯誤特徵 ───
-
-/// 一組已知錯誤特徵：log 中「每個」needle 都出現（不分大小寫、可跨行）才算命中。
-/// 同一問題的不同錯誤字樣以多個 entry 表示（共用同一 advice）。
 struct CrashSignature {
-    /// 限定平台（`std::env::consts::OS` 值）；`None` = 不限。
-    /// 泛用錯誤碼（如 GLFW 65544 = GLFW_PLATFORM_ERROR）在不同平台意義不同，必須限定。
     os: Option<&'static str>,
     needles: &'static [&'static str],
     advice: &'static str,
@@ -442,7 +361,6 @@ const ADVICE_MACOS_GLFW_TOO_NEW: &str = "this Minecraft version (1.13-1.18) sets
     picks Rosetta + LWJGL 3.2.3, which avoids this) instead of a custom arm64 Java.";
 
 static CRASH_SIGNATURES: &[CrashSignature] = &[
-    // 1.13–1.16.5：Windows Intel HD 驅動無硬體加速
     CrashSignature {
         os: Some("windows"),
         needles: &["Pixel format not accelerated"],
@@ -453,10 +371,9 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
         needles: &["WGL: The driver does not appear to support OpenGL"],
         advice: ADVICE_NO_HW_ACCEL,
     },
-    // 1.17+：GL 3.2 Core 硬性需求
     CrashSignature {
         os: None,
-        needles: &["GLFW error 65543"], // GLFW_VERSION_UNAVAILABLE
+        needles: &["GLFW error 65543"],
         advice: ADVICE_GL_CORE,
     },
     CrashSignature {
@@ -464,13 +381,11 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
         needles: &["GLX: Failed to create context"],
         advice: ADVICE_GL_CORE,
     },
-    // macOS：LWJGL3/GLFW 執行緒需求
     CrashSignature {
         os: Some("macos"),
         needles: &["-XstartOnFirstThread"],
         advice: ADVICE_FIRST_THREAD,
     },
-    // 26.2+：Vulkan 後端初始化失敗
     CrashSignature {
         os: None,
         needles: &["VK_ERROR_INCOMPATIBLE_DRIVER"],
@@ -486,20 +401,16 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
         needles: &["Failed to initialize Vulkan"],
         advice: ADVICE_VULKAN,
     },
-    // macOS：1.13–1.16 內建 GLFW 3.2.x 對上新 macOS（GLFW_PLATFORM_ERROR）
     CrashSignature {
         os: Some("macos"),
         needles: &["GLFW error 65544", "service port for display"],
         advice: ADVICE_MACOS_OLD_GLFW,
     },
-    // macOS：1.13–1.18 配 LWJGL 3.3+（GLFW 3.4 的 FEATURE_UNAVAILABLE）
     CrashSignature {
         os: Some("macos"),
         needles: &["GLFW error 65548"],
         advice: ADVICE_MACOS_GLFW_TOO_NEW,
     },
-    // Linux：顯示伺服器連線失敗（Wayland / headless）。
-    // 65544（GLFW_PLATFORM_ERROR）是泛用錯誤碼，只在 Linux 當顯示問題解讀
     CrashSignature {
         os: Some("linux"),
         needles: &["GLFW error 65544"],
@@ -515,13 +426,11 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
         needles: &["Failed to connect to the Wayland display"],
         advice: ADVICE_DISPLAY,
     },
-    // ≤1.12.2：LWJGL2 native 內 JVM 崩潰（macOS 指標問題等）
     CrashSignature {
         os: Some("macos"),
         needles: &["A fatal error has been detected", "liblwjgl"],
         advice: ADVICE_LWJGL2_MACOS,
     },
-    // 通用：natives 載入失敗（放最後，前面較精確的特徵優先）
     CrashSignature {
         os: None,
         needles: &["java.lang.UnsatisfiedLinkError"],
@@ -534,8 +443,6 @@ static CRASH_SIGNATURES: &[CrashSignature] = &[
     },
 ];
 
-/// 掃描遊戲輸出（stdout/stderr 合併的 log 行），回傳第一個命中的已知圖形問題說明。
-/// 僅在遊戲異常退出後呼叫；回傳 `None` 表示非已知特徵。
 pub fn diagnose_graphics_crash<'a, I>(lines: I) -> Option<&'static str>
 where
     I: IntoIterator<Item = &'a str>,
@@ -575,10 +482,8 @@ mod tests {
 
     #[test]
     fn test_override_selection() {
-        // 1.19+：原生支援，不替換
         assert!(arm64_override_for(&load_version("data/1.21.json")).is_none());
         assert!(arm64_override_for(&load_version("data/1.19.2.json")).is_none());
-        // 1.13–1.18：LWJGL3 替換
         assert_eq!(
             arm64_override_for(&load_version("data/1.18.1.json")).map(|o| o.name),
             Some("lwjgl3-3.3.1-arm64")
@@ -587,7 +492,6 @@ mod tests {
             arm64_override_for(&load_version("data/1.14.4.json")).map(|o| o.name),
             Some("lwjgl3-3.3.1-arm64")
         );
-        // ≤1.12：LWJGL2 替換
         assert_eq!(
             arm64_override_for(&load_version("data/1.12.2.json")).map(|o| o.name),
             Some("lwjgl2-2.9.4-arm64")
@@ -617,10 +521,8 @@ mod tests {
 
     #[test]
     fn test_macos_override_by_java_arch() {
-        // 1.19+：不論 Java 架構皆不替換
         assert!(macos_override_for(&load_version("data/1.19.2.json"), true).is_none());
         assert!(macos_override_for(&load_version("data/1.19.2.json"), false).is_none());
-        // 1.13–1.18：依 Java 架構選 arm64 / x64 替換表
         assert_eq!(
             macos_override_for(&load_version("data/1.14.4.json"), true).map(|o| o.name),
             Some("lwjgl3-3.3.1-arm64")
@@ -629,14 +531,12 @@ mod tests {
             macos_override_for(&load_version("data/1.14.4.json"), false).map(|o| o.name),
             Some("lwjgl3-3.3.1-x64")
         );
-        // ≤1.12：LWJGL2 只有 arm64 需要替換，x64 維持原版
         assert_eq!(
             macos_override_for(&load_version("data/1.12.2.json"), true).map(|o| o.name),
             Some("lwjgl2-2.9.4-arm64")
         );
         assert!(macos_override_for(&load_version("data/1.12.2.json"), false).is_none());
 
-        // x64 表只排除 LWJGL，java-objc-bridge 保留原版
         let ov = macos_override_for(&load_version("data/1.14.4.json"), false).unwrap();
         assert!(ov.excludes("org.lwjgl:lwjgl:3.2.1"));
         assert!(ov.excludes("org.lwjgl:lwjgl-glfw:3.2.1"));
@@ -646,21 +546,17 @@ mod tests {
 
     #[test]
     fn test_diagnose_known_signatures() {
-        // 1.13–1.16.5 Intel HD（大小寫不敏感）
         let log = ["org.lwjgl.LWJGLException: PIXEL FORMAT NOT ACCELERATED"];
         assert_eq!(diagnose_with_os(log, "windows"), Some(ADVICE_NO_HW_ACCEL));
 
-        // 1.17+ GL Core 需求（65543 不限平台）
         let log = [
             "GLFW error 65543: WGL: OpenGL profile requested but WGL_ARB_create_context_profile is unavailable",
         ];
         assert_eq!(diagnose_with_os(log, "windows"), Some(ADVICE_GL_CORE));
 
-        // 26.2+ Vulkan（不限平台）
         let log = ["[Render thread/ERROR]: vkCreateInstance: VK_ERROR_INCOMPATIBLE_DRIVER"];
         assert_eq!(diagnose_with_os(log, "macos"), Some(ADVICE_VULKAN));
 
-        // LWJGL2 native 崩潰需兩個 needle 同時命中（可跨行）
         let log = [
             "# A fatal error has been detected by the Java Runtime Environment:",
             "# Problematic frame:",
@@ -668,25 +564,19 @@ mod tests {
         ];
         assert_eq!(diagnose_with_os(log, "macos"), Some(ADVICE_LWJGL2_MACOS));
 
-        // 只有其中一個 needle → 不命中該特徵，落到通用 natives 特徵之外
         let log = ["# A fatal error has been detected by the Java Runtime Environment:"];
         assert_eq!(diagnose_with_os(log, "macos"), None);
     }
 
     #[test]
     fn test_diagnose_os_gating() {
-        // GLFW 65544 是泛用 GLFW_PLATFORM_ERROR：
-        // macOS + service port（1.13–1.16 舊 GLFW 對上新 macOS）→ 專屬建議
         let log = ["GLFW error 65544: Cocoa: Failed to find service port for display"];
         assert_eq!(diagnose_with_os(log, "macos"), Some(ADVICE_MACOS_OLD_GLFW));
-        // 同一行在 Linux → 顯示連線建議
         assert_eq!(diagnose_with_os(log, "linux"), Some(ADVICE_DISPLAY));
 
-        // macOS 上非 service port 的 65544 不得誤判為 Linux 顯示問題（回歸：2026-07-02）
         let log = ["GLFW error 65544: Cocoa: some other platform error"];
         assert_eq!(diagnose_with_os(log, "macos"), None);
 
-        // 1.13.x 配 LWJGL 3.3+ 的視窗 icon 錯誤（實測案例：2026-07-02）
         let log = [
             "java.lang.IllegalStateException: GLFW error 65548: Cocoa: Regular windows do not have icons on macOS",
         ];
@@ -695,14 +585,12 @@ mod tests {
             Some(ADVICE_MACOS_GLFW_TOO_NEW)
         );
 
-        // Windows 專屬特徵不在其他平台命中
         let log = ["org.lwjgl.LWJGLException: Pixel format not accelerated"];
         assert_eq!(diagnose_with_os(log, "macos"), None);
     }
 
     #[test]
     fn test_diagnose_priority_and_none() {
-        // 精確特徵優先於通用 UnsatisfiedLinkError
         let log = [
             "java.lang.UnsatisfiedLinkError: no lwjgl in java.library.path",
             "org.lwjgl.LWJGLException: Pixel format not accelerated",
@@ -712,7 +600,6 @@ mod tests {
         let log = ["java.lang.UnsatisfiedLinkError: no lwjgl in java.library.path"];
         assert_eq!(diagnose_with_os(log, "windows"), Some(ADVICE_NATIVES));
 
-        // 正常結束的 log 不誤判
         let log = ["[main/INFO]: Stopping!", "SoundEngine shut down"];
         assert_eq!(diagnose_with_os(log, "linux"), None);
     }

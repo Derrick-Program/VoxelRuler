@@ -50,7 +50,6 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
         }
     }
 
-    // Fallback to keyword matching if no ANSI color codes are present
     if !has_ansi {
         if line.contains("/ERROR]")
             || line.contains(" ERROR ")
@@ -58,13 +57,13 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
             || line.contains("Exception:")
             || line.starts_with("\tat ")
         {
-            color = slint::Color::from_rgb_u8(231, 76, 60); // Red
+            color = slint::Color::from_rgb_u8(231, 76, 60);
         } else if line.contains("/WARN]") || line.contains(" WARN ") {
-            color = slint::Color::from_rgb_u8(241, 196, 15); // Yellow
+            color = slint::Color::from_rgb_u8(241, 196, 15);
         } else if line.contains("/DEBUG]") || line.contains(" DEBUG ") {
-            color = slint::Color::from_rgb_u8(127, 140, 141); // Gray
+            color = slint::Color::from_rgb_u8(127, 140, 141);
         } else if line.contains("/FATAL]") || line.contains(" FATAL ") {
-            color = slint::Color::from_rgb_u8(192, 57, 43); // Dark Red
+            color = slint::Color::from_rgb_u8(192, 57, 43);
         }
     }
 
@@ -75,7 +74,6 @@ pub(crate) fn parse_ansi_log_line(line: &str) -> crate::view::LogLine {
     }
 }
 
-/// 詳細視窗 category key → 實際資料夾
 pub(crate) fn detail_category_dir(paths: &McPaths, instance_id: &str, category: &str) -> PathBuf {
     let root = paths.instance_dir(instance_id);
     match category {
@@ -85,7 +83,6 @@ pub(crate) fn detail_category_dir(paths: &McPaths, instance_id: &str, category: 
     }
 }
 
-/// category key → 所屬分頁索引（操作後重新整理用）
 pub(crate) fn detail_category_tab(category: &str) -> i32 {
     match category {
         "mods" => 2,
@@ -121,7 +118,6 @@ pub(crate) fn file_entries_model(
     ModelRc::from(Rc::new(VecModel::from(items)))
 }
 
-/// 載入詳細視窗指定分頁的資料（必須在 UI 執行緒呼叫）
 pub(crate) fn load_detail_tab(
     ui: &MainApp,
     instance_id: &str,
@@ -133,7 +129,6 @@ pub(crate) fn load_detail_tab(
     let detail = ui.global::<InstanceDetailLogic>();
     detail.set_pending_delete_key("".into());
     match tab {
-        // Minecraft 紀錄檔（live，先帶入目前 buffer，後續由 log reader 增量 push）
         0 => {
             let lines: Vec<crate::view::LogLine> = instance_logs
                 .lock()
@@ -211,7 +206,6 @@ pub(crate) fn load_detail_tab(
     }
 }
 
-/// 開啟詳細視窗：填基本資料 + 設定分頁（InstanceEditLogic）+ 載入指定分頁
 pub(crate) fn open_instance_detail(
     ui: &MainApp,
     master_configs: &Arc<Mutex<Vec<InstanceConfig>>>,
@@ -226,7 +220,6 @@ pub(crate) fn open_instance_detail(
     };
     let Some(c) = config else { return };
 
-    // 設定分頁沿用 InstanceEditLogic（記憶體 / Java）
     let edit = ui.global::<InstanceEditLogic>();
     edit.set_instance_id(c.id.as_str().into());
     edit.set_instance_name(c.name.as_str().into());
@@ -242,7 +235,6 @@ pub(crate) fn open_instance_detail(
     detail.set_version(c.version.as_str().into());
     detail.set_mod_loader(c.mod_loader.as_str().into());
     detail.set_selected_version(c.version.as_str().into());
-    // 版本清單與「建立實例」對話框共用（啟動時已從 Mojang 取得）
     detail.set_version_list(ui.global::<InstanceCreateLogic>().get_version_list());
     detail.set_instance_running(running_procs.lock().unwrap().contains_key(id));
     detail.set_status_msg("".into());
@@ -257,9 +249,8 @@ pub(crate) fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     instance_logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>>,
     ui_weak: slint::Weak<MainApp>,
 ) {
-    // 用獨立 OS thread 而非 tokio spawn_blocking：這個讀取會阻塞到遊戲結束（pipe EOF），
-    // 若掛在 tokio blocking pool，關閉視窗後 runtime shutdown 會等它結束 → 遊戲還在跑時
-    // App 行程永遠卡住無法退出。獨立 thread 在行程結束時直接被回收，遊戲繼續執行。
+    // must be a plain OS thread, not tokio::spawn_blocking: this read blocks until the
+    // game process exits, and a blocking-pool task would stall runtime shutdown while the game keeps running
     std::thread::spawn(move || {
         use std::io::BufRead;
         let buf = std::io::BufReader::new(reader);
@@ -289,7 +280,6 @@ pub(crate) fn spawn_log_reader<R: std::io::Read + Send + 'static>(
                 {
                     logic.set_log_lines(new_model);
                 }
-                // 詳細視窗的「Minecraft 紀錄檔」分頁（live）
                 let detail = ui_handle.global::<InstanceDetailLogic>();
                 if detail.get_show_dialog()
                     && detail.get_active_tab() == 0
@@ -317,7 +307,6 @@ pub fn setup_instance_detail_logic(
         >,
     >,
 ) {
-    // ── 實例詳細視窗（側欄分頁）──────────────────────────────────────────
     let detail_logic = ui.global::<InstanceDetailLogic>();
 
     let master_for_detail_open = Arc::clone(&master_configs);
@@ -524,17 +513,15 @@ mod tests {
 
     #[test]
     fn test_parse_ansi_log_line() {
-        // Red color test
         let line = parse_ansi_log_line("\x1b[31mError message\x1b[0m");
         assert_eq!(line.text.as_str(), "Error message");
         assert_eq!(line.color.red(), 231);
         assert_eq!(line.color.green(), 76);
         assert_eq!(line.color.blue(), 60);
 
-        // No ansi codes
         let line_clean = parse_ansi_log_line("Just info");
         assert_eq!(line_clean.text.as_str(), "Just info");
-        assert_eq!(line_clean.color.red(), 197); // default white
+        assert_eq!(line_clean.color.red(), 197);
     }
 
     #[test]
@@ -545,12 +532,11 @@ mod tests {
         assert_eq!(detail_category_tab("saves"), 6);
         assert_eq!(detail_category_tab("worlds"), 6);
         assert_eq!(detail_category_tab("screenshots"), 8);
-        assert_eq!(detail_category_tab("settings"), -1); // fallback
+        assert_eq!(detail_category_tab("settings"), -1);
     }
 
     #[test]
     fn test_parse_ansi_log_line_keyword_fallback() {
-        // 無 ANSI 碼時退回關鍵字比對
         let err = parse_ansi_log_line("[12:00:00] [main/ERROR]: something broke");
         assert_eq!((err.color.red(), err.color.green()), (231, 76));
 
@@ -566,7 +552,6 @@ mod tests {
         let paths = McPaths::new().unwrap();
         let root = paths.instance_dir("abc");
         assert_eq!(detail_category_dir(&paths, "abc", "root"), root);
-        // "worlds" 是 UI 分類名，實際資料夾是 saves
         assert_eq!(
             detail_category_dir(&paths, "abc", "worlds"),
             root.join("saves")
@@ -588,7 +573,6 @@ mod tests {
     fn test_append_log_line_vecmodel_pushes_in_place() {
         let model: ModelRc<crate::view::LogLine> =
             ModelRc::from(Rc::new(VecModel::from(vec![log_line("first")])));
-        // VecModel 走快速路徑：就地 push，不需要換 model
         let replaced = append_log_line(&model, log_line("second"));
         assert!(replaced.is_none());
         assert_eq!(model.row_count(), 2);
@@ -597,13 +581,12 @@ mod tests {
 
     #[test]
     fn test_append_log_line_non_vecmodel_returns_new_model() {
-        // 非 VecModel（如 FilterModel）走慢速路徑：複製後回傳新 model
         let inner = Rc::new(VecModel::from(vec![log_line("first")]));
         let filtered: ModelRc<crate::view::LogLine> =
             ModelRc::from(Rc::new(slint::FilterModel::new(inner, |_| true)));
         let replaced =
             append_log_line(&filtered, log_line("second")).expect("should return new model");
-        assert_eq!(filtered.row_count(), 1); // 原 model 不變
+        assert_eq!(filtered.row_count(), 1);
         assert_eq!(replaced.row_count(), 2);
         assert_eq!(replaced.row_data(1).unwrap().text.as_str(), "second");
     }
@@ -624,7 +607,6 @@ mod tests {
             slint::Weak::default(),
         );
 
-        // 背景 thread 處理，輪詢等待完成
         for _ in 0..200 {
             if logs.lock().unwrap().get("inst").map(|d| d.len()) == Some(2) {
                 break;
@@ -636,7 +618,6 @@ mod tests {
         let deque = logs_lock.get("inst").unwrap();
         assert_eq!(deque.len(), 2);
         assert_eq!(deque[0].text.as_str(), "plain line");
-        // ANSI 碼被剝除、顏色正確解析
         assert_eq!(deque[1].text.as_str(), "red error");
         assert_eq!(deque[1].color.red(), 231);
     }
@@ -674,7 +655,6 @@ mod tests {
 
         let logs_lock = logs.lock().unwrap();
         let deque = logs_lock.get("inst").unwrap();
-        // 上限 500：最舊的一行被擠掉
         assert_eq!(deque.len(), 500);
         assert_eq!(deque.front().unwrap().text.as_str(), "old-1");
         assert_eq!(deque.back().unwrap().text.as_str(), "new line");
