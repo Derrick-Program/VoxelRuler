@@ -187,6 +187,21 @@ pub async fn open_view() -> anyhow::Result<()> {
         Arc::new(Mutex::new(std::collections::HashSet::new()));
     let instance_logs: Arc<Mutex<HashMap<String, VecDeque<crate::view::LogLine>>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let pending_quit: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
+    let running_procs_for_close = Arc::clone(&running_procs);
+    let pending_quit_for_close = Arc::clone(&pending_quit);
+    let ui_weak_for_close = ui.as_weak();
+    ui.window().on_close_requested(move || {
+        if running_procs_for_close.lock().unwrap().is_empty() {
+            return slint::CloseRequestResponse::HideWindow;
+        }
+        pending_quit_for_close.store(true, Ordering::SeqCst);
+        if let Some(ui) = ui_weak_for_close.upgrade() {
+            ui.window().set_minimized(true);
+        }
+        slint::CloseRequestResponse::KeepWindowShown
+    });
 
     let (_debouncer, rx) = store.lock().unwrap().watch_changes()?;
     let ui_weak_for_watch = ui.as_weak();
@@ -503,6 +518,7 @@ pub async fn open_view() -> anyhow::Result<()> {
         Arc::clone(&running_procs),
         Arc::clone(&launching_procs),
         Arc::clone(&instance_logs),
+        Arc::clone(&pending_quit),
     );
 
     instance_detail::setup_instance_detail_logic(

@@ -13,7 +13,10 @@ use slint::Weak;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use tracing::{error, info, warn};
 
 const OFFLINE_UUID: &str = "00000000-0000-0000-0000-000000000000";
@@ -503,6 +506,7 @@ pub fn setup_launch_logic(
             std::collections::HashMap<String, std::collections::VecDeque<crate::view::LogLine>>,
         >,
     >,
+    pending_quit: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     let logic = ui.global::<InstanceLogic>();
     let master_for_search = Arc::clone(&master_configs);
@@ -538,6 +542,7 @@ pub fn setup_launch_logic(
     let running_procs_for_launch = Arc::clone(&running_procs);
     let launching_procs_for_launch = Arc::clone(&launching_procs);
     let instance_logs_for_launch = Arc::clone(&instance_logs);
+    let pending_quit_for_launch = Arc::clone(&pending_quit);
     let ui_weak_for_launch = ui.as_weak();
     logic.on_launch_instance(move |id| {
         let (active_account_authenticator, active_account_username) = {
@@ -578,6 +583,7 @@ pub fn setup_launch_logic(
         let logs = Arc::clone(&instance_logs_for_launch);
         let master_for_session = Arc::clone(&master_for_launch);
         let store_for_session = Arc::clone(&store_for_launch);
+        let pending_quit = Arc::clone(&pending_quit_for_launch);
         let mut launching_lock = launching_procs.lock().unwrap();
         if launching_lock.contains(&instance_id) {
             return;
@@ -625,6 +631,7 @@ pub fn setup_launch_logic(
                     let id_watch = instance_id.clone();
                     let master_for_watch = Arc::clone(&master_for_session);
                     let store_for_watch = Arc::clone(&store_for_session);
+                    let pending_quit_watch = Arc::clone(&pending_quit);
                     tokio::spawn(async move {
                         loop {
                             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -646,7 +653,13 @@ pub fn setup_launch_logic(
                                         );
                                     }
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
-                                    if !status.success() {
+                                    if status.success() {
+                                        if pending_quit_watch.load(Ordering::SeqCst)
+                                            && running_procs_watch.lock().unwrap().is_empty()
+                                        {
+                                            let _ = slint::quit_event_loop();
+                                        }
+                                    } else {
                                         let lines: Vec<String> = logs_watch
                                             .lock()
                                             .unwrap()
@@ -664,6 +677,14 @@ pub fn setup_launch_logic(
                                         };
                                         warn!(instance = %id_watch, "{msg}");
                                         set_install_state(&ui_weak_watch, true, 0.0, &msg, true);
+                                        if pending_quit_watch.swap(false, Ordering::SeqCst) {
+                                            let ui_weak_restore = ui_weak_watch.clone();
+                                            let _ = slint::invoke_from_event_loop(move || {
+                                                if let Some(ui) = ui_weak_restore.upgrade() {
+                                                    ui.window().set_minimized(false);
+                                                }
+                                            });
+                                        }
                                     }
                                     break;
                                 }
@@ -680,6 +701,14 @@ pub fn setup_launch_logic(
                                         );
                                     }
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
+                                    if pending_quit_watch.swap(false, Ordering::SeqCst) {
+                                        let ui_weak_restore = ui_weak_watch.clone();
+                                        let _ = slint::invoke_from_event_loop(move || {
+                                            if let Some(ui) = ui_weak_restore.upgrade() {
+                                                ui.window().set_minimized(false);
+                                            }
+                                        });
+                                    }
                                     break;
                                 }
                                 Ok(None) => {}
