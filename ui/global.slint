@@ -445,9 +445,13 @@ export global SettingsLogic {
     in-out property <[string]> detected-java-list: [];
     in-out property <string>   java-path: "";
     in-out property <string>   status-msg: "";
+    in-out property <[string]> sort-mode-list: [];
+    in-out property <string>   selected-sort-mode: "";
+    in-out property <bool>     sort-ascending: false;
 
     callback save-settings();
     callback browse-java();
+    callback sort-changed();
 }
 export struct CapeData {
     id: string,
