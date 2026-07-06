@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 use tracing::{error, warn};
+use crate::settings::SortMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
@@ -55,13 +56,74 @@ impl Default for InstanceConfig {
     }
 }
 
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering::*;
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+    for i in 0..a_parts.len().max(b_parts.len()) {
+        let ord = match (a_parts.get(i), b_parts.get(i)) {
+            (Some(x), Some(y)) => match (x.parse::<u64>(), y.parse::<u64>()) {
+                (Ok(xi), Ok(yi)) => xi.cmp(&yi),
+                _ => x.cmp(y),
+            },
+            (Some(_), None) => Greater,
+            (None, Some(_)) => Less,
+            (None, None) => Equal,
+        };
+        if ord != Equal {
+            return ord;
+        }
+    }
+    Equal
+}
+
+fn sort_instances(instances: &mut [(InstanceConfig, i64)], mode: SortMode, ascending: bool) {
+    use std::cmp::Ordering::*;
+    instances.sort_by(|(a, a_key), (b, b_key)| match mode {
+        SortMode::Name => {
+            let ord = a.name.to_lowercase().cmp(&b.name.to_lowercase());
+            if ascending { ord } else { ord.reverse() }
+        }
+        SortMode::Version => {
+            let ord = compare_versions(&a.version, &b.version);
+            if ascending { ord } else { ord.reverse() }
+        }
+        SortMode::CreatedAt => {
+            let ord = a_key.cmp(b_key);
+            if ascending { ord } else { ord.reverse() }
+        }
+        // Emptiness placement (never-played sinks last) must NOT flip with
+        // ascending/descending, so only the non-empty branch gets reversed.
+        SortMode::LastPlayed => match (a.last_played.is_empty(), b.last_played.is_empty()) {
+            (true, true) => Equal,
+            (true, false) => Greater,
+            (false, true) => Less,
+            (false, false) => {
+                let ord = a.last_played.cmp(&b.last_played);
+                if ascending { ord } else { ord.reverse() }
+            }
+        },
+    });
+}
+
 pub struct InstanceStore {
     base_dir: PathBuf,
+    sort_mode: SortMode,
+    sort_ascending: bool,
 }
 
 impl InstanceStore {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        Self {
+            base_dir,
+            sort_mode: SortMode::default(),
+            sort_ascending: false,
+        }
+    }
+
+    pub fn set_sort(&mut self, mode: SortMode, ascending: bool) {
+        self.sort_mode = mode;
+        self.sort_ascending = ascending;
     }
 
     pub fn load(&self) -> anyhow::Result<Vec<InstanceConfig>> {
@@ -113,7 +175,7 @@ impl InstanceStore {
             }
         }
 
-        instances.sort_by(|a, b| b.1.cmp(&a.1));
+        sort_instances(&mut instances, self.sort_mode, self.sort_ascending);
         Ok(instances.into_iter().map(|(c, _)| c).collect())
     }
 
@@ -320,5 +382,88 @@ mod tests {
 
         store.delete_one("del-id").unwrap();
         assert!(store.load().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_compare_versions_numeric_segments() {
+        assert_eq!(compare_versions("1.7.2", "1.21.7"), std::cmp::Ordering::Less);
+        assert_eq!(compare_versions("1.7.10", "1.7.2"), std::cmp::Ordering::Greater);
+        assert_eq!(compare_versions("1.20.4", "1.20.4"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_compare_versions_non_numeric_fallback() {
+        // Neither side of a mismatched segment parses as a number: falls back
+        // to plain string comparison for that segment instead of panicking.
+        let result = compare_versions("24w14a", "1.20.4");
+        assert_eq!(result, "24w14a".cmp("1"));
+    }
+
+    #[test]
+    fn test_sort_instances_by_name_ascending() {
+        let (mut store, _dir) = tmp_store();
+        store
+            .save_one(&InstanceConfig { id: "b".into(), name: "Banana".into(), ..Default::default() })
+            .unwrap();
+        store
+            .save_one(&InstanceConfig { id: "a".into(), name: "Apple".into(), ..Default::default() })
+            .unwrap();
+
+        store.set_sort(SortMode::Name, true);
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded[0].name, "Apple");
+        assert_eq!(loaded[1].name, "Banana");
+    }
+
+    #[test]
+    fn test_sort_instances_by_version_descending() {
+        let (mut store, _dir) = tmp_store();
+        store
+            .save_one(&InstanceConfig { id: "old".into(), version: "1.7.2".into(), ..Default::default() })
+            .unwrap();
+        store
+            .save_one(&InstanceConfig { id: "new".into(), version: "1.21.7".into(), ..Default::default() })
+            .unwrap();
+
+        store.set_sort(SortMode::Version, false);
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded[0].id, "new", "1.21.7 should sort above 1.7.2 descending");
+        assert_eq!(loaded[1].id, "old");
+    }
+
+    #[test]
+    fn test_sort_instances_last_played_never_played_sinks_to_bottom() {
+        let (mut store, _dir) = tmp_store();
+        store
+            .save_one(&InstanceConfig {
+                id: "played".into(),
+                last_played: "2024-01-01T00:00:00Z".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .save_one(&InstanceConfig { id: "never".into(), last_played: "".into(), ..Default::default() })
+            .unwrap();
+
+        store.set_sort(SortMode::LastPlayed, true);
+        let ascending = store.load().unwrap();
+        assert_eq!(ascending.last().unwrap().id, "never");
+
+        store.set_sort(SortMode::LastPlayed, false);
+        let descending = store.load().unwrap();
+        assert_eq!(descending.last().unwrap().id, "never");
+    }
+
+    #[test]
+    fn test_default_sort_matches_previous_created_at_behavior() {
+        let (store, _dir) = tmp_store();
+        let old = InstanceConfig { id: "old".into(), created_at: 100, ..Default::default() };
+        let new = InstanceConfig { id: "new".into(), created_at: 200, ..Default::default() };
+        store.save_one(&old).unwrap();
+        store.save_one(&new).unwrap();
+
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded[0].id, "new");
+        assert_eq!(loaded[1].id, "old");
     }
 }
