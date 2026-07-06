@@ -534,6 +534,7 @@ pub fn setup_launch_logic(
     });
 
     let master_for_launch = Arc::clone(&master_configs);
+    let store_for_launch = Arc::clone(&store);
     let running_procs_for_launch = Arc::clone(&running_procs);
     let launching_procs_for_launch = Arc::clone(&launching_procs);
     let instance_logs_for_launch = Arc::clone(&instance_logs);
@@ -575,6 +576,8 @@ pub fn setup_launch_logic(
         let launching_procs = Arc::clone(&launching_procs_for_launch);
         let ui_weak = ui_weak_for_launch.clone();
         let logs = Arc::clone(&instance_logs_for_launch);
+        let master_for_session = Arc::clone(&master_for_launch);
+        let store_for_session = Arc::clone(&store_for_launch);
         let mut launching_lock = launching_procs.lock().unwrap();
         if launching_lock.contains(&instance_id) {
             return;
@@ -604,6 +607,14 @@ pub fn setup_launch_logic(
             launching_procs.lock().unwrap().remove(&instance_id);
             match res {
                 Ok(child) => {
+                    let session_start = std::time::Instant::now();
+                    {
+                        let mut master = master_for_session.lock().unwrap();
+                        store_for_session
+                            .lock()
+                            .unwrap()
+                            .record_launch_started(&mut master, &instance_id);
+                    }
                     running_procs
                         .lock()
                         .unwrap()
@@ -612,6 +623,8 @@ pub fn setup_launch_logic(
                     let running_procs_watch = Arc::clone(&running_procs);
                     let ui_weak_watch = ui_weak.clone();
                     let id_watch = instance_id.clone();
+                    let master_for_watch = Arc::clone(&master_for_session);
+                    let store_for_watch = Arc::clone(&store_for_session);
                     tokio::spawn(async move {
                         loop {
                             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -623,6 +636,15 @@ pub fn setup_launch_logic(
                                 Ok(Some(status)) => {
                                     map.remove(&id_watch);
                                     drop(map);
+                                    let elapsed_secs = session_start.elapsed().as_secs();
+                                    {
+                                        let mut master = master_for_watch.lock().unwrap();
+                                        store_for_watch.lock().unwrap().record_play_session_end(
+                                            &mut master,
+                                            &id_watch,
+                                            elapsed_secs,
+                                        );
+                                    }
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
                                     if !status.success() {
                                         let lines: Vec<String> = logs_watch
@@ -648,6 +670,15 @@ pub fn setup_launch_logic(
                                 Err(_) => {
                                     map.remove(&id_watch);
                                     drop(map);
+                                    let elapsed_secs = session_start.elapsed().as_secs();
+                                    {
+                                        let mut master = master_for_watch.lock().unwrap();
+                                        store_for_watch.lock().unwrap().record_play_session_end(
+                                            &mut master,
+                                            &id_watch,
+                                            elapsed_secs,
+                                        );
+                                    }
                                     set_instance_status(&ui_weak_watch, &id_watch, "ready");
                                     break;
                                 }
