@@ -248,8 +248,13 @@ pub async fn open_view() -> anyhow::Result<()> {
             let mut filtered: Vec<&crate::mc_types::McVersion> = versions
                 .iter()
                 .filter(|v| {
-                    if !search_text.is_empty() && !v.id.to_lowercase().contains(&search_text) {
-                        return false;
+                    if !search_text.is_empty() {
+                        let id = v.id.to_lowercase();
+                        let is_prefix_match =
+                            id == search_text || id.starts_with(&format!("{search_text}."));
+                        if !is_prefix_match {
+                            return false;
+                        }
                     }
 
                     match v.r#type.as_str() {
