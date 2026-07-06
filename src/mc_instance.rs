@@ -1,3 +1,4 @@
+use crate::settings::SortMode;
 use notify_debouncer_mini::{
     Debouncer, new_debouncer,
     notify::{RecommendedWatcher, RecursiveMode},
@@ -7,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 use tracing::{error, warn};
-use crate::settings::SortMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
@@ -386,9 +386,18 @@ mod tests {
 
     #[test]
     fn test_compare_versions_numeric_segments() {
-        assert_eq!(compare_versions("1.7.2", "1.21.7"), std::cmp::Ordering::Less);
-        assert_eq!(compare_versions("1.7.10", "1.7.2"), std::cmp::Ordering::Greater);
-        assert_eq!(compare_versions("1.20.4", "1.20.4"), std::cmp::Ordering::Equal);
+        assert_eq!(
+            compare_versions("1.7.2", "1.21.7"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("1.7.10", "1.7.2"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.20.4", "1.20.4"),
+            std::cmp::Ordering::Equal
+        );
     }
 
     #[test]
@@ -403,10 +412,18 @@ mod tests {
     fn test_sort_instances_by_name_ascending() {
         let (mut store, _dir) = tmp_store();
         store
-            .save_one(&InstanceConfig { id: "b".into(), name: "Banana".into(), ..Default::default() })
+            .save_one(&InstanceConfig {
+                id: "b".into(),
+                name: "Banana".into(),
+                ..Default::default()
+            })
             .unwrap();
         store
-            .save_one(&InstanceConfig { id: "a".into(), name: "Apple".into(), ..Default::default() })
+            .save_one(&InstanceConfig {
+                id: "a".into(),
+                name: "Apple".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         store.set_sort(SortMode::Name, true);
@@ -419,15 +436,26 @@ mod tests {
     fn test_sort_instances_by_version_descending() {
         let (mut store, _dir) = tmp_store();
         store
-            .save_one(&InstanceConfig { id: "old".into(), version: "1.7.2".into(), ..Default::default() })
+            .save_one(&InstanceConfig {
+                id: "old".into(),
+                version: "1.7.2".into(),
+                ..Default::default()
+            })
             .unwrap();
         store
-            .save_one(&InstanceConfig { id: "new".into(), version: "1.21.7".into(), ..Default::default() })
+            .save_one(&InstanceConfig {
+                id: "new".into(),
+                version: "1.21.7".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         store.set_sort(SortMode::Version, false);
         let loaded = store.load().unwrap();
-        assert_eq!(loaded[0].id, "new", "1.21.7 should sort above 1.7.2 descending");
+        assert_eq!(
+            loaded[0].id, "new",
+            "1.21.7 should sort above 1.7.2 descending"
+        );
         assert_eq!(loaded[1].id, "old");
     }
 
@@ -442,7 +470,11 @@ mod tests {
             })
             .unwrap();
         store
-            .save_one(&InstanceConfig { id: "never".into(), last_played: "".into(), ..Default::default() })
+            .save_one(&InstanceConfig {
+                id: "never".into(),
+                last_played: "".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         store.set_sort(SortMode::LastPlayed, true);
@@ -457,8 +489,16 @@ mod tests {
     #[test]
     fn test_default_sort_matches_previous_created_at_behavior() {
         let (store, _dir) = tmp_store();
-        let old = InstanceConfig { id: "old".into(), created_at: 100, ..Default::default() };
-        let new = InstanceConfig { id: "new".into(), created_at: 200, ..Default::default() };
+        let old = InstanceConfig {
+            id: "old".into(),
+            created_at: 100,
+            ..Default::default()
+        };
+        let new = InstanceConfig {
+            id: "new".into(),
+            created_at: 200,
+            ..Default::default()
+        };
         store.save_one(&old).unwrap();
         store.save_one(&new).unwrap();
 
