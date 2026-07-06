@@ -58,6 +58,31 @@ fn java_label_to_mode(label: &str) -> &'static str {
     }
 }
 
+const SORT_LABEL_NAME: &str = "Name (A-Z)";
+const SORT_LABEL_VERSION: &str = "Version";
+const SORT_LABEL_CREATED_AT: &str = "Created Time";
+const SORT_LABEL_LAST_PLAYED: &str = "Last Played";
+
+fn sort_mode_to_label(mode: crate::settings::SortMode) -> &'static str {
+    use crate::settings::SortMode;
+    match mode {
+        SortMode::Name => SORT_LABEL_NAME,
+        SortMode::Version => SORT_LABEL_VERSION,
+        SortMode::CreatedAt => SORT_LABEL_CREATED_AT,
+        SortMode::LastPlayed => SORT_LABEL_LAST_PLAYED,
+    }
+}
+
+fn label_to_sort_mode(label: &str) -> crate::settings::SortMode {
+    use crate::settings::SortMode;
+    match label {
+        SORT_LABEL_NAME => SortMode::Name,
+        SORT_LABEL_VERSION => SortMode::Version,
+        SORT_LABEL_LAST_PLAYED => SortMode::LastPlayed,
+        _ => SortMode::CreatedAt,
+    }
+}
+
 #[derive(Debug)]
 enum JavaSource {
     CustomPath(PathBuf),
@@ -100,6 +125,38 @@ fn config_to_ui_data(config: &InstanceConfig) -> InstanceData {
     }
 }
 
+fn refresh_instance_list(
+    logic: &InstanceLogic,
+    configs: &[InstanceConfig],
+    running_ids: &std::collections::HashSet<String>,
+) {
+    let search_text = logic.get_search_text().to_string().to_lowercase();
+    let mut ui_items: Vec<InstanceData> = configs
+        .iter()
+        .filter(|c| search_text.is_empty() || c.name.to_lowercase().contains(&search_text))
+        .map(|c| {
+            let mut item = config_to_ui_data(c);
+            if running_ids.contains(&c.id) {
+                item.status = "running".into();
+            }
+            item
+        })
+        .collect();
+    if ui_items.is_empty() {
+        ui_items.push(InstanceData {
+            id: "".into(),
+            name: "".into(),
+            version: "".into(),
+            mod_loader: "".into(),
+            last_played: "".into(),
+            play_time: "".into(),
+            image: Default::default(),
+            status: "".into(),
+        });
+    }
+    logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
+}
+
 #[allow(unused)]
 pub async fn open_view() -> anyhow::Result<()> {
     let ui = MainApp::new()?;
@@ -108,6 +165,13 @@ pub async fn open_view() -> anyhow::Result<()> {
     let store = Arc::new(Mutex::new(InstanceStore::new(
         McPaths::new()?.instances_base_dir(),
     )));
+    {
+        let boot_settings = AppSettings::load();
+        store
+            .lock()
+            .unwrap()
+            .set_sort(boot_settings.sort_mode, boot_settings.sort_ascending);
+    }
     let master_configs: Arc<Mutex<Vec<InstanceConfig>>> = {
         let loaded = store.lock().unwrap().load().unwrap_or_default();
         Arc::new(Mutex::new(loaded))
@@ -147,34 +211,7 @@ pub async fn open_view() -> anyhow::Result<()> {
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui_handle) = ui_weak.upgrade() {
                     let logic = ui_handle.global::<InstanceLogic>();
-                    let search_text = logic.get_search_text().to_string().to_lowercase();
-                    let mut ui_items: Vec<InstanceData> = latest_configs
-                        .iter()
-                        .filter(|c| {
-                            search_text.is_empty() || c.name.to_lowercase().contains(&search_text)
-                        })
-                        .map(|c| {
-                            let mut item = config_to_ui_data(c);
-                            if running_ids.contains(&c.id) {
-                                item.status = "running".into();
-                            }
-                            item
-                        })
-                        .collect();
-                    if ui_items.is_empty() {
-                        ui_items.push(InstanceData {
-                            id: "".into(),
-                            name: "".into(),
-                            version: "".into(),
-                            mod_loader: "".into(),
-                            last_played: "".into(),
-                            play_time: "".into(),
-                            image: Default::default(),
-                            status: "".into(),
-                        });
-                    }
-
-                    logic.set_instance_list(ModelRc::from(Rc::new(VecModel::from(ui_items))));
+                    refresh_instance_list(&logic, &latest_configs, &running_ids);
                     info!("UI list securely synced with disk");
                 }
             });
@@ -364,7 +401,49 @@ pub async fn open_view() -> anyhow::Result<()> {
         sl.set_java_mode_list(ModelRc::from(Rc::new(VecModel::from(settings_items))));
         sl.set_selected_java_mode(java_mode_to_label(&app_settings.java_mode, false).into());
         sl.set_java_path(app_settings.java_path.as_str().into());
+
+        let sort_items: Vec<slint::SharedString> = vec![
+            SORT_LABEL_NAME.into(),
+            SORT_LABEL_VERSION.into(),
+            SORT_LABEL_CREATED_AT.into(),
+            SORT_LABEL_LAST_PLAYED.into(),
+        ];
+        sl.set_sort_mode_list(ModelRc::from(Rc::new(VecModel::from(sort_items))));
+        sl.set_selected_sort_mode(sort_mode_to_label(app_settings.sort_mode).into());
+        sl.set_sort_ascending(app_settings.sort_ascending);
     }
+
+    let store_for_sort = Arc::clone(&store);
+    let master_for_sort = Arc::clone(&master_configs);
+    let running_for_sort = Arc::clone(&running_procs);
+    let ui_weak_for_sort = ui.as_weak();
+    ui.global::<SettingsLogic>().on_sort_changed(move || {
+        let Some(ui) = ui_weak_for_sort.upgrade() else {
+            return;
+        };
+        let sl = ui.global::<SettingsLogic>();
+        let mode = label_to_sort_mode(sl.get_selected_sort_mode().as_str());
+        let ascending = sl.get_sort_ascending();
+
+        let mut settings = AppSettings::load();
+        settings.sort_mode = mode;
+        settings.sort_ascending = ascending;
+        if let Err(e) = settings.save() {
+            warn!(error = %e, "Failed to save sort settings");
+        }
+
+        let reloaded = {
+            let mut store = store_for_sort.lock().unwrap();
+            store.set_sort(mode, ascending);
+            store.load().unwrap_or_default()
+        };
+        *master_for_sort.lock().unwrap() = reloaded.clone();
+
+        let logic = ui.global::<InstanceLogic>();
+        let running_ids: std::collections::HashSet<String> =
+            running_for_sort.lock().unwrap().keys().cloned().collect();
+        refresh_instance_list(&logic, &reloaded, &running_ids);
+    });
 
     let ui_weak_for_scan = ui.as_weak();
     tokio::spawn(async move {
