@@ -773,6 +773,7 @@ pub fn setup_launch_logic(
         let new_settings = AppSettings {
             java_mode: java_mode.to_string(),
             java_path,
+            ..Default::default()
         };
         match new_settings.save() {
             Ok(()) => sl.set_status_msg("✓ Saved".into()),

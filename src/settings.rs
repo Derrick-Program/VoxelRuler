@@ -2,11 +2,28 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortMode {
+    Name,
+    Version,
+    CreatedAt,
+    LastPlayed,
+}
+
+impl Default for SortMode {
+    fn default() -> Self {
+        SortMode::CreatedAt
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
     pub java_mode: String,
     pub java_path: String,
+    pub sort_mode: SortMode,
+    pub sort_ascending: bool,
 }
 
 impl AppSettings {
@@ -88,6 +105,7 @@ mod tests {
         let s = AppSettings {
             java_mode: "custom".into(),
             java_path: "/usr/bin/java".into(),
+            ..Default::default()
         };
         let toml_str = toml::to_string_pretty(&s).unwrap();
         let back: AppSettings = toml::from_str(&toml_str).unwrap();
@@ -108,5 +126,32 @@ mod tests {
 
         let loaded = AppSettings::load_from_path(&file_path);
         assert_eq!(loaded.java_mode, "custom");
+    }
+
+    #[test]
+    fn test_sort_mode_defaults_to_created_at() {
+        let s = AppSettings::default();
+        assert_eq!(s.sort_mode, SortMode::CreatedAt);
+        assert!(!s.sort_ascending);
+    }
+
+    #[test]
+    fn test_sort_mode_toml_roundtrip() {
+        let s = AppSettings {
+            sort_mode: SortMode::Name,
+            sort_ascending: true,
+            ..Default::default()
+        };
+        let toml_str = toml::to_string_pretty(&s).unwrap();
+        let back: AppSettings = toml::from_str(&toml_str).unwrap();
+        assert_eq!(back.sort_mode, SortMode::Name);
+        assert!(back.sort_ascending);
+    }
+
+    #[test]
+    fn test_sort_mode_missing_from_old_toml_defaults() {
+        let s: AppSettings = toml::from_str(r#"java_mode = "custom""#).unwrap();
+        assert_eq!(s.sort_mode, SortMode::CreatedAt);
+        assert!(!s.sort_ascending);
     }
 }
