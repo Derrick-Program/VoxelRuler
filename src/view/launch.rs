@@ -770,11 +770,9 @@ pub fn setup_launch_logic(
             }
         }
 
-        let new_settings = AppSettings {
-            java_mode: java_mode.to_string(),
-            java_path,
-            ..Default::default()
-        };
+        let mut new_settings = AppSettings::load();
+        new_settings.java_mode = java_mode.to_string();
+        new_settings.java_path = java_path;
         match new_settings.save() {
             Ok(()) => sl.set_status_msg("✓ Saved".into()),
             Err(e) => sl.set_status_msg(format!("Save failed: {e}").into()),
