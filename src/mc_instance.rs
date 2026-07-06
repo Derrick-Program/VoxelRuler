@@ -187,6 +187,25 @@ impl InstanceStore {
         Ok(())
     }
 
+    pub fn record_launch_started(&self, master: &mut [InstanceConfig], id: &str) {
+        if let Some(c) = master.iter_mut().find(|c| c.id == id) {
+            c.last_played = chrono::Utc::now().to_rfc3339();
+            let _ = self.save_one(c);
+        }
+    }
+
+    pub fn record_play_session_end(
+        &self,
+        master: &mut [InstanceConfig],
+        id: &str,
+        elapsed_secs: u64,
+    ) {
+        if let Some(c) = master.iter_mut().find(|c| c.id == id) {
+            c.play_time_secs += elapsed_secs;
+            let _ = self.save_one(c);
+        }
+    }
+
     pub fn delete_one(&self, instance_id: &str) -> anyhow::Result<()> {
         let dir = self.base_dir.join(instance_id);
         if dir.exists() {
@@ -505,5 +524,61 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded[0].id, "new");
         assert_eq!(loaded[1].id, "old");
+    }
+
+    #[test]
+    fn test_record_launch_started_sets_last_played() {
+        let (store, _dir) = tmp_store();
+        let cfg = InstanceConfig {
+            id: "a".into(),
+            name: "A".into(),
+            ..Default::default()
+        };
+        store.save_one(&cfg).unwrap();
+        let mut master = store.load().unwrap();
+        assert!(master[0].last_played.is_empty());
+
+        store.record_launch_started(&mut master, "a");
+
+        assert!(!master[0].last_played.is_empty());
+        assert!(chrono::DateTime::parse_from_rfc3339(&master[0].last_played).is_ok());
+
+        let reloaded = store.load().unwrap();
+        assert_eq!(reloaded[0].last_played, master[0].last_played);
+    }
+
+    #[test]
+    fn test_record_launch_started_unknown_id_is_noop() {
+        let (store, _dir) = tmp_store();
+        let mut master: Vec<InstanceConfig> = vec![];
+        store.record_launch_started(&mut master, "missing");
+        assert!(master.is_empty());
+    }
+
+    #[test]
+    fn test_record_play_session_end_accumulates_play_time() {
+        let (store, _dir) = tmp_store();
+        let cfg = InstanceConfig {
+            id: "a".into(),
+            name: "A".into(),
+            play_time_secs: 100,
+            ..Default::default()
+        };
+        store.save_one(&cfg).unwrap();
+        let mut master = store.load().unwrap();
+
+        store.record_play_session_end(&mut master, "a", 42);
+
+        assert_eq!(master[0].play_time_secs, 142);
+        let reloaded = store.load().unwrap();
+        assert_eq!(reloaded[0].play_time_secs, 142);
+    }
+
+    #[test]
+    fn test_record_play_session_end_unknown_id_is_noop() {
+        let (store, _dir) = tmp_store();
+        let mut master: Vec<InstanceConfig> = vec![];
+        store.record_play_session_end(&mut master, "missing", 42);
+        assert!(master.is_empty());
     }
 }
