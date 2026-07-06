@@ -632,6 +632,7 @@ pub fn setup_launch_logic(
                     let master_for_watch = Arc::clone(&master_for_session);
                     let store_for_watch = Arc::clone(&store_for_session);
                     let pending_quit_watch = Arc::clone(&pending_quit);
+                    let launching_procs_watch = Arc::clone(&launching_procs);
                     tokio::spawn(async move {
                         loop {
                             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -656,6 +657,7 @@ pub fn setup_launch_logic(
                                     if status.success() {
                                         if pending_quit_watch.load(Ordering::SeqCst)
                                             && running_procs_watch.lock().unwrap().is_empty()
+                                            && launching_procs_watch.lock().unwrap().is_empty()
                                         {
                                             let _ = slint::quit_event_loop();
                                         }
