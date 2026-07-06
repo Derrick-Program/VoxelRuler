@@ -46,7 +46,32 @@ pub sort_ascending: bool, // false = preserves current "newest first" default
 
 ## 2. Sort algorithm (`mc_instance.rs`)
 
-Replace the hardcoded `instances.sort_by(|a, b| b.1.cmp(&a.1))` at the end of `load()` with a mode-aware sort read from `AppSettings::load()`:
+**Correction found during planning:** `load()` must *not* call `AppSettings::load()` internally — that would make `mc_instance.rs`'s unit tests (which use a tempdir for `base_dir`) implicitly depend on whatever real `settings.toml` happens to exist on the machine running the tests, breaking test hermeticity. Instead, `InstanceStore` holds the sort preference as explicit state, set from outside:
+
+```rust
+pub struct InstanceStore {
+    base_dir: PathBuf,
+    sort_mode: SortMode,
+    sort_ascending: bool,
+}
+
+impl InstanceStore {
+    pub fn new(base_dir: PathBuf) -> Self {
+        Self { base_dir, sort_mode: SortMode::default(), sort_ascending: false }
+    }
+
+    pub fn set_sort(&mut self, mode: SortMode, ascending: bool) {
+        self.sort_mode = mode;
+        self.sort_ascending = ascending;
+    }
+}
+```
+
+`load()` uses `self.sort_mode` / `self.sort_ascending` instead of a hardcoded comparator. Defaults (`SortMode::CreatedAt`, `ascending: false`) match today's hardcoded "newest first" behavior, so all existing tests keep passing unchanged.
+
+Callers read `AppSettings::load()` themselves and call `store.set_sort(...)` once before the first `load()`/`append()` — `view/mod.rs` does this at startup, and again in the new `on_sort_changed` handler whenever the user changes the setting. Because `InstanceStore` is shared via `Arc<Mutex<InstanceStore>>`, every other caller of `load()`/`append()` (file-watch refresh, create-instance flow) automatically picks up whatever sort was last configured — no other call site needs to change.
+
+Replace the hardcoded `instances.sort_by(|a, b| b.1.cmp(&a.1))` at the end of `load()` with a mode-aware sort using `self.sort_mode` / `self.sort_ascending`:
 
 ```rust
 fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
@@ -69,20 +94,31 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 fn sort_instances(instances: &mut [(InstanceConfig, i64)], mode: SortMode, ascending: bool) {
-    instances.sort_by(|(a, a_key), (b, b_key)| {
-        use std::cmp::Ordering::*;
-        let ord = match mode {
-            SortMode::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            SortMode::Version => compare_versions(&a.version, &b.version),
-            SortMode::CreatedAt => a_key.cmp(b_key), // existing created_at-or-mtime fallback key
-            SortMode::LastPlayed => match (a.last_played.is_empty(), b.last_played.is_empty()) {
-                (true, true) => Equal,
-                (true, false) => Greater,  // never played always sinks to the bottom
-                (false, true) => Less,
-                (false, false) => a.last_played.cmp(&b.last_played),
-            },
-        };
-        if ascending { ord } else { ord.reverse() }
+    use std::cmp::Ordering::*;
+    instances.sort_by(|(a, a_key), (b, b_key)| match mode {
+        SortMode::Name => {
+            let ord = a.name.to_lowercase().cmp(&b.name.to_lowercase());
+            if ascending { ord } else { ord.reverse() }
+        }
+        SortMode::Version => {
+            let ord = compare_versions(&a.version, &b.version);
+            if ascending { ord } else { ord.reverse() }
+        }
+        SortMode::CreatedAt => { // existing created_at-or-mtime fallback key
+            let ord = a_key.cmp(b_key);
+            if ascending { ord } else { ord.reverse() }
+        }
+        // Emptiness placement (never played sinks last) must NOT flip with
+        // ascending/descending, so only the non-empty branch gets reversed.
+        SortMode::LastPlayed => match (a.last_played.is_empty(), b.last_played.is_empty()) {
+            (true, true) => Equal,
+            (true, false) => Greater,
+            (false, true) => Less,
+            (false, false) => {
+                let ord = a.last_played.cmp(&b.last_played);
+                if ascending { ord } else { ord.reverse() }
+            }
+        },
     });
 }
 ```
@@ -109,11 +145,12 @@ callback sort-changed();
 
 ## 4. Rust wiring (`view/mod.rs`)
 
-- At startup, alongside the existing `AppSettings::load()` block (~[mod.rs:362](../../../src/view/mod.rs#L362)) that populates Java settings, also set `selected-sort-mode` / `sort-ascending` from the loaded settings via a new `sort_mode_to_label()` helper (mirrors existing `java_mode_to_label`/`java_label_to_mode` pattern).
+- At startup, right after `master_configs` is first built (~[mod.rs:111-114](../../../src/view/mod.rs#L111-L114)), read `AppSettings::load()` and call `store.lock().unwrap().set_sort(settings.sort_mode, settings.sort_ascending)` **before** the initial `.load()` call so the very first render is already sorted correctly.
+- Alongside the existing `AppSettings::load()` block (~[mod.rs:362](../../../src/view/mod.rs#L362)) that populates Java settings, also set `selected-sort-mode` / `sort-ascending` on `SettingsLogic` from the same loaded settings via a new `sort_mode_to_label()` helper (mirrors existing `java_mode_to_label`/`java_label_to_mode` pattern).
 - New `on_sort_changed` handler on `SettingsLogic`:
   1. Read `selected-sort-mode` (map back to `SortMode` via `label_to_sort_mode()`) and `sort-ascending` from the UI.
   2. Load `AppSettings`, update the two fields, save back to `settings.toml`.
-  3. Call `store.load()` (now sorted per the new settings) and replace `master_configs`.
+  3. Call `store.set_sort(new_mode, new_ascending)` then `store.load()` (now sorted per the new settings) and replace `master_configs`.
   4. Refresh the Instances page list via a new shared helper `refresh_instance_list(...)` — re-applies the current search filter and rebuilds `InstanceData` items exactly like the existing file-watch refresh path does.
 - Extract `refresh_instance_list()` from the duplicated "filter by search text → map to `InstanceData` → push empty-placeholder if empty → `set_instance_list`" block that currently exists in both the initial-load and file-watch-refresh code paths ([mod.rs:151-177](../../../src/view/mod.rs#L151-L177)), so the new sort-changed call site becomes the third user instead of a third copy-paste.
 
