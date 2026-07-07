@@ -421,10 +421,14 @@ pub(crate) async fn do_launch(
     let (player_name, player_uuid) =
         resolve_player_identity(&active_account_username, online_profile);
 
+    let instance_dir = paths.instance_dir(&instance_id);
+    crate::instance_assets::sync_custom_dirs(&instance_dir, &config)
+        .context("Failed to apply custom World Save / Resource Pack / Shader Pack paths")?;
+
     let ctx = LaunchContext {
         version,
         java_path,
-        game_dir: paths.instance_dir(&instance_id),
+        game_dir: instance_dir,
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
         natives_dir: paths.natives_dir(&version_id),
