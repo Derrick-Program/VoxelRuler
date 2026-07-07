@@ -497,6 +497,15 @@ fn sync_one(field_label: &str, field: &str, instance_dir: &Path, dir_name: &str)
         if meta.file_type().is_symlink() {
             remove_link(&link)?;
         } else if meta.is_dir() {
+            let is_empty = std::fs::read_dir(&link)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(false);
+            if !is_empty {
+                bail!(
+                    "{dir_name} already contains files at {}; move or remove them before setting {field_label}",
+                    link.display()
+                );
+            }
             std::fs::remove_dir_all(&link)?;
         } else {
             std::fs::remove_file(&link)?;
@@ -785,5 +794,37 @@ mod tests {
         assert!(instance_dir.path().join("saves").exists());
         assert!(instance_dir.path().join("resourcepacks").exists());
         assert!(instance_dir.path().join("shaderpacks").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_refuses_to_delete_nonempty_real_directory() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+
+        let real_saves = instance_dir.path().join("saves");
+        std::fs::create_dir_all(&real_saves).unwrap();
+        std::fs::write(real_saves.join("my_world.txt"), b"do not delete me").unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        let err = sync_custom_dirs(instance_dir.path(), &config).unwrap_err();
+        assert!(err.to_string().contains("saves"));
+
+        // The real directory and its content must survive untouched.
+        assert!(real_saves.join("my_world.txt").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_replaces_empty_real_directory() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+        std::fs::write(custom.path().join("marker.txt"), b"hi").unwrap();
+
+        // An empty real directory (e.g. left over from some other code path) is safe to replace.
+        std::fs::create_dir_all(instance_dir.path().join("saves")).unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+
+        assert!(instance_dir.path().join("saves").join("marker.txt").exists());
     }
 }
