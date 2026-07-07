@@ -2,6 +2,9 @@ use anyhow::{Context as _, bail};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use tracing::warn;
+
+use crate::mc_instance::InstanceConfig;
 
 pub const DISABLED_SUFFIX: &str = ".disabled";
 
@@ -447,6 +450,106 @@ pub fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn sync_custom_dirs(instance_dir: &Path, config: &InstanceConfig) -> anyhow::Result<()> {
+    sync_one("World Save Path", &config.world_path, instance_dir, "saves")?;
+    sync_one(
+        "Resource Pack Path",
+        &config.resource_pack,
+        instance_dir,
+        "resourcepacks",
+    )?;
+    sync_one(
+        "Shader Pack Path",
+        &config.shader_pack,
+        instance_dir,
+        "shaderpacks",
+    )?;
+    Ok(())
+}
+
+fn sync_one(
+    field_label: &str,
+    field: &str,
+    instance_dir: &Path,
+    dir_name: &str,
+) -> anyhow::Result<()> {
+    if field.is_empty() {
+        return Ok(());
+    }
+
+    let custom = PathBuf::from(field);
+    if !custom.is_dir() {
+        bail!(
+            "{field_label} does not exist or is not a folder: {}",
+            custom.display()
+        );
+    }
+    let custom = std::fs::canonicalize(&custom)
+        .with_context(|| format!("Failed to resolve {field_label}: {}", custom.display()))?;
+
+    std::fs::create_dir_all(instance_dir)?;
+    let link = instance_dir.join(dir_name);
+
+    if let Ok(meta) = std::fs::symlink_metadata(&link) {
+        let already_correct = std::fs::canonicalize(&link)
+            .map(|resolved| resolved == custom)
+            .unwrap_or(false);
+        if already_correct {
+            return Ok(());
+        }
+
+        warn!(
+            link = %link.display(),
+            target = %custom.display(),
+            dir = dir_name,
+            "Replacing existing directory entry with a link to custom path"
+        );
+        if meta.file_type().is_symlink() {
+            remove_link(&link)?;
+        } else if meta.is_dir() {
+            let is_empty = std::fs::read_dir(&link)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(false);
+            if !is_empty {
+                bail!(
+                    "{dir_name} already contains files at {}; move or remove them before setting {field_label}",
+                    link.display()
+                );
+            }
+            std::fs::remove_dir_all(&link)?;
+        } else {
+            std::fs::remove_file(&link)?;
+        }
+    }
+
+    create_dir_link(&custom, &link).with_context(|| {
+        format!(
+            "Failed to link {dir_name} to {field_label}: {}",
+            custom.display()
+        )
+    })
+}
+
+#[cfg(unix)]
+fn create_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
+    junction::create(target, link)
+}
+
+#[cfg(unix)]
+fn remove_link(link: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(link)
+}
+
+#[cfg(windows)]
+fn remove_link(link: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir(link)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,5 +714,133 @@ mod tests {
         assert_eq!(read_notes(dir.path()), "");
         save_notes(dir.path(), "hello\nworld").unwrap();
         assert_eq!(read_notes(dir.path()), "hello\nworld");
+    }
+
+    fn config_with_paths(world: &str, resource: &str, shader: &str) -> InstanceConfig {
+        InstanceConfig {
+            world_path: world.to_string(),
+            resource_pack: resource.to_string(),
+            shader_pack: shader.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_empty_fields_are_noop() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let config = config_with_paths("", "", "");
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+        assert!(!instance_dir.path().join("saves").exists());
+        assert!(!instance_dir.path().join("resourcepacks").exists());
+        assert!(!instance_dir.path().join("shaderpacks").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_missing_custom_path_errors() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let config = config_with_paths("/does/not/exist/anywhere", "", "");
+        let err = sync_custom_dirs(instance_dir.path(), &config).unwrap_err();
+        assert!(err.to_string().contains("World Save Path"));
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_links_saves_to_custom_folder() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+        std::fs::write(custom.path().join("marker.txt"), b"hi").unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+
+        let linked = instance_dir.path().join("saves");
+        assert!(linked.join("marker.txt").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_is_idempotent() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+        // Second run against the same already-correct link must not error.
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+
+        let linked = instance_dir.path().join("saves");
+        assert!(linked.exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_relinks_when_target_changes() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom_a = tempfile::tempdir().unwrap();
+        let custom_b = tempfile::tempdir().unwrap();
+        std::fs::write(custom_b.path().join("only_in_b.txt"), b"hi").unwrap();
+
+        let config_a = config_with_paths(custom_a.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config_a).unwrap();
+
+        let config_b = config_with_paths(custom_b.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config_b).unwrap();
+
+        let linked = instance_dir.path().join("saves");
+        assert!(linked.join("only_in_b.txt").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_covers_all_three_fields() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let world = tempfile::tempdir().unwrap();
+        let resource = tempfile::tempdir().unwrap();
+        let shader = tempfile::tempdir().unwrap();
+
+        let config = config_with_paths(
+            world.path().to_str().unwrap(),
+            resource.path().to_str().unwrap(),
+            shader.path().to_str().unwrap(),
+        );
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+
+        assert!(instance_dir.path().join("saves").exists());
+        assert!(instance_dir.path().join("resourcepacks").exists());
+        assert!(instance_dir.path().join("shaderpacks").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_refuses_to_delete_nonempty_real_directory() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+
+        let real_saves = instance_dir.path().join("saves");
+        std::fs::create_dir_all(&real_saves).unwrap();
+        std::fs::write(real_saves.join("my_world.txt"), b"do not delete me").unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        let err = sync_custom_dirs(instance_dir.path(), &config).unwrap_err();
+        assert!(err.to_string().contains("saves"));
+
+        // The real directory and its content must survive untouched.
+        assert!(real_saves.join("my_world.txt").exists());
+    }
+
+    #[test]
+    fn test_sync_custom_dirs_replaces_empty_real_directory() {
+        let instance_dir = tempfile::tempdir().unwrap();
+        let custom = tempfile::tempdir().unwrap();
+        std::fs::write(custom.path().join("marker.txt"), b"hi").unwrap();
+
+        // An empty real directory (e.g. left over from some other code path) is safe to replace.
+        std::fs::create_dir_all(instance_dir.path().join("saves")).unwrap();
+
+        let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
+        sync_custom_dirs(instance_dir.path(), &config).unwrap();
+
+        assert!(
+            instance_dir
+                .path()
+                .join("saves")
+                .join("marker.txt")
+                .exists()
+        );
     }
 }

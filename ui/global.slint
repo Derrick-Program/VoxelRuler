@@ -551,6 +551,9 @@ export global InstanceCreateLogic {
     in-out property <string>   world-path: "";
     in-out property <string>   resource-pack: "";
     in-out property <string>   shader-pack: "";
+    callback browse-world-path();
+    callback browse-resource-pack();
+    callback browse-shader-pack();
 
     in-out property <string>   error-msg: "";
     in-out property <bool>     is-loading: false;
