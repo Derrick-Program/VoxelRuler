@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use image::{DynamicImage, GenericImageView, Rgba};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::f32::consts::PI;
@@ -238,28 +239,16 @@ impl SkinRenderer {
                 });
             };
 
-        // For cape, the outward face (Back face of the box, p5, p4, p7, p6) should get u=1 (which is u+d in standard)
-        // And the inward face (Front face of the box, p0, p1, p2, p3) should get u=12 (which is u+d+w+d in standard)
-
-        // Front face (inward, touching body)
         add_face(p0, p1, p2, p3, u + d + w + d, v + d, w, h);
 
-        // Back face (outward, with logo)
-        // BUT WAIT! If we look at the back face (p5, p4, p7, p6) from the outside, p5 is on the left, p4 is on the right.
-        // If we map it with u+d, p5 gets u+d, p4 gets u+d+w.
-        // This is correct.
         add_face(p5, p4, p7, p6, u + d, v + d, w, h);
 
-        // Top face
         add_face(p4, p5, p1, p0, u + d, v, w, d);
 
-        // Bottom face
         add_face(p3, p2, p6, p7, u + d + w, v, w, d);
 
-        // Right face
         add_face(p4, p0, p3, p7, u, v + d, d, h);
 
-        // Left face
         add_face(p1, p5, p6, p2, u + d + w, v + d, d, h);
     }
 
@@ -283,10 +272,10 @@ impl SkinRenderer {
 
         self.add_box(
             &mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 0.0, 0.0, 64.0, 64.0, 0.0, identity,
-        ); // Head
+        );
         self.add_box(
             &mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 16.0, 64.0, 64.0, 0.0, identity,
-        ); // Body
+        );
 
         let rotate_x = |anchor: Vec3, angle: f32| {
             move |v: Vec3| -> Vec3 {
@@ -317,65 +306,26 @@ impl SkinRenderer {
             64.0,
             64.0,
             0.0,
-            r_arm_tx.clone(),
-        ); // Right Arm
+            r_arm_tx,
+        );
         self.add_box(
-            &mut tris,
-            0,
-            4.0,
-            -4.0,
-            -2.0,
-            arm_w,
-            12.0,
-            4.0,
-            32.0,
-            48.0,
-            64.0,
-            64.0,
-            0.0,
-            l_arm_tx.clone(),
-        ); // Left Arm
+            &mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 32.0, 48.0, 64.0, 64.0, 0.0, l_arm_tx,
+        );
 
         self.add_box(
-            &mut tris,
-            0,
-            -4.0,
-            8.0,
-            -2.0,
-            4.0,
-            12.0,
-            4.0,
-            0.0,
-            16.0,
-            64.0,
-            64.0,
-            0.0,
-            r_leg_tx.clone(),
-        ); // Right Leg
+            &mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 16.0, 64.0, 64.0, 0.0, r_leg_tx,
+        );
         self.add_box(
-            &mut tris,
-            0,
-            0.0,
-            8.0,
-            -2.0,
-            4.0,
-            12.0,
-            4.0,
-            16.0,
-            48.0,
-            64.0,
-            64.0,
-            0.0,
-            l_leg_tx.clone(),
-        ); // Left Leg
+            &mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 16.0, 48.0, 64.0, 64.0, 0.0, l_leg_tx,
+        );
 
         let inf = 0.25;
         self.add_box(
             &mut tris, 0, -4.0, -12.0, -4.0, 8.0, 8.0, 8.0, 32.0, 0.0, 64.0, 64.0, inf, identity,
-        ); // Head Overlay
+        );
         self.add_box(
             &mut tris, 0, -4.0, -4.0, -2.0, 8.0, 12.0, 4.0, 16.0, 32.0, 64.0, 64.0, inf, identity,
-        ); // Body Overlay
+        );
         self.add_box(
             &mut tris,
             0,
@@ -391,16 +341,16 @@ impl SkinRenderer {
             64.0,
             inf,
             r_arm_tx,
-        ); // Right Arm Overlay
+        );
         self.add_box(
             &mut tris, 0, 4.0, -4.0, -2.0, arm_w, 12.0, 4.0, 48.0, 48.0, 64.0, 64.0, inf, l_arm_tx,
-        ); // Left Arm Overlay
+        );
         self.add_box(
             &mut tris, 0, -4.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 32.0, 64.0, 64.0, inf, r_leg_tx,
-        ); // Right Leg Overlay
+        );
         self.add_box(
             &mut tris, 0, 0.0, 8.0, -2.0, 4.0, 12.0, 4.0, 0.0, 48.0, 64.0, 64.0, inf, l_leg_tx,
-        ); // Left Leg Overlay
+        );
 
         if self.cape.is_some() {
             let cape_tx = rotate_x(
@@ -481,57 +431,103 @@ impl SkinRenderer {
                     let w1 = ((p2.y - p0.y) * (px - p2.x) + (p0.x - p2.x) * (py - p2.y)) / denom;
                     let w2 = 1.0 - w0 - w1;
 
-                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                        let z = w0 * p0.z + w1 * p1.z + w2 * p2.z;
-                        let idx = (y * width + x) as usize;
-                        if z < z_buffer[idx] {
-                            let u = w0 * u0 + w1 * u1 + w2 * u2;
-                            let v = w0 * v0 + w1 * v1 + w2 * v2;
+                    if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        continue;
+                    }
 
-                            let pixel = if tex == 0 {
-                                let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
-                                let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
-                                self.image.get_pixel(tx, ty)
-                            } else if let Some(cape) = &self.cape {
-                                let c_w = cape.width() as f32;
-                                let c_h = cape.height() as f32;
-                                let tx = (u * c_w).clamp(0.0, c_w - 1.0) as u32;
-                                let ty = (v * c_h).clamp(0.0, c_h - 1.0) as u32;
-                                cape.get_pixel(tx, ty)
-                            } else {
-                                &image::Rgba([0, 0, 0, 0])
-                            };
+                    let z = w0 * p0.z + w1 * p1.z + w2 * p2.z;
+                    let idx = (y * width + x) as usize;
+                    if z >= z_buffer[idx] {
+                        continue;
+                    }
 
-                            if pixel[3] > 0 {
-                                if pixel[3] < 255 {
-                                    let bg = pixels[idx];
-                                    let alpha = pixel[3] as f32 / 255.0;
-                                    let inv_alpha = 1.0 - alpha;
-                                    pixels[idx] = Rgba8Pixel {
-                                        r: (pixel[0] as f32 * alpha + bg.r as f32 * inv_alpha)
-                                            as u8,
-                                        g: (pixel[1] as f32 * alpha + bg.g as f32 * inv_alpha)
-                                            as u8,
-                                        b: (pixel[2] as f32 * alpha + bg.b as f32 * inv_alpha)
-                                            as u8,
-                                        a: 255,
-                                    };
-                                } else {
-                                    z_buffer[idx] = z;
-                                    pixels[idx] = Rgba8Pixel {
-                                        r: pixel[0],
-                                        g: pixel[1],
-                                        b: pixel[2],
-                                        a: pixel[3],
-                                    };
-                                }
-                            }
-                        }
+                    let u = w0 * u0 + w1 * u1 + w2 * u2;
+                    let v = w0 * v0 + w1 * v1 + w2 * v2;
+
+                    let pixel = if tex == 0 {
+                        let tx = (u * tex_w).clamp(0.0, tex_w - 1.0) as u32;
+                        let ty = (v * tex_h).clamp(0.0, tex_h - 1.0) as u32;
+                        self.image.get_pixel(tx, ty)
+                    } else if let Some(cape) = &self.cape {
+                        let c_w = cape.width() as f32;
+                        let c_h = cape.height() as f32;
+                        let tx = (u * c_w).clamp(0.0, c_w - 1.0) as u32;
+                        let ty = (v * c_h).clamp(0.0, c_h - 1.0) as u32;
+                        cape.get_pixel(tx, ty)
+                    } else {
+                        &image::Rgba([0, 0, 0, 0])
+                    };
+
+                    if pixel[3] == 0 {
+                        continue;
+                    }
+
+                    if pixel[3] < 255 {
+                        let bg = pixels[idx];
+                        let alpha = pixel[3] as f32 / 255.0;
+                        let inv_alpha = 1.0 - alpha;
+                        pixels[idx] = Rgba8Pixel {
+                            r: (pixel[0] as f32 * alpha + bg.r as f32 * inv_alpha) as u8,
+                            g: (pixel[1] as f32 * alpha + bg.g as f32 * inv_alpha) as u8,
+                            b: (pixel[2] as f32 * alpha + bg.b as f32 * inv_alpha) as u8,
+                            a: 255,
+                        };
+                    } else {
+                        z_buffer[idx] = z;
+                        pixels[idx] = Rgba8Pixel {
+                            r: pixel[0],
+                            g: pixel[1],
+                            b: pixel[2],
+                            a: pixel[3],
+                        };
                     }
                 }
             }
         }
 
         buffer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::RgbaImage;
+
+    #[test]
+    fn test_vec3_math() {
+        let v1 = Vec3::new(1.0, 0.0, 0.0);
+        let v2 = Vec3::new(0.0, 1.0, 0.0);
+
+        assert_eq!(v1.dot(&v2), 0.0);
+
+        let cross = v1.cross(&v2);
+        assert_eq!(cross.x, 0.0);
+        assert_eq!(cross.y, 0.0);
+        assert_eq!(cross.z, 1.0);
+
+        let sub = v1.sub(&v2);
+        assert_eq!(sub.x, 1.0);
+        assert_eq!(sub.y, -1.0);
+        assert_eq!(sub.z, 0.0);
+
+        let v3 = Vec3::new(3.0, 4.0, 0.0);
+        let norm = v3.normalize();
+        assert_eq!(norm.x, 3.0 / 5.0);
+        assert_eq!(norm.y, 4.0 / 5.0);
+        assert_eq!(norm.z, 0.0);
+    }
+
+    #[test]
+    fn test_skin_renderer_initialization() {
+        let img = RgbaImage::new(64, 64);
+        let dyn_img = DynamicImage::ImageRgba8(img);
+
+        let mut renderer = SkinRenderer::new(dyn_img.clone());
+        assert!(renderer.get_cape().is_none());
+
+        let cape_img = DynamicImage::ImageRgba8(RgbaImage::new(64, 32));
+        renderer.set_cape(Some(cape_img));
+        assert!(renderer.get_cape().is_some());
     }
 }

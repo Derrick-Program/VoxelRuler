@@ -87,6 +87,53 @@ pub struct McSpecificVersionDetail {
     pub minecraft_arguments: Option<String>,
 }
 
+impl McSpecificVersionDetail {
+    pub fn merge(mut self, modded: Self) -> Self {
+        self.id = modded.id;
+        self.r#type = modded.r#type;
+        self.time = modded.time;
+        self.release_time = modded.release_time;
+        self.main_class = modded.main_class;
+
+        if let Some(jv) = modded.java_version {
+            self.java_version = Some(jv);
+        }
+        if let Some(dl) = modded.downloads {
+            self.downloads = Some(dl);
+        }
+        if let Some(ai) = modded.asset_index {
+            self.asset_index = Some(ai);
+        }
+        if let Some(ass) = modded.assets {
+            self.assets = Some(ass);
+        }
+        if let Some(log) = modded.logging {
+            self.logging = Some(log);
+        }
+
+        let mut new_libs = modded.libraries;
+        new_libs.extend(self.libraries);
+        self.libraries = new_libs;
+
+        match (self.arguments.as_mut(), modded.arguments) {
+            (Some(vanilla_args), Some(modded_args)) => {
+                vanilla_args.game.extend(modded_args.game);
+                vanilla_args.jvm.extend(modded_args.jvm);
+            }
+            (None, Some(modded_args)) => {
+                self.arguments = Some(modded_args);
+            }
+            _ => {}
+        }
+
+        if let Some(mc_args) = modded.minecraft_arguments {
+            self.minecraft_arguments = Some(mc_args);
+        }
+
+        self
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McJavaVersion {
@@ -128,12 +175,10 @@ pub struct McLogFile {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McLibrary {
     pub name: String,
+    pub url: Option<String>,
     pub downloads: Option<McLibraryDownloads>,
     pub rules: Option<Vec<McRule>>,
-    /// 舊版格式（約 ≤1.18）：OS 名稱 → classifier key（可能含 `${arch}`），
-    /// 例如 `{"osx": "natives-osx", "windows": "natives-windows-${arch}"}`
     pub natives: Option<HashMap<String, String>>,
-    /// 舊版格式：natives jar 解壓規則
     pub extract: Option<McExtract>,
 }
 
@@ -171,24 +216,10 @@ pub struct McRule {
     pub features: Option<McFeatureRule>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum McRuleOS {
-    Windows,
-    Osx,
-    Linux,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum McRuleArch {
-    X86,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct McOsRule {
-    pub name: Option<McRuleOS>,
-    pub arch: Option<McRuleArch>,
+    pub name: Option<String>,
+    pub arch: Option<String>,
     pub version: Option<String>,
     #[serde(rename = "versionRange")]
     pub version_range: Option<McVersionRange>,
@@ -215,7 +246,9 @@ pub struct McFeatureRule {
 pub struct McArguments {
     #[serde(rename = "default-user-jvm")]
     pub default_user_jvm: Option<Vec<McArgumentItem>>,
+    #[serde(default)]
     pub game: Vec<McArgumentItem>,
+    #[serde(default)]
     pub jvm: Vec<McArgumentItem>,
 }
 
@@ -318,5 +351,151 @@ impl McAssetObject {
             &self.hash[..2],
             self.hash
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_asset_download_url_uses_first_two_chars_as_prefix() {
+        let obj = McAssetObject {
+            hash: "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d".into(),
+            size: 5,
+        };
+        let url = obj.download_url();
+        assert!(url.starts_with("https://resources.download.minecraft.net/aa/"));
+        assert!(url.ends_with("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"));
+    }
+
+    #[test]
+    fn test_asset_download_url_full() {
+        let hash = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+        let obj = McAssetObject {
+            hash: hash.into(),
+            size: 0,
+        };
+        assert_eq!(
+            obj.download_url(),
+            format!("https://resources.download.minecraft.net/da/{}", hash)
+        );
+    }
+
+    fn bare_version(id: &str, main_class: &str) -> McSpecificVersionDetail {
+        McSpecificVersionDetail {
+            id: id.into(),
+            r#type: "release".into(),
+            time: "".into(),
+            release_time: "".into(),
+            compliance_level: None,
+            minimum_launcher_version: None,
+            main_class: main_class.into(),
+            java_version: None,
+            downloads: None,
+            asset_index: None,
+            assets: None,
+            logging: None,
+            libraries: vec![],
+            arguments: None,
+            minecraft_arguments: None,
+        }
+    }
+
+    fn lib(name: &str) -> McLibrary {
+        McLibrary {
+            name: name.into(),
+            downloads: None,
+            natives: None,
+            extract: None,
+            rules: None,
+            url: None,
+        }
+    }
+
+    #[test]
+    fn test_merge_takes_id_and_main_class_from_modded() {
+        let vanilla = bare_version("1.21.1", "net.minecraft.client.main.Main");
+        let modded = bare_version(
+            "1.21.1-forge-51.0.0",
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+        );
+        let merged = vanilla.merge(modded);
+        assert_eq!(merged.id, "1.21.1-forge-51.0.0");
+        assert_eq!(
+            merged.main_class,
+            "cpw.mods.bootstraplauncher.BootstrapLauncher"
+        );
+    }
+
+    #[test]
+    fn test_merge_modded_libs_come_before_vanilla_libs() {
+        let mut vanilla = bare_version("1.21.1", "Main");
+        vanilla.libraries = vec![lib("com.mojang:vanilla:1.0")];
+
+        let mut modded = bare_version("1.21.1-forge", "ForgeMain");
+        modded.libraries = vec![lib("net.minecraftforge:forge:51.0")];
+
+        let merged = vanilla.merge(modded);
+        assert_eq!(merged.libraries.len(), 2);
+        assert_eq!(merged.libraries[0].name, "net.minecraftforge:forge:51.0");
+        assert_eq!(merged.libraries[1].name, "com.mojang:vanilla:1.0");
+    }
+
+    #[test]
+    fn test_merge_modded_java_version_overrides_vanilla() {
+        let mut vanilla = bare_version("1.21.1", "Main");
+        vanilla.java_version = Some(McJavaVersion {
+            component: "java-runtime-gamma".into(),
+            major_version: 21,
+        });
+
+        let mut modded = bare_version("1.21.1-forge", "ForgeMain");
+        modded.java_version = Some(McJavaVersion {
+            component: "java-runtime-delta".into(),
+            major_version: 17,
+        });
+
+        let merged = vanilla.merge(modded);
+        let jv = merged.java_version.unwrap();
+        assert_eq!(jv.component, "java-runtime-delta");
+        assert_eq!(jv.major_version, 17);
+    }
+
+    #[test]
+    fn test_merge_vanilla_java_version_kept_when_modded_has_none() {
+        let mut vanilla = bare_version("1.21.1", "Main");
+        vanilla.java_version = Some(McJavaVersion {
+            component: "java-runtime-gamma".into(),
+            major_version: 21,
+        });
+        let modded = bare_version("1.21.1-forge", "ForgeMain");
+
+        let merged = vanilla.merge(modded);
+        assert_eq!(merged.java_version.unwrap().major_version, 21);
+    }
+
+    #[test]
+    fn test_merge_minecraft_arguments_overridden_by_modded() {
+        let mut vanilla = bare_version("1.7.10", "Main");
+        vanilla.minecraft_arguments = Some("--username ${auth_player_name}".into());
+
+        let mut modded = bare_version("1.7.10-forge", "ForgeMain");
+        modded.minecraft_arguments = Some(
+            "--username ${auth_player_name} --tweakClass cpw.mods.fml.common.launcher.FMLTweaker"
+                .into(),
+        );
+
+        let merged = vanilla.merge(modded);
+        assert!(merged.minecraft_arguments.unwrap().contains("tweakClass"));
+    }
+
+    #[test]
+    fn test_merge_empty_into_empty_produces_valid_result() {
+        let vanilla = bare_version("1.0", "Main");
+        let modded = bare_version("1.0-forge", "ForgeMain");
+        let merged = vanilla.merge(modded);
+        assert!(merged.libraries.is_empty());
+        assert!(merged.arguments.is_none());
     }
 }

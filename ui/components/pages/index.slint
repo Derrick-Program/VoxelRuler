@@ -7,9 +7,7 @@ import { Mods } from "mods.slint";
 import { Settings } from "settings.slint";
 export component Pages inherits Rectangle {
     in property <SideTabId> active-tab;
-    property <bool> is-wip: //active-tab == SideTabId.mods
-                     active-tab == SideTabId.downloads;
-                    //  || active-tab == SideTabId.account
+    property <bool> is-wip: active-tab == SideTabId.downloads;
     background: AppTheme.colors.background;
     horizontal-stretch: 1;
     vertical-stretch: 1;

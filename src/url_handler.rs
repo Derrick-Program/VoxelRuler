@@ -38,13 +38,13 @@ define_class!(
 
             match url_string {
                 Some(url) => {
-                    debug!(url = %url, "Apple Event 收到 URL scheme");
+                    debug!(url = %url, "Apple Event received URL scheme");
                     if let Some(tx) = URL_SENDER.get() && tx.send(url).is_err() {
-                            debug!("URL channel receiver 已關閉，略過此 event");
+                            debug!("URL channel receiver closed, skipping this event");
                         }
                 }
                 None => {
-                    debug!("Apple Event 的 URL descriptor 為空或無法取得字串");
+                    debug!("Apple Event URL descriptor is empty or unable to get string");
                 }
             }
         }
@@ -56,7 +56,7 @@ static HANDLER: OnceLock<Retained<VRURLHandler>> = OnceLock::new();
 pub fn register() -> mpsc::UnboundedReceiver<String> {
     let (tx, rx) = mpsc::unbounded_channel::<String>();
     if URL_SENDER.set(tx).is_err() {
-        debug!("url_handler::register() 被重複呼叫，略過重複初始化");
+        debug!("url_handler::register() called repeatedly, skipping initialization");
         return rx;
     }
     let handler: Retained<VRURLHandler> = unsafe {
@@ -82,7 +82,19 @@ pub fn register() -> mpsc::UnboundedReceiver<String> {
     debug!(
         event_class = INTERNET_EVENT_CLASS,
         event_id = AE_GET_URL,
-        "URL scheme handler 已向 NSAppleEventManager 註冊"
+        "URL scheme handler registered with NSAppleEventManager"
     );
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_url_handler_constants() {
+        assert_eq!(INTERNET_EVENT_CLASS, u32::from_be_bytes(*b"GURL"));
+        assert_eq!(AE_GET_URL, u32::from_be_bytes(*b"GURL"));
+        assert_eq!(KEY_DIRECT_OBJECT, u32::from_be_bytes(*b"----"));
+    }
 }

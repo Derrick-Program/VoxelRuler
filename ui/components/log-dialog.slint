@@ -1,12 +1,12 @@
 import { ScrollView } from "std-widgets.slint";
+import { LogLine } from "../global.slint";
 
 export component LogDialog inherits Rectangle {
     background: #000000.with-alpha(0.6);
 
-    in property <[string]> lines;
+    in property <[LogLine]> lines;
     callback closed();
 
-    // 阻擋點擊穿透到下層
     TouchArea { }
 
     Rectangle {
@@ -21,7 +21,6 @@ export component LogDialog inherits Rectangle {
         clip: true;
 
         VerticalLayout {
-            // ── Header ──────────────────────────────────────────────
             Rectangle {
                 height: 52px;
                 HorizontalLayout {
@@ -55,7 +54,6 @@ export component LogDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Log Content ─────────────────────────────────────────
             Rectangle {
                 vertical-stretch: 1;
                 background: #1a1a1a;
@@ -79,9 +77,9 @@ export component LogDialog inherits Rectangle {
                         }
 
                         for line in root.lines: Text {
-                            text: line;
+                            text: line.text;
                             font-size: 11px;
-                            color: #c5c8c6;
+                            color: line.color;
                             wrap: word-wrap;
                         }
                     }

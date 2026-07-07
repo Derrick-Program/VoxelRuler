@@ -1,9 +1,14 @@
 import { AppTheme } from "@theme";
 import { InstanceCreateLogic } from "@global";
-import { ComboBox } from "std-widgets.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
 
 export component CreateInstanceDialog inherits Rectangle {
     background: #000000.with-alpha(0.6);
+
+    // Must also capture scroll-event (not just clicks) or wheel input bleeds through to whatever is behind this modal.
+    TouchArea {
+        scroll-event(e) => { return accept; }
+    }
 
     Rectangle {
         width: 460px;
@@ -16,7 +21,6 @@ export component CreateInstanceDialog inherits Rectangle {
         border-color: #ffffff.with-alpha(0.1);
 
         VerticalLayout {
-            // ── Header ──────────────────────────────────────────────
             Rectangle {
                 height: 52px;
                 HorizontalLayout {
@@ -49,7 +53,6 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Tab bar ─────────────────────────────────────────────
             Rectangle {
                 height: 44px;
                 HorizontalLayout {
@@ -59,7 +62,9 @@ export component CreateInstanceDialog inherits Rectangle {
 
                     Rectangle {
                         width: 80px; height: 44px;
-                        tab0-ta := TouchArea { clicked => { InstanceCreateLogic.active-tab = 0; } }
+                        tab0-ta := TouchArea {
+                            clicked => { InstanceCreateLogic.active-tab = 0; }
+                        }
                         Text {
                             text: @tr("Basic");
                             horizontal-alignment: center; vertical-alignment: center;
@@ -75,7 +80,9 @@ export component CreateInstanceDialog inherits Rectangle {
                     }
                     Rectangle {
                         width: 80px; height: 44px;
-                        tab1-ta := TouchArea { clicked => { InstanceCreateLogic.active-tab = 1; } }
+                        tab1-ta := TouchArea {
+                            clicked => { InstanceCreateLogic.active-tab = 1; }
+                        }
                         Text {
                             text: @tr("Advanced");
                             horizontal-alignment: center; vertical-alignment: center;
@@ -91,7 +98,9 @@ export component CreateInstanceDialog inherits Rectangle {
                     }
                     Rectangle {
                         width: 80px; height: 44px;
-                        tab2-ta := TouchArea { clicked => { InstanceCreateLogic.active-tab = 2; } }
+                        tab2-ta := TouchArea {
+                            clicked => { InstanceCreateLogic.active-tab = 2; }
+                        }
                         Text {
                             text: @tr("Resources");
                             horizontal-alignment: center; vertical-alignment: center;
@@ -110,114 +119,397 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Tab content ─────────────────────────────────────────
             Rectangle {
                 vertical-stretch: 1;
 
-                // Basic
-                if InstanceCreateLogic.active-tab == 0: VerticalLayout {
-                    padding: 20px; spacing: 16px;
-
+                if InstanceCreateLogic.active-tab == 0: ScrollView {
                     VerticalLayout {
-                        spacing: 6px;
-                        Text { text: @tr("Instance Name"); font-size: 12px; color: #9e9e9e; }
-                        Rectangle {
-                            height: 36px; border-radius: 6px;
-                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
-                            background: #242424;
-                            name-input := TextInput {
-                                x: 12px; width: parent.width - 24px; height: parent.height;
-                                text <=> InstanceCreateLogic.name;
-                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
-                            }
-                            if name-input.text == "": Text {
-                                x: 12px; height: parent.height;
-                                text: @tr("e.g. Survival 1.20");
-                                color: #555; font-size: 13px; vertical-alignment: center;
+                        padding: 20px; spacing: 16px; alignment: start;
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text { text: @tr("Instance Name"); font-size: 12px; color: #9e9e9e; }
+                            Rectangle {
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                name-input := TextInput {
+                                    x: 12px; width: parent.width - 24px; height: parent.height;
+                                    text <=> InstanceCreateLogic.name;
+                                    color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                                    accepted => { InstanceCreateLogic.confirm-create(); }
+                                }
+                                if name-input.text == "": Text {
+                                    x: 12px; height: parent.height;
+                                    text: @tr("e.g. Survival 1.20");
+                                    color: #555; font-size: 13px; vertical-alignment: center;
+                                }
                             }
                         }
-                    }
 
-                    VerticalLayout {
-                        spacing: 6px;
-                        Text { text: @tr("Minecraft Version"); font-size: 12px; color: #9e9e9e; }
-                        if InstanceCreateLogic.is-loading: Rectangle {
-                            height: 36px; border-radius: 6px;
-                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
-                            background: #242424;
-                            Text {
-                                x: 12px; height: parent.height;
-                                text: @tr("Loading versions...");
-                                color: #888; font-size: 13px; vertical-alignment: center;
+                        VerticalLayout {
+                            spacing: 8px;
+                            Text { text: @tr("Minecraft Version"); font-size: 12px; color: #9e9e9e; }
+
+                            if InstanceCreateLogic.is-loading: Rectangle {
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                Text {
+                                    x: 12px; height: parent.height;
+                                    text: @tr("Loading versions...");
+                                    color: #888; font-size: 13px; vertical-alignment: center;
+                                }
+                            }
+
+                            // Uses PopupWindow (not a nested ScrollView) for this dropdown to avoid a trackpad scroll bug on macOS.
+                            if !InstanceCreateLogic.is-loading: version-trigger := Rectangle {
+                                property <length> scroll-y: 0px;
+                                property <length> row-h: 32px;
+                                property <length> popup-max-h: 160px;
+                                property <length> content-h: InstanceCreateLogic.version-list.length * self.row-h;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+
+                                version-popup := PopupWindow {
+                                    x: 0; y: 36px;
+                                    width: parent.width;
+                                    height: min(version-trigger.popup-max-h, version-trigger.content-h);
+                                    Rectangle {
+                                        width: 100%; height: 100%;
+                                        background: #1a1a24;
+                                        border-radius: 6px;
+                                        border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                        clip: true;
+                                        ListView {
+                                            viewport-y <=> version-trigger.scroll-y;
+                                            for v[i] in InstanceCreateLogic.version-list: Rectangle {
+                                                height: 32px;
+                                                background: v == InstanceCreateLogic.selected-version ? #76bc51.with-alpha(0.15) : (v-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent);
+                                                HorizontalLayout {
+                                                    padding-left: 12px; spacing: 8px;
+                                                    alignment: start;
+                                                    Text {
+                                                        text: v; color: #e0e0e0; font-size: 13px;
+                                                        vertical-alignment: center;
+                                                    }
+                                                    if v == InstanceCreateLogic.latest-release-id: VerticalLayout {
+                                                        alignment: center;
+                                                        Rectangle {
+                                                            height: 18px; border-radius: 9px;
+                                                            background: #76bc51.with-alpha(0.18);
+                                                            HorizontalLayout {
+                                                                padding-left: 8px; padding-right: 8px;
+                                                                Text {
+                                                                    text: "Latest"; color: #76bc51;
+                                                                    font-size: 10px; font-weight: 700;
+                                                                    vertical-alignment: center;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                v-ta := TouchArea {
+                                                    clicked => {
+                                                        InstanceCreateLogic.selected-version = v;
+                                                        InstanceCreateLogic.selected-version-index = i;
+                                                        InstanceCreateLogic.loader-changed();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: 12px; padding-right: 8px;
+                                    spacing: 8px;
+                                    Text {
+                                        text: InstanceCreateLogic.selected-version == "" ? @tr("Select version...") : InstanceCreateLogic.selected-version;
+                                        color: InstanceCreateLogic.selected-version == "" ? #555 : #e0e0e0;
+                                        font-size: 13px; vertical-alignment: center;
+                                    }
+                                    if InstanceCreateLogic.selected-version != "" && InstanceCreateLogic.selected-version == InstanceCreateLogic.latest-release-id: VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            height: 18px; border-radius: 9px;
+                                            background: #76bc51.with-alpha(0.18);
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px;
+                                                Text {
+                                                    text: "Latest"; color: #76bc51;
+                                                    font-size: 10px; font-weight: 700;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: "▾";
+                                        color: #888; font-size: 12px; vertical-alignment: center;
+                                    }
+                                }
+                                TouchArea {
+                                    clicked => {
+                                        version-trigger.scroll-y = -min(
+                                            max(0px, (InstanceCreateLogic.selected-version-index - 1) * version-trigger.row-h),
+                                            max(0px, version-trigger.content-h - version-trigger.popup-max-h));
+                                        version-popup.show();
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 8px; alignment: start;
+
+                                HorizontalLayout {
+                                    spacing: 20px; alignment: start;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            width: 20px; height: 20px; border-radius: 4px;
+                                            border-width: InstanceCreateLogic.show-release ? 0px : 1px;
+                                            border-color: InstanceCreateLogic.show-release ? transparent : #555;
+                                            background: InstanceCreateLogic.show-release ? #00D000 : transparent;
+                                            if InstanceCreateLogic.show-release: Rectangle {
+                                                width: 8px; height: 8px; x: 6px; y: 6px;
+                                                border-radius: 2px; background: white;
+                                            }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-release = !InstanceCreateLogic.show-release; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
+                                        }
+                                        Text { text: @tr("Release"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            width: 20px; height: 20px; border-radius: 4px;
+                                            border-width: InstanceCreateLogic.show-snapshot ? 0px : 1px;
+                                            border-color: InstanceCreateLogic.show-snapshot ? transparent : #555;
+                                            background: InstanceCreateLogic.show-snapshot ? #00D000 : transparent;
+                                            if InstanceCreateLogic.show-snapshot: Rectangle {
+                                                width: 8px; height: 8px; x: 6px; y: 6px;
+                                                border-radius: 2px; background: white;
+                                            }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-snapshot = !InstanceCreateLogic.show-snapshot; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
+                                        }
+                                        Text { text: @tr("Snapshot"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            width: 20px; height: 20px; border-radius: 4px;
+                                            border-width: InstanceCreateLogic.show-beta ? 0px : 1px;
+                                            border-color: InstanceCreateLogic.show-beta ? transparent : #555;
+                                            background: InstanceCreateLogic.show-beta ? #00D000 : transparent;
+                                            if InstanceCreateLogic.show-beta: Rectangle {
+                                                width: 8px; height: 8px; x: 6px; y: 6px;
+                                                border-radius: 2px; background: white;
+                                            }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-beta = !InstanceCreateLogic.show-beta; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
+                                        }
+                                        Text { text: @tr("Beta"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 20px; alignment: start;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            width: 20px; height: 20px; border-radius: 4px;
+                                            border-width: InstanceCreateLogic.show-alpha ? 0px : 1px;
+                                            border-color: InstanceCreateLogic.show-alpha ? transparent : #555;
+                                            background: InstanceCreateLogic.show-alpha ? #00D000 : transparent;
+                                            if InstanceCreateLogic.show-alpha: Rectangle {
+                                                width: 8px; height: 8px; x: 6px; y: 6px;
+                                                border-radius: 2px; background: white;
+                                            }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-alpha = !InstanceCreateLogic.show-alpha; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
+                                        }
+                                        Text { text: @tr("Alpha"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            width: 20px; height: 20px; border-radius: 4px;
+                                            border-width: InstanceCreateLogic.show-experimental ? 0px : 1px;
+                                            border-color: InstanceCreateLogic.show-experimental ? transparent : #555;
+                                            background: InstanceCreateLogic.show-experimental ? #00D000 : transparent;
+                                            if InstanceCreateLogic.show-experimental: Rectangle {
+                                                width: 8px; height: 8px; x: 6px; y: 6px;
+                                                border-radius: 2px; background: white;
+                                            }
+                                            TouchArea { clicked => { InstanceCreateLogic.show-experimental = !InstanceCreateLogic.show-experimental; InstanceCreateLogic.selected-version = ""; InstanceCreateLogic.filter-versions(); } }
+                                        }
+                                        Text { text: @tr("Experimental"); color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                    }
+                                }
                             }
                         }
-                        if !InstanceCreateLogic.is-loading: ComboBox {
-                            height: 36px;
-                            model: InstanceCreateLogic.version-list;
-                            current-value <=> InstanceCreateLogic.selected-version;
+
+                        VerticalLayout {
+                            spacing: 8px;
+                            Text { text: @tr("Mod Loader"); font-size: 12px; color: #9e9e9e; }
+                            HorizontalLayout {
+                                spacing: 12px; alignment: start;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceCreateLogic.mod-loader == "None" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceCreateLogic.mod-loader == "None": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        r0-ta := TouchArea { clicked => { InstanceCreateLogic.mod-loader = "None"; InstanceCreateLogic.loader-changed(); } }
+                                    }
+                                    Text { text: "None"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceCreateLogic.fabric-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceCreateLogic.mod-loader == "Fabric" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceCreateLogic.mod-loader == "Fabric": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        r1-ta := TouchArea {
+                                            enabled: InstanceCreateLogic.fabric-available;
+                                            clicked => { InstanceCreateLogic.mod-loader = "Fabric"; InstanceCreateLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "Fabric"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceCreateLogic.forge-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceCreateLogic.mod-loader == "Forge" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceCreateLogic.mod-loader == "Forge": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        r2-ta := TouchArea {
+                                            enabled: InstanceCreateLogic.forge-available;
+                                            clicked => { InstanceCreateLogic.mod-loader = "Forge"; InstanceCreateLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "Forge"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceCreateLogic.neoforge-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceCreateLogic.mod-loader == "NeoForge" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceCreateLogic.mod-loader == "NeoForge": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        r3-ta := TouchArea {
+                                            enabled: InstanceCreateLogic.neoforge-available;
+                                            clicked => { InstanceCreateLogic.mod-loader = "NeoForge"; InstanceCreateLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "NeoForge"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+                            }
                         }
-                    }
 
-                    VerticalLayout {
-                        spacing: 8px;
-                        Text { text: @tr("Mod Loader"); font-size: 12px; color: #9e9e9e; }
-                        HorizontalLayout {
-                            spacing: 20px; alignment: start;
+                        if InstanceCreateLogic.mod-loader != "None": VerticalLayout {
+                            spacing: 6px;
+                            Text { text: @tr("Mod Loader Version"); font-size: 12px; color: #9e9e9e; }
+                            loader-trigger := Rectangle {
+                                property <length> scroll-y: 0px;
+                                property <length> row-h: 32px;
+                                property <length> popup-max-h: 120px;
+                                property <length> content-h: InstanceCreateLogic.mod-loader-versions.length * self.row-h;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
 
-                            HorizontalLayout {
-                                spacing: 6px;
-                                Rectangle {
-                                    width: 16px; height: 16px; border-radius: 8px;
-                                    border-width: 2px;
-                                    border-color: InstanceCreateLogic.mod-loader == "None" ? #76bc51 : #666;
-                                    background: transparent;
-                                    if InstanceCreateLogic.mod-loader == "None": Rectangle {
-                                        width: 8px; height: 8px; x: 2px; y: 2px;
-                                        border-radius: 4px; background: #76bc51;
+                                loader-popup := PopupWindow {
+                                    x: 0; y: 36px;
+                                    width: parent.width;
+                                    height: min(loader-trigger.popup-max-h, loader-trigger.content-h);
+                                    Rectangle {
+                                        width: 100%; height: 100%;
+                                        background: #1a1a24;
+                                        border-radius: 6px;
+                                        border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                        clip: true;
+                                        ListView {
+                                            viewport-y <=> loader-trigger.scroll-y;
+                                            for v[i] in InstanceCreateLogic.mod-loader-versions: Rectangle {
+                                                height: 32px;
+                                                background: v == InstanceCreateLogic.selected-mod-loader-version ? #76bc51.with-alpha(0.15) : (lv-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent);
+                                                Text {
+                                                    x: 12px; height: parent.height;
+                                                    text: v; color: #e0e0e0; font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                                lv-ta := TouchArea {
+                                                    clicked => {
+                                                        InstanceCreateLogic.selected-mod-loader-version = v;
+                                                        InstanceCreateLogic.selected-loader-index = i;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                    r0-ta := TouchArea { clicked => { InstanceCreateLogic.mod-loader = "None"; } }
                                 }
-                                Text { text: "None"; color: #e0e0e0; font-size: 13px; vertical-alignment: center; }
+
+                                HorizontalLayout {
+                                    padding-left: 12px; padding-right: 8px;
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: InstanceCreateLogic.is-loader-loading
+                                            ? @tr("Loading versions...")
+                                            : (InstanceCreateLogic.selected-mod-loader-version == "" ? @tr("Select...") : InstanceCreateLogic.selected-mod-loader-version);
+                                        color: InstanceCreateLogic.selected-mod-loader-version == "" ? #555 : #e0e0e0;
+                                        font-size: 13px; vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: "▾";
+                                        color: #888; font-size: 12px; vertical-alignment: center;
+                                    }
+                                }
+                                TouchArea {
+                                    clicked => {
+                                        loader-trigger.scroll-y = -min(
+                                            max(0px, (InstanceCreateLogic.selected-loader-index - 1) * loader-trigger.row-h),
+                                            max(0px, loader-trigger.content-h - loader-trigger.popup-max-h));
+                                        loader-popup.show();
+                                    }
+                                }
                             }
-
-                            HorizontalLayout {
-                                spacing: 6px;
-                                Rectangle {
-                                    width: 16px; height: 16px; border-radius: 8px;
-                                    border-width: 2px;
-                                    border-color: InstanceCreateLogic.mod-loader == "Fabric" ? #76bc51 : #666;
-                                    background: transparent;
-                                    if InstanceCreateLogic.mod-loader == "Fabric": Rectangle {
-                                        width: 8px; height: 8px; x: 2px; y: 2px;
-                                        border-radius: 4px; background: #76bc51;
-                                    }
-                                    r1-ta := TouchArea { clicked => { InstanceCreateLogic.mod-loader = "Fabric"; } }
-                                }
-                                Text { text: "Fabric"; color: #e0e0e0; font-size: 13px; vertical-alignment: center; }
-                            }
-
-                            HorizontalLayout {
-                                spacing: 6px;
-                                Rectangle {
-                                    width: 16px; height: 16px; border-radius: 8px;
-                                    border-width: 2px;
-                                    border-color: InstanceCreateLogic.mod-loader == "Forge" ? #76bc51 : #666;
-                                    background: transparent;
-                                    if InstanceCreateLogic.mod-loader == "Forge": Rectangle {
-                                        width: 8px; height: 8px; x: 2px; y: 2px;
-                                        border-radius: 4px; background: #76bc51;
-                                    }
-                                    r2-ta := TouchArea { clicked => { InstanceCreateLogic.mod-loader = "Forge"; } }
-                                }
-                                Text { text: "Forge"; color: #e0e0e0; font-size: 13px; vertical-alignment: center; }
+                            if InstanceCreateLogic.loader-load-error != "": Text {
+                                text: InstanceCreateLogic.loader-load-error;
+                                color: #e74c3c; font-size: 11px; wrap: word-wrap;
                             }
                         }
                     }
                 }
 
-                // Advanced
                 if InstanceCreateLogic.active-tab == 1: VerticalLayout {
-                    padding: 20px; spacing: 16px;
+                    padding: 20px; spacing: 16px; alignment: start;
 
                     HorizontalLayout {
                         spacing: 12px;
@@ -287,9 +579,8 @@ export component CreateInstanceDialog inherits Rectangle {
                     }
                 }
 
-                // Resources
                 if InstanceCreateLogic.active-tab == 2: VerticalLayout {
-                    padding: 20px; spacing: 16px;
+                    padding: 20px; spacing: 16px; alignment: start;
 
                     VerticalLayout {
                         spacing: 6px;
@@ -355,7 +646,6 @@ export component CreateInstanceDialog inherits Rectangle {
 
             Rectangle { height: 1px; background: #ffffff.with-alpha(0.08); }
 
-            // ── Footer ──────────────────────────────────────────────
             Rectangle {
                 min-height: 64px;
                 VerticalLayout {

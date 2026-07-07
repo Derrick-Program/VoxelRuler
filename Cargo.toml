@@ -14,6 +14,7 @@ oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 reqwest = { version = "0.12", features = ["stream", "multipart"] }
 serde_json = "1.0.149"
+quick-xml = { version = "0.36.2", features = ["serialize"] }
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha1 = "0.11.0"
@@ -26,6 +27,8 @@ tokio = { version = "1.52.3", default-features = false, features = [
   "rt-multi-thread",
   "tracing",
   "windows-sys",
+  "net",
+  "io-util"
 ] }
 url = "2"
 keyring = "4.0.1"
@@ -116,5 +119,7 @@ debug = true
 codegen-units = 16
 lto = false
 
-# [profile.dev.package."*"]
-# opt-level = 3
+# 依賴（含 Slint 渲染器）以最佳化編譯：cargo run 的捲動/繪製效能接近 release。
+# 只影響首次編譯時間；自己的 crate 仍是 opt-level 0，增量編譯速度不變
+[profile.dev.package."*"]
+opt-level = 3

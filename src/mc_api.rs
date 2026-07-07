@@ -1,7 +1,7 @@
 #![allow(unused)]
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::marker::PhantomData;
-use tracing::warn;
+use tracing::{error, info, warn};
 
 use crate::mc_types::{
     McAssetObjects, McJavaAll, McJavaManifest, McLatestVersion, McSpecificVersionDetail, McVersion,
@@ -17,7 +17,7 @@ const API_RETRY_BASE_MS: u64 = 1000;
 
 async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwest::Response> {
     use anyhow::Context;
-    let mut last_err: anyhow::Error = anyhow::anyhow!("尚未嘗試");
+    let mut last_err: anyhow::Error = anyhow::anyhow!("Not attempted yet");
     let mut delay_ms = 0;
 
     for attempt in 0..API_MAX_RETRIES {
@@ -27,7 +27,7 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
                 max = API_MAX_RETRIES - 1,
                 delay_ms,
                 url,
-                "API 重試中，暫停等待..."
+                "API retrying, waiting..."
             );
             tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
@@ -35,21 +35,22 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
         match client.get(url).send().await {
             Ok(resp) => {
                 if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                    last_err = anyhow::anyhow!("請求過於頻繁 (429 Too Many Requests)");
+                    last_err = anyhow::anyhow!("Too many requests (429)");
 
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
-                    if let Some(retry_after) = resp.headers().get(reqwest::header::RETRY_AFTER) {
-                        if let Ok(retry_str) = retry_after.to_str() {
-                            if let Ok(secs) = retry_str.parse::<u64>() {
-                                delay_ms = secs * 1000;
-                            }
-                        }
+                    if let Some(secs) = resp
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                    {
+                        delay_ms = secs * 1000;
                     }
                     continue;
                 }
 
                 if resp.status().is_server_error() {
-                    last_err = anyhow::anyhow!("伺服器錯誤 ({})", resp.status());
+                    last_err = anyhow::anyhow!("Server error ({})", resp.status());
                     delay_ms = API_RETRY_BASE_MS * (1u64 << attempt);
                     continue;
                 }
@@ -62,7 +63,12 @@ async fn retry_get(client: &reqwest::Client, url: &str) -> anyhow::Result<reqwes
             }
         }
     }
-    Err(last_err).with_context(|| format!("API 請求失敗（重試 {} 次）：{}", API_MAX_RETRIES, url))
+    Err(last_err).with_context(|| {
+        format!(
+            "API request failed (retry {} times): {}",
+            API_MAX_RETRIES, url
+        )
+    })
 }
 
 pub struct Unauthenticated;
@@ -114,8 +120,6 @@ impl McAction<Unauthenticated> {
         }
     }
 
-    // === Public APIs (no token needed) ===
-
     pub async fn get_player_uuid(&self, username: &str) -> anyhow::Result<String> {
         let url = format!(
             "{}/minecraft/profile/lookup/name/{}",
@@ -145,7 +149,7 @@ impl McAction<Unauthenticated> {
             .ok_or_else(|| anyhow::anyhow!("Failed to get username for UUID: {}", uuid))
     }
 
-    async fn get_mc_manifest(&self) -> anyhow::Result<McVersionInfo> {
+    pub async fn get_mc_manifest(&self) -> anyhow::Result<McVersionInfo> {
         let url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         Ok(retry_get(&self.client, url)
             .await?
@@ -222,8 +226,7 @@ impl McAction<Unauthenticated> {
         .await
     }
 
-    /// 指定 Mojang 平台字串（如 `mac-os` / `mac-os-arm64`）取得 Java runtime manifest。
-    /// Apple Silicon 跑 1.18.x 以前的版本時需強制抓 x64（`mac-os`）經 Rosetta 執行。
+    // Apple Silicon 跑 1.18.x 以前的版本時需強制抓 x64（`mac-os`）經 Rosetta 執行。
     pub async fn get_java_runtime_manifest_for_platform(
         &self,
         component: &str,
@@ -297,8 +300,8 @@ impl McAction<Unauthenticated> {
             .buffer_unordered(5);
         while let Some((id, result)) = stream.next().await {
             match result {
-                Ok(_) => println!("Successfully downloaded: {}", id),
-                Err(e) => eprintln!("Failed to download {}: {}", id, e),
+                Ok(_) => info!("Successfully downloaded: {}", id),
+                Err(e) => error!("Failed to download {}: {}", id, e),
             }
         }
 
@@ -307,8 +310,6 @@ impl McAction<Unauthenticated> {
 }
 
 impl McAction<Authenticated> {
-    // === Authenticated APIs (Bearer token required) ===
-
     pub async fn get_user_profile(&self) -> anyhow::Result<crate::mc_types::McProfile> {
         let url = format!("{}/minecraft/profile", NEW_MC_SERVER);
         Ok(self
@@ -319,19 +320,19 @@ impl McAction<Authenticated> {
             .error_for_status()?
             .json()
             .await
-            .inspect_err(|e| println!("{:#?}", e))?)
+            .inspect_err(|e| error!("Profile parse error: {:#?}", e))?)
     }
 
     pub async fn upload_skin_from_url(&self, url: &str, variant: &str) -> anyhow::Result<()> {
         // Mojang rejects arbitrary external URLs; download the image first then upload as file
         let img_bytes = reqwest::get(url)
             .await
-            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .map_err(|e| anyhow::anyhow!("Failed to download skin: {e}"))?
             .error_for_status()
-            .map_err(|e| anyhow::anyhow!("下載皮膚失敗：{e}"))?
+            .map_err(|e| anyhow::anyhow!("Failed to download skin: {e}"))?
             .bytes()
             .await
-            .map_err(|e| anyhow::anyhow!("讀取皮膚資料失敗：{e}"))?;
+            .map_err(|e| anyhow::anyhow!("Failed to read skin data: {e}"))?;
 
         let endpoint = format!("{}/minecraft/profile/skins", NEW_MC_SERVER);
         let part = reqwest::multipart::Part::bytes(img_bytes.to_vec())
@@ -488,11 +489,11 @@ mod test {
         let session = match crate::mc_token::SessionData::load_session() {
             Ok(Some(s)) => s,
             Ok(None) => {
-                eprintln!("跳過：本機 session 為空，請先登入");
+                eprintln!("Skipping: local session is empty, please login first");
                 return;
             }
             Err(_) => {
-                eprintln!("跳過：找不到本機 session，請先登入");
+                eprintln!("Skipping: local session not found, please login first");
                 return;
             }
         };

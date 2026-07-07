@@ -1,11 +1,6 @@
-// 實例詳細視窗 — Prism 式側欄分頁
-// 分頁：0 Minecraft紀錄檔 / 1 版本 / 2 模組 / 3 資源包 / 4 光影包 /
-//      5 筆記 / 6 世界 / 7 伺服器 / 8 螢幕擷取畫面 / 9 設定 / 10 其他紀錄檔
 import { Assets } from "@assets";
-import { InstanceDetailLogic, InstanceEditLogic, InstanceFileEntry, WorldRow, ServerRow, ScreenshotRow } from "@global";
+import { InstanceDetailLogic, InstanceEditLogic, InstanceFileEntry, WorldRow, ServerRow, ScreenshotRow, LogLine } from "@global";
 import { ComboBox, ListView, CheckBox, TextEdit } from "std-widgets.slint";
-
-// ── 共用小元件 ───────────────────────────────────────────────────────────
 
 component ToolButton inherits Rectangle {
     in property <string> label;
@@ -36,7 +31,6 @@ component ToolButton inherits Rectangle {
     }
 }
 
-// 兩段式刪除按鈕：第一次點變「確認?」，再點才真的刪
 component DeleteButton inherits Rectangle {
     in property <string> del-key;
     callback confirmed();
@@ -79,7 +73,6 @@ component SideTabItem inherits Rectangle {
 
     property <bool> active: InstanceDetailLogic.active-tab == root.tab-index;
 
-    // 用 min/max 固定格高（layout 約束），避免被內容撐開
     min-height: 34px;
     max-height: 34px;
     border-radius: 6px;
@@ -98,8 +91,7 @@ component SideTabItem inherits Rectangle {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 8px;
-        // icon 包在固定尺寸 Rectangle 內手動置中（同 SideButton 的 icon-container，
-        // 避免 Image height:100% 在 layout 內造成格高被撐爆）
+        // Image height:100% inside a layout blows out the row height; wrap in a fixed-size Rectangle and center manually instead.
         Rectangle {
             width: 16px;
             height: 16px;
@@ -124,7 +116,6 @@ component SideTabItem inherits Rectangle {
     }
 }
 
-// 模組 / 資源包 / 光影包 共用分頁
 component FileTab inherits VerticalLayout {
     in property <string> category;
     in property <[InstanceFileEntry]> entries;
@@ -218,16 +209,12 @@ component FileTab inherits VerticalLayout {
     }
 }
 
-// ── 主視窗 ───────────────────────────────────────────────────────────────
-
 export component InstanceDetailWindow inherits Rectangle {
     background: #000000.with-alpha(0.6);
 
-    // 原版（無 mod loader）不顯示模組分頁
     property <bool> is-vanilla: InstanceDetailLogic.mod-loader == ""
         || InstanceDetailLogic.mod-loader == "None";
 
-    // 阻擋點擊穿透
     TouchArea { }
 
     panel := Rectangle {
@@ -242,7 +229,6 @@ export component InstanceDetailWindow inherits Rectangle {
         clip: true;
 
         VerticalLayout {
-            // ── Header ──────────────────────────────────────────
             Rectangle {
                 height: 52px;
                 HorizontalLayout {
@@ -291,7 +277,6 @@ export component InstanceDetailWindow inherits Rectangle {
             HorizontalLayout {
                 vertical-stretch: 1;
 
-                // ── Sidebar ─────────────────────────────────────
                 Rectangle {
                     width: 190px;
                     background: #191a20;
@@ -310,18 +295,15 @@ export component InstanceDetailWindow inherits Rectangle {
                         SideTabItem { tab-index: 8; label: @tr("Screenshots"); icon: Assets.camera; }
                         SideTabItem { tab-index: 9; label: @tr("Settings"); icon: Assets.setting; }
                         SideTabItem { tab-index: 10; label: @tr("Other Logs"); icon: Assets.book; }
-                        // 吸收剩餘空間，保證項目緊密靠上（同主側欄做法）
                         Rectangle { vertical-stretch: 1; }
                     }
                 }
 
                 Rectangle { width: 1px; background: #ffffff.with-alpha(0.08); }
 
-                // ── Content ─────────────────────────────────────
                 Rectangle {
                     horizontal-stretch: 1;
 
-                    // 0：Minecraft 紀錄檔（live）
                     if InstanceDetailLogic.active-tab == 0: VerticalLayout {
                         padding: 16px;
                         spacing: 10px;
@@ -371,9 +353,9 @@ export component InstanceDetailWindow inherits Rectangle {
                                         x: 8px;
                                         width: parent.width - 16px;
                                         height: parent.height;
-                                        text: line;
+                                        text: line.text;
                                         font-size: 11px;
-                                        color: #c5c8c6;
+                                        color: line.color;
                                         vertical-alignment: center;
                                         overflow: elide;
                                     }
@@ -382,7 +364,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 1：版本
                     if InstanceDetailLogic.active-tab == 1: VerticalLayout {
                         padding: 16px;
                         spacing: 16px;
@@ -460,7 +441,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 2/3/4：模組 / 資源包 / 光影包
                     if InstanceDetailLogic.active-tab == 2: Rectangle {
                         VerticalLayout {
                             padding: 16px;
@@ -492,7 +472,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 5：筆記
                     if InstanceDetailLogic.active-tab == 5: VerticalLayout {
                         padding: 16px;
                         spacing: 10px;
@@ -521,7 +500,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 6：世界
                     if InstanceDetailLogic.active-tab == 6: VerticalLayout {
                         padding: 16px;
                         spacing: 10px;
@@ -594,7 +572,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 7：伺服器
                     if InstanceDetailLogic.active-tab == 7: VerticalLayout {
                         padding: 16px;
                         spacing: 10px;
@@ -653,7 +630,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 8：螢幕擷取畫面
                     if InstanceDetailLogic.active-tab == 8: VerticalLayout {
                         padding: 16px;
                         spacing: 10px;
@@ -733,7 +709,6 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 9：設定（記憶體 + Java，沿用 InstanceEditLogic）
                     if InstanceDetailLogic.active-tab == 9: VerticalLayout {
                         padding: 16px;
                         spacing: 14px;
@@ -916,12 +891,10 @@ export component InstanceDetailWindow inherits Rectangle {
                         }
                     }
 
-                    // 10：其他紀錄檔
                     if InstanceDetailLogic.active-tab == 10: HorizontalLayout {
                         padding: 16px;
                         spacing: 12px;
 
-                        // 左：log 檔清單
                         Rectangle {
                             width: 200px;
                             border-radius: 6px;
@@ -963,7 +936,6 @@ export component InstanceDetailWindow inherits Rectangle {
                             }
                         }
 
-                        // 右：log 內容
                         Rectangle {
                             horizontal-stretch: 1;
                             border-radius: 6px;

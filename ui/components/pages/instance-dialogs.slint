@@ -1,9 +1,8 @@
-// 右鍵選單用的小對話框：重新命名 / 刪除確認
 import { InstanceLogic } from "@global";
 
 component DialogButton inherits Rectangle {
     in property <string> label;
-    in property <string> kind: "normal"; // normal / primary / danger
+    in property <string> kind: "normal";
     callback clicked();
 
     width: 90px;

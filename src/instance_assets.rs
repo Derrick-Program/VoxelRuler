@@ -1,10 +1,3 @@
-//! 實例資料夾內容掃描與管理。
-//!
-//! 提供實例詳細視窗各分頁所需的檔案系統操作：
-//! mods / resourcepacks / shaderpacks（列出、啟用/停用、刪除、加入）、
-//! saves（世界清單，含 level.dat 的 LevelName 解析）、
-//! servers.dat（極簡 NBT 解析）、screenshots、logs（含 .gz）、notes。
-
 use anyhow::{Context as _, bail};
 use std::collections::HashMap;
 use std::io::Read;
@@ -12,10 +5,9 @@ use std::path::{Path, PathBuf};
 
 pub const DISABLED_SUFFIX: &str = ".disabled";
 
-/// 防止 UI 傳入的檔名跳脫目標資料夾
 fn validate_file_name(name: &str) -> anyhow::Result<()> {
     if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
-        bail!("非法檔名：{name}");
+        bail!("Invalid filename: {name}");
     }
     Ok(())
 }
@@ -46,21 +38,13 @@ fn modified_string(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 一般檔案分頁（mods / resourcepacks / shaderpacks）
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct FsEntry {
-    /// 磁碟上的實際檔名（可能含 `.disabled` 後綴）
     pub file_name: String,
-    /// 顯示用資訊（大小 / 修改時間）
     pub info: String,
     pub enabled: bool,
 }
 
-/// 列出資料夾中符合副檔名的項目（副檔名比對時先剝掉 `.disabled` 後綴）。
-/// `allow_dirs` 為 true 時也列出子資料夾（資源包/光影包可為資料夾形式）。
 pub fn list_entries(dir: &Path, exts: &[&str], allow_dirs: bool) -> Vec<FsEntry> {
     let Ok(read) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -91,7 +75,7 @@ pub fn list_entries(dir: &Path, exts: &[&str], allow_dirs: bool) -> Vec<FsEntry>
                 }
             }
             let info = if is_dir {
-                format!("資料夾 · {}", modified_string(&path))
+                format!("Folder · {}", modified_string(&path))
             } else {
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 format!("{} · {}", human_size(size), modified_string(&path))
@@ -107,12 +91,11 @@ pub fn list_entries(dir: &Path, exts: &[&str], allow_dirs: bool) -> Vec<FsEntry>
     out
 }
 
-/// 啟用/停用切換：在檔名尾端加上或移除 `.disabled`。回傳新檔名。
 pub fn toggle_disabled(dir: &Path, file_name: &str) -> anyhow::Result<String> {
     validate_file_name(file_name)?;
     let src = dir.join(file_name);
     if !src.exists() {
-        bail!("找不到檔案：{file_name}");
+        bail!("File not found: {file_name}");
     }
     let new_name = match file_name.strip_suffix(DISABLED_SUFFIX) {
         Some(stripped) => stripped.to_string(),
@@ -120,38 +103,34 @@ pub fn toggle_disabled(dir: &Path, file_name: &str) -> anyhow::Result<String> {
     };
     let dst = dir.join(&new_name);
     if dst.exists() {
-        bail!("目標檔名已存在：{new_name}");
+        bail!("Target filename already exists: {new_name}");
     }
-    std::fs::rename(&src, &dst).with_context(|| format!("重新命名 {file_name} 失敗"))?;
+    std::fs::rename(&src, &dst).with_context(|| format!("Failed to rename {file_name}"))?;
     Ok(new_name)
 }
 
-/// 刪除檔案或資料夾（世界 / 截圖 / 模組共用）
 pub fn delete_entry(dir: &Path, file_name: &str) -> anyhow::Result<()> {
     validate_file_name(file_name)?;
     let target = dir.join(file_name);
     if target.is_dir() {
-        std::fs::remove_dir_all(&target).with_context(|| format!("刪除資料夾 {file_name} 失敗"))?;
+        std::fs::remove_dir_all(&target)
+            .with_context(|| format!("Failed to delete directory {file_name}"))?;
     } else if target.exists() {
-        std::fs::remove_file(&target).with_context(|| format!("刪除檔案 {file_name} 失敗"))?;
+        std::fs::remove_file(&target)
+            .with_context(|| format!("Failed to delete file {file_name}"))?;
     }
     Ok(())
 }
 
-/// 將外部檔案複製進資料夾（加入模組 / 資源包 / 光影包）。回傳檔名。
 pub fn add_file(dir: &Path, src: &Path) -> anyhow::Result<String> {
     let name = src
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .context("來源檔案沒有檔名")?;
+        .context("Source file has no filename")?;
     std::fs::create_dir_all(dir)?;
-    std::fs::copy(src, dir.join(&name)).with_context(|| format!("複製 {name} 失敗"))?;
+    std::fs::copy(src, dir.join(&name)).with_context(|| format!("Failed to copy {name}"))?;
     Ok(name)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 極簡 NBT 解析（servers.dat 未壓縮、level.dat 為 gzip）
-// ─────────────────────────────────────────────────────────────────────────────
 
 const NBT_MAX_LEN: usize = 1_000_000;
 
@@ -211,24 +190,23 @@ read_be!(read_f64, f64, 8);
 fn read_nbt_string(r: &mut impl Read) -> anyhow::Result<String> {
     let len = read_i16(r)? as usize;
     if len > NBT_MAX_LEN {
-        bail!("NBT 字串長度異常：{len}");
+        bail!("NBT string length abnormal: {len}");
     }
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
-    // Minecraft 使用 modified UTF-8；一般伺服器名稱用 lossy 轉換已足夠
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
 fn checked_len(len: i32) -> anyhow::Result<usize> {
     if len < 0 || len as usize > NBT_MAX_LEN {
-        bail!("NBT 長度異常：{len}");
+        bail!("NBT length abnormal: {len}");
     }
     Ok(len as usize)
 }
 
 fn read_payload(r: &mut impl Read, type_id: u8, depth: u8) -> anyhow::Result<NbtTag> {
     if depth > 64 {
-        bail!("NBT 巢狀過深");
+        bail!("NBT nested too deep");
     }
     Ok(match type_id {
         1 => NbtTag::Byte(read_u8(r)? as i8),
@@ -282,24 +260,19 @@ fn read_payload(r: &mut impl Read, type_id: u8, depth: u8) -> anyhow::Result<Nbt
             }
             NbtTag::LongArray(items)
         }
-        other => bail!("未知 NBT tag type：{other}"),
+        other => bail!("Unknown NBT tag type: {other}"),
     })
 }
 
-/// 解析 NBT root（必須是 TAG_Compound），回傳 (root 名稱, 內容)
 pub fn parse_nbt(r: &mut impl Read) -> anyhow::Result<(String, NbtTag)> {
     let type_id = read_u8(r)?;
     if type_id != 10 {
-        bail!("NBT root 不是 Compound（type={type_id}）");
+        bail!("NBT root is not Compound (type={type_id})");
     }
     let name = read_nbt_string(r)?;
     let tag = read_payload(r, 10, 0)?;
     Ok((name, tag))
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 伺服器（servers.dat）
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerEntry {
@@ -307,9 +280,8 @@ pub struct ServerEntry {
     pub ip: String,
 }
 
-/// 解析遊戲目錄下的 servers.dat（未壓縮 NBT）
 pub fn read_servers(dat_path: &Path) -> anyhow::Result<Vec<ServerEntry>> {
-    let bytes = std::fs::read(dat_path).context("讀取 servers.dat 失敗")?;
+    let bytes = std::fs::read(dat_path).context("Failed to read servers.dat")?;
     let (_, root) = parse_nbt(&mut bytes.as_slice())?;
     let mut out = Vec::new();
     if let Some(NbtTag::List(servers)) = root.get("servers") {
@@ -317,7 +289,7 @@ pub fn read_servers(dat_path: &Path) -> anyhow::Result<Vec<ServerEntry>> {
             let name = server
                 .get("name")
                 .and_then(|t| t.as_str())
-                .unwrap_or("(未命名)")
+                .unwrap_or("(Unnamed)")
                 .to_string();
             let ip = server
                 .get("ip")
@@ -330,15 +302,9 @@ pub fn read_servers(dat_path: &Path) -> anyhow::Result<Vec<ServerEntry>> {
     Ok(out)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 世界（saves/）
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct WorldEntry {
-    /// saves/ 下的資料夾名（刪除 / 開啟時使用）
     pub dir_name: String,
-    /// level.dat 內的 LevelName（解析失敗時等同 dir_name）
     pub level_name: String,
     pub info: String,
 }
@@ -370,7 +336,7 @@ pub fn list_worlds(saves_dir: &Path) -> Vec<WorldEntry> {
             }
             let dir_name = entry.file_name().to_string_lossy().to_string();
             let level_name = read_level_name(&level_dat).unwrap_or_else(|| dir_name.clone());
-            let info = format!("最後遊玩：{}", modified_string(&level_dat));
+            let info = format!("Last played: {}", modified_string(&level_dat));
             Some(WorldEntry {
                 dir_name,
                 level_name,
@@ -386,11 +352,6 @@ pub fn list_worlds(saves_dir: &Path) -> Vec<WorldEntry> {
     out
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 螢幕擷取畫面（screenshots/）
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// 依修改時間新→舊列出截圖路徑，最多 `limit` 張（縮圖載入成本考量）
 pub fn list_screenshots(dir: &Path, limit: usize) -> Vec<PathBuf> {
     let Ok(read) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -411,10 +372,6 @@ pub fn list_screenshots(dir: &Path, limit: usize) -> Vec<PathBuf> {
     files.into_iter().take(limit).map(|(p, _)| p).collect()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 紀錄檔（logs/，含 .gz）
-// ─────────────────────────────────────────────────────────────────────────────
-
 pub fn list_log_files(logs_dir: &Path) -> Vec<String> {
     let Ok(read) = std::fs::read_dir(logs_dir) else {
         return Vec::new();
@@ -430,16 +387,19 @@ pub fn list_log_files(logs_dir: &Path) -> Vec<String> {
             }
         })
         .collect();
-    // latest.log 排最前，其餘倒序（新日期在前）
-    out.sort_by(|a, b| match (a.as_str(), b.as_str()) {
-        ("latest.log", _) => std::cmp::Ordering::Less,
-        (_, "latest.log") => std::cmp::Ordering::Greater,
-        _ => b.cmp(a),
+    out.sort_by(|a, b| {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        match (a.as_str(), b.as_str()) {
+            ("latest.log", _) => std::cmp::Ordering::Less,
+            (_, "latest.log") => std::cmp::Ordering::Greater,
+            _ => b.cmp(a),
+        }
     });
     out
 }
 
-/// 讀取單一 log 檔內容（自動處理 .gz），只保留最後 `max_lines` 行
 pub fn read_log_lines(
     logs_dir: &Path,
     name: &str,
@@ -448,23 +408,19 @@ pub fn read_log_lines(
     validate_file_name(name)?;
     let path = logs_dir.join(name);
     let content = if name.ends_with(".gz") {
-        let file = std::fs::File::open(&path).with_context(|| format!("開啟 {name} 失敗"))?;
+        let file = std::fs::File::open(&path).with_context(|| format!("Failed to open {name}"))?;
         let mut gz = flate2::read::GzDecoder::new(file);
         let mut s = String::new();
         gz.read_to_string(&mut s)
-            .with_context(|| format!("解壓 {name} 失敗"))?;
+            .with_context(|| format!("Failed to extract {name}"))?;
         s
     } else {
-        std::fs::read_to_string(&path).with_context(|| format!("讀取 {name} 失敗"))?
+        std::fs::read_to_string(&path).with_context(|| format!("Failed to read {name}"))?
     };
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let start = lines.len().saturating_sub(max_lines);
     Ok(lines[start..].to_vec())
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 筆記（notes.txt）
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn read_notes(instance_dir: &Path) -> String {
     std::fs::read_to_string(instance_dir.join("notes.txt")).unwrap_or_default()
@@ -472,12 +428,8 @@ pub fn read_notes(instance_dir: &Path) -> String {
 
 pub fn save_notes(instance_dir: &Path, text: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(instance_dir)?;
-    std::fs::write(instance_dir.join("notes.txt"), text).context("儲存筆記失敗")
+    std::fs::write(instance_dir.join("notes.txt"), text).context("Failed to save notes")
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 複製實例（遞迴複製資料夾）
-// ─────────────────────────────────────────────────────────────────────────────
 
 pub fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dst)?;
@@ -490,7 +442,7 @@ pub fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
         } else if file_type.is_file() {
             std::fs::copy(entry.path(), &dst_path)?;
         }
-        // symlink 一律跳過（避免循環與跳脫）
+        // symlink 一律跳過，避免遞迴複製時因循環連結或跳脫目標路徑造成問題
     }
     Ok(())
 }
@@ -500,18 +452,17 @@ mod tests {
     use super::*;
     use std::io::Write as _;
 
-    /// 手工組一份 servers.dat：root compound { servers: List[Compound{name, ip}] }
     fn build_servers_dat(servers: &[(&str, &str)]) -> Vec<u8> {
         fn put_str(buf: &mut Vec<u8>, s: &str) {
             buf.extend((s.len() as i16).to_be_bytes());
             buf.extend(s.as_bytes());
         }
         let mut b: Vec<u8> = Vec::new();
-        b.push(10); // root compound
+        b.push(10);
         put_str(&mut b, "");
-        b.push(9); // list
+        b.push(9);
         put_str(&mut b, "servers");
-        b.push(10); // item type: compound
+        b.push(10);
         b.extend((servers.len() as i32).to_be_bytes());
         for (name, ip) in servers {
             b.push(8);
@@ -520,9 +471,9 @@ mod tests {
             b.push(8);
             put_str(&mut b, "ip");
             put_str(&mut b, ip);
-            b.push(0); // end of compound
+            b.push(0);
         }
-        b.push(0); // end of root
+        b.push(0);
         b
     }
 
@@ -532,14 +483,14 @@ mod tests {
         let dat = dir.path().join("servers.dat");
         std::fs::write(
             &dat,
-            build_servers_dat(&[("Hypixel", "mc.hypixel.net"), ("本機", "localhost:25565")]),
+            build_servers_dat(&[("Hypixel", "mc.hypixel.net"), ("Local", "localhost:25565")]),
         )
         .unwrap();
         let servers = read_servers(&dat).unwrap();
         assert_eq!(servers.len(), 2);
         assert_eq!(servers[0].name, "Hypixel");
         assert_eq!(servers[0].ip, "mc.hypixel.net");
-        assert_eq!(servers[1].name, "本機");
+        assert_eq!(servers[1].name, "Local");
     }
 
     #[test]
@@ -553,21 +504,20 @@ mod tests {
 
     #[test]
     fn test_level_name_from_gzip_nbt() {
-        // root compound { Data: Compound { LevelName: "我的世界" } }
         let mut inner: Vec<u8> = Vec::new();
         inner.push(10);
-        inner.extend((0i16).to_be_bytes()); // root name ""
+        inner.extend((0i16).to_be_bytes());
         inner.push(10);
         inner.extend((4i16).to_be_bytes());
         inner.extend(b"Data");
         inner.push(8);
         inner.extend((9i16).to_be_bytes());
         inner.extend(b"LevelName");
-        let name = "我的世界";
+        let name = "Minecraft";
         inner.extend((name.len() as i16).to_be_bytes());
         inner.extend(name.as_bytes());
-        inner.push(0); // end Data
-        inner.push(0); // end root
+        inner.push(0);
+        inner.push(0);
 
         let dir = tempfile::tempdir().unwrap();
         let saves = dir.path().join("saves").join("world1");
@@ -582,7 +532,7 @@ mod tests {
         let worlds = list_worlds(&dir.path().join("saves"));
         assert_eq!(worlds.len(), 1);
         assert_eq!(worlds[0].dir_name, "world1");
-        assert_eq!(worlds[0].level_name, "我的世界");
+        assert_eq!(worlds[0].level_name, "Minecraft");
     }
 
     #[test]
@@ -605,7 +555,6 @@ mod tests {
             .unwrap();
         assert!(sodium.enabled);
 
-        // 停用 → 啟用 roundtrip
         let new_name = toggle_disabled(dir.path(), "sodium.jar").unwrap();
         assert_eq!(new_name, "sodium.jar.disabled");
         let back = toggle_disabled(dir.path(), &new_name).unwrap();

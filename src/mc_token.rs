@@ -39,7 +39,7 @@ pub struct SessionData {
     mc_uuid: String,
 }
 
-/// Windows: DPAPI + 本地加密檔案（規避 Credential Manager 2560 字元上限）
+// Windows: DPAPI + 本地加密檔案（規避 Credential Manager 2560 字元上限）
 #[cfg(target_os = "windows")]
 mod windows_session {
     use anyhow::Result;
@@ -353,4 +353,67 @@ where
         mint_and_save_mc_session(&http_client, &ms_access_token, ms_refresh_token).await?;
     GLOBAL_CACHE.insert("mc_ac_key".into(), token_string.clone());
     Ok(token_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_data_serialization() {
+        let session = SessionData {
+            microsoft_refresh_token: "ms_refresh_123".to_string(),
+            minecraft_access_token: "mc_access_456".to_string(),
+            mc_token_expires_at: 1234567890,
+            mc_username: "Steve".to_string(),
+            mc_uuid: "uuid-0000".to_string(),
+        };
+
+        let json = serde_json::to_string(&session).unwrap();
+        assert!(json.contains("ms_refresh_123"));
+        assert!(json.contains("Steve"));
+
+        let deserialized: SessionData = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            deserialized.microsoft_refresh_token(),
+            session.microsoft_refresh_token()
+        );
+        assert_eq!(
+            deserialized.minecraft_access_token(),
+            session.minecraft_access_token()
+        );
+        assert_eq!(
+            deserialized.mc_token_expires_at(),
+            session.mc_token_expires_at()
+        );
+        assert_eq!(deserialized.mc_username(), session.mc_username());
+        assert_eq!(deserialized.mc_uuid(), session.mc_uuid());
+    }
+
+    #[test]
+    fn test_session_data_deserialization_defaults() {
+        let json = r#"{
+            "microsoft_refresh_token": "refresh",
+            "minecraft_access_token": "access",
+            "mc_token_expires_at": 1000
+        }"#;
+
+        let data: SessionData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.mc_username(), "");
+        assert_eq!(data.mc_uuid(), "");
+    }
+
+    #[test]
+    fn test_auth_constants() {
+        assert_eq!(MS_CLIENT_ID, "ebd68e7a-2003-487d-bfa6-14807af049c9");
+        assert_eq!(
+            MS_AUTH_URL,
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
+        );
+        assert_eq!(
+            MS_TOKEN_URL,
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+        );
+        assert_eq!(REDIRECT_URI, "http://127.0.0.1:8114/redirect");
+    }
 }
