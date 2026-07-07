@@ -458,11 +458,21 @@ pub fn sync_custom_dirs(instance_dir: &Path, config: &InstanceConfig) -> anyhow:
         instance_dir,
         "resourcepacks",
     )?;
-    sync_one("Shader Pack Path", &config.shader_pack, instance_dir, "shaderpacks")?;
+    sync_one(
+        "Shader Pack Path",
+        &config.shader_pack,
+        instance_dir,
+        "shaderpacks",
+    )?;
     Ok(())
 }
 
-fn sync_one(field_label: &str, field: &str, instance_dir: &Path, dir_name: &str) -> anyhow::Result<()> {
+fn sync_one(
+    field_label: &str,
+    field: &str,
+    instance_dir: &Path,
+    dir_name: &str,
+) -> anyhow::Result<()> {
     if field.is_empty() {
         return Ok(());
     }
@@ -825,6 +835,12 @@ mod tests {
         let config = config_with_paths(custom.path().to_str().unwrap(), "", "");
         sync_custom_dirs(instance_dir.path(), &config).unwrap();
 
-        assert!(instance_dir.path().join("saves").join("marker.txt").exists());
+        assert!(
+            instance_dir
+                .path()
+                .join("saves")
+                .join("marker.txt")
+                .exists()
+        );
     }
 }
