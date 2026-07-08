@@ -3,6 +3,20 @@ use super::*;
 use slint::{ModelRc, VecModel};
 use std::rc::Rc;
 
+pub(crate) fn validate_version_and_loader(
+    version: &str,
+    mod_loader: &str,
+    loader_version: &str,
+) -> Result<(), String> {
+    if version.is_empty() {
+        return Err("Please select Minecraft version".to_string());
+    }
+    if mod_loader != "None" && !mod_loader.is_empty() && loader_version.is_empty() {
+        return Err(format!("Please select a {} version", mod_loader));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_create_input(
     name: &str,
     version: &str,
@@ -12,13 +26,7 @@ pub(crate) fn validate_create_input(
     if name.trim().is_empty() {
         return Err("Instance name cannot be empty".to_string());
     }
-    if version.is_empty() {
-        return Err("Please select Minecraft version".to_string());
-    }
-    if mod_loader != "None" && !mod_loader.is_empty() && loader_version.is_empty() {
-        return Err(format!("Please select a {} version", mod_loader));
-    }
-    Ok(())
+    validate_version_and_loader(version, mod_loader, loader_version)
 }
 
 fn empty_string_model() -> ModelRc<slint::SharedString> {
@@ -306,11 +314,29 @@ pub fn setup_create_logic(
 #[cfg(test)]
 mod tests {
     use super::validate_create_input;
+    use super::validate_version_and_loader;
 
     #[test]
     fn test_empty_name_rejected() {
         let err = validate_create_input("   ", "1.20.4", "None", "").unwrap_err();
         assert!(err.contains("name"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_missing_version_rejected() {
+        let err = validate_version_and_loader("", "None", "").unwrap_err();
+        assert!(err.contains("Minecraft version"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_missing_loader_version_rejected() {
+        let err = validate_version_and_loader("1.20.4", "Forge", "").unwrap_err();
+        assert!(err.contains("Forge"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_vanilla_ok() {
+        assert!(validate_version_and_loader("1.20.4", "None", "").is_ok());
     }
 
     #[test]
