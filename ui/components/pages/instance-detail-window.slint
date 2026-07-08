@@ -421,6 +421,167 @@ export component InstanceDetailWindow inherits Rectangle {
                                 height: 36px;
                                 model: InstanceDetailLogic.version-list;
                                 current-value <=> InstanceDetailLogic.selected-version;
+                                selected(v) => {
+                                    InstanceDetailLogic.selected-version = v;
+                                    InstanceDetailLogic.loader-changed();
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 8px;
+                            Text { text: @tr("Mod Loader"); font-size: 12px; color: #9e9e9e; }
+                            HorizontalLayout {
+                                spacing: 12px; alignment: start;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceDetailLogic.selected-mod-loader == "None" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceDetailLogic.selected-mod-loader == "None": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        d-r0-ta := TouchArea { clicked => { InstanceDetailLogic.selected-mod-loader = "None"; InstanceDetailLogic.loader-changed(); } }
+                                    }
+                                    Text { text: "None"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceDetailLogic.fabric-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceDetailLogic.selected-mod-loader == "Fabric" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceDetailLogic.selected-mod-loader == "Fabric": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        d-r1-ta := TouchArea {
+                                            enabled: InstanceDetailLogic.fabric-available;
+                                            clicked => { InstanceDetailLogic.selected-mod-loader = "Fabric"; InstanceDetailLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "Fabric"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceDetailLogic.forge-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceDetailLogic.selected-mod-loader == "Forge" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceDetailLogic.selected-mod-loader == "Forge": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        d-r2-ta := TouchArea {
+                                            enabled: InstanceDetailLogic.forge-available;
+                                            clicked => { InstanceDetailLogic.selected-mod-loader = "Forge"; InstanceDetailLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "Forge"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    opacity: InstanceDetailLogic.neoforge-available ? 1.0 : 0.35;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 10px;
+                                        border-width: 2px;
+                                        border-color: InstanceDetailLogic.selected-mod-loader == "NeoForge" ? #00D000 : #555;
+                                        background: transparent;
+                                        if InstanceDetailLogic.selected-mod-loader == "NeoForge": Rectangle {
+                                            width: 10px; height: 10px; x: 5px; y: 5px;
+                                            border-radius: 5px; background: #00D000;
+                                        }
+                                        d-r3-ta := TouchArea {
+                                            enabled: InstanceDetailLogic.neoforge-available;
+                                            clicked => { InstanceDetailLogic.selected-mod-loader = "NeoForge"; InstanceDetailLogic.loader-changed(); }
+                                        }
+                                    }
+                                    Text { text: "NeoForge"; color: #e0e0e0; font-size: 16px; vertical-alignment: center; }
+                                }
+                            }
+                        }
+
+                        if InstanceDetailLogic.selected-mod-loader != "None": VerticalLayout {
+                            spacing: 6px;
+                            Text { text: @tr("Mod Loader Version"); font-size: 12px; color: #9e9e9e; }
+                            d-loader-trigger := Rectangle {
+                                property <length> scroll-y: 0px;
+                                property <length> row-h: 32px;
+                                property <length> popup-max-h: 120px;
+                                property <length> content-h: InstanceDetailLogic.mod-loader-versions.length * self.row-h;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+
+                                d-loader-popup := PopupWindow {
+                                    x: 0; y: 36px;
+                                    width: parent.width;
+                                    height: min(d-loader-trigger.popup-max-h, d-loader-trigger.content-h);
+                                    Rectangle {
+                                        width: 100%; height: 100%;
+                                        background: #1a1a24;
+                                        border-radius: 6px;
+                                        border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                        clip: true;
+                                        ListView {
+                                            viewport-y <=> d-loader-trigger.scroll-y;
+                                            for v[i] in InstanceDetailLogic.mod-loader-versions: Rectangle {
+                                                height: 32px;
+                                                background: v == InstanceDetailLogic.selected-mod-loader-version ? #76bc51.with-alpha(0.15) : (d-lv-ta.has-hover ? #ffffff.with-alpha(0.1) : transparent);
+                                                Text {
+                                                    x: 12px; height: parent.height;
+                                                    text: v; color: #e0e0e0; font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                                d-lv-ta := TouchArea {
+                                                    clicked => {
+                                                        InstanceDetailLogic.selected-mod-loader-version = v;
+                                                        InstanceDetailLogic.selected-loader-index = i;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    padding-left: 12px; padding-right: 8px;
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: InstanceDetailLogic.is-loader-loading
+                                            ? @tr("Loading versions...")
+                                            : (InstanceDetailLogic.selected-mod-loader-version == "" ? @tr("Select...") : InstanceDetailLogic.selected-mod-loader-version);
+                                        color: InstanceDetailLogic.selected-mod-loader-version == "" ? #555 : #e0e0e0;
+                                        font-size: 13px; vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: "▾";
+                                        color: #888; font-size: 12px; vertical-alignment: center;
+                                    }
+                                }
+                                TouchArea {
+                                    clicked => {
+                                        d-loader-trigger.scroll-y = -min(
+                                            max(0px, (InstanceDetailLogic.selected-loader-index - 1) * d-loader-trigger.row-h),
+                                            max(0px, d-loader-trigger.content-h - d-loader-trigger.popup-max-h));
+                                        d-loader-popup.show();
+                                    }
+                                }
+                            }
+                            if InstanceDetailLogic.loader-load-error != "": Text {
+                                text: InstanceDetailLogic.loader-load-error;
+                                color: #e74c3c; font-size: 11px; wrap: word-wrap;
                             }
                         }
 
