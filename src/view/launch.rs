@@ -626,6 +626,14 @@ pub fn setup_launch_logic(
                         .unwrap()
                         .insert(instance_id.clone(), child);
                     set_instance_status(&ui_weak, &instance_id, "running");
+                    {
+                        let ui_weak_minimize = ui_weak.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_minimize.upgrade() {
+                                ui.window().set_minimized(true);
+                            }
+                        });
+                    }
                     let running_procs_watch = Arc::clone(&running_procs);
                     let ui_weak_watch = ui_weak.clone();
                     let id_watch = instance_id.clone();
