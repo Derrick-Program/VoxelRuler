@@ -128,6 +128,7 @@
 - [x] 離線啟動支援（2026-07-04）：版本 JSON / asset index / Java runtime / Forge profile 全部 local-first，已完整啟動過的實例可離線帳號離線重啟（首次啟動仍需網路）
 - [x] 捲動效能（2026-07-04）：dev profile 依賴改 opt-level 3；instances 虛擬列表改整數列索引量化，跨列才增減卡片內容。若仍 lag 需再評估 release build / Skia renderer
 - [x] macOS 26 Tahoe LWJGL 修正（2026-07-03）：3.2.3 內建 GLFW（2019-09 3.4.0-dev snapshot）在 Tahoe 於 glfwInit 就發 65544（x64 probe 實測）→ 兩張 LWJGL3 表升 **3.3.1**（Mojang CDN natives，x64/arm64 各自）＋ **mmachina patched glfw bindings**（`nglfwSetWindowIcon` 移除 JNI 呼叫，bytecode 驗證；跨架構），同時解 65544 與 65548；1.16.4 bytecode 證實開機期無條件 setIcon、無 macOS guard。待實測 1.16.4 / 1.17.1 啟動
+- [x] 啟動即自動最小化主視窗（2026-07-08，`feat/view/auto-minimize-on-launch`）：實例成功啟動（`do_launch` 回傳 `Ok(child)`）當下即自動 `set_minimized(true)`，不需使用者手動點關閉；遊戲結束後刻意不自動還原，需手動從 Dock/工作列點回來；不影響既有「執行中點關閉→改最小化」與異常退出時的還原邏輯
 
 ---
 
