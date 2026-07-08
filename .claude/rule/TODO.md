@@ -1,6 +1,6 @@
 # VoxelRuler 專案進度追蹤
 
-> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-07-04  
+> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-07-08  
 > 詳細分工 → `.claude/docs/task-assignment.md`
 
 ---
@@ -80,6 +80,7 @@
 - [x] 編輯實例設定（記憶體 xmx/xms、Java runtime/路徑）（2026-06-11）
 - [x] 實例右鍵選單（啟動/停止、Log、編輯、開資料夾、複製、重新命名、刪除）（2026-06-11）
 - [x] 實例詳細視窗（Prism 式側欄分頁：Log/版本/模組/資源包/光影包/筆記/世界/伺服器/截圖/設定/其他紀錄檔）（2026-06-11）
+- [x] 實例詳情頁 Version 分頁可切換 Mod Loader（None/Fabric/Forge/NeoForge）並與 MC 版本一起存檔（2026-07-08，PR #15 `feat/instance-detail-modloader-edit` → `develop`，待 review + 手動 GUI 走查）
 - [ ] `AddInstance` UI 串接
 
 ### 完成標準
