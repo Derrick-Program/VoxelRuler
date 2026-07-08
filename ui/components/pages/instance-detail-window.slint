@@ -427,9 +427,9 @@ export component InstanceDetailWindow inherits Rectangle {
                         HorizontalLayout {
                             alignment: end;
                             ToolButton {
-                                label: @tr("Save Version");
+                                label: @tr("Save");
                                 primary: true;
-                                clicked => { InstanceDetailLogic.save-version(); }
+                                clicked => { InstanceDetailLogic.save(); }
                             }
                         }
 

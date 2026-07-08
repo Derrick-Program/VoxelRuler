@@ -589,30 +589,40 @@ pub fn setup_instance_detail_logic(
         }
     });
 
-    let store_for_version = Arc::clone(&store);
-    let master_for_version = Arc::clone(&master_configs);
-    let ui_weak_for_version_save = ui.as_weak();
-    detail_logic.on_save_version(move || {
-        let Some(ui) = ui_weak_for_version_save.upgrade() else {
+    let store_for_save = Arc::clone(&store);
+    let master_for_save = Arc::clone(&master_configs);
+    let ui_weak_for_save = ui.as_weak();
+    detail_logic.on_save(move || {
+        let Some(ui) = ui_weak_for_save.upgrade() else {
             return;
         };
         let detail = ui.global::<InstanceDetailLogic>();
         let id = detail.get_instance_id().to_string();
         let new_version = detail.get_selected_version().to_string();
-        if new_version.is_empty() {
+        let mod_loader = detail.get_selected_mod_loader().to_string();
+        let loader_version = detail.get_selected_mod_loader_version().to_string();
+
+        if let Err(msg) =
+            crate::view::create::validate_version_and_loader(&new_version, &mod_loader, &loader_version)
+        {
+            detail.set_status_msg(msg.into());
             return;
         }
+
         let updated = {
-            let mut master = master_for_version.lock().unwrap();
+            let mut master = master_for_save.lock().unwrap();
             let Some(c) = master.iter_mut().find(|c| c.id == id) else {
                 return;
             };
             c.version = new_version.clone();
+            c.mod_loader = mod_loader.clone();
+            c.mod_loader_version = loader_version.clone();
             c.clone()
         };
-        match store_for_version.lock().unwrap().save_one(&updated) {
+        match store_for_save.lock().unwrap().save_one(&updated) {
             Ok(()) => {
                 detail.set_version(new_version.as_str().into());
+                detail.set_mod_loader(mod_loader.as_str().into());
                 detail.set_status_msg("✓ Saved".into());
             }
             Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),
