@@ -129,6 +129,10 @@ pub(crate) async fn do_launch(
 
     let api = crate::mc_api::McAction::new();
     let paths = McPaths::new()?;
+    let instance_dir = paths.instance_dir(&instance_id);
+    crate::instance_assets::sync_custom_dirs(&instance_dir, &config)
+        .context("Failed to apply custom World Save / Resource Pack / Shader Pack paths")?;
+
     let vanilla_version_dir = paths.versions_dir().join(&version_id);
     let vanilla_json_path = vanilla_version_dir.join(format!("{}.json", version_id));
     let mut version = load_or_fetch_version_detail(&api, &vanilla_json_path, &version_id).await?;
@@ -424,7 +428,7 @@ pub(crate) async fn do_launch(
     let ctx = LaunchContext {
         version,
         java_path,
-        game_dir: paths.instance_dir(&instance_id),
+        game_dir: instance_dir,
         libraries_dir: paths.libraries_dir(),
         assets_dir: paths.assets_dir(),
         natives_dir: paths.natives_dir(&version_id),

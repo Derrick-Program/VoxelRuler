@@ -1,5 +1,6 @@
 import { AppTheme } from "@theme";
 import { InstanceCreateLogic } from "@global";
+import { Assets } from "@assets";
 import { ScrollView, ListView } from "std-widgets.slint";
 
 export component CreateInstanceDialog inherits Rectangle {
@@ -585,19 +586,37 @@ export component CreateInstanceDialog inherits Rectangle {
                     VerticalLayout {
                         spacing: 6px;
                         Text { text: @tr("World/Save Path"); font-size: 12px; color: #9e9e9e; }
-                        Rectangle {
-                            height: 36px; border-radius: 6px;
-                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
-                            background: #242424;
-                            world-input := TextInput {
-                                x: 12px; width: parent.width - 24px; height: parent.height;
-                                text <=> InstanceCreateLogic.world-path;
-                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                world-input := TextInput {
+                                    x: 12px; width: parent.width - 24px; height: parent.height;
+                                    text <=> InstanceCreateLogic.world-path;
+                                    color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                                }
+                                if world-input.text == "": Text {
+                                    x: 12px; height: parent.height;
+                                    text: @tr("Full path to world (optional)");
+                                    color: #555; font-size: 13px; vertical-alignment: center;
+                                }
                             }
-                            if world-input.text == "": Text {
-                                x: 12px; height: parent.height;
-                                text: @tr("Full path to world (optional)");
-                                color: #555; font-size: 13px; vertical-alignment: center;
+                            Rectangle {
+                                width: 36px; height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: world-browse-ta.has-hover ? #ffffff.with-alpha(0.1) : #2a2a2a;
+                                world-browse-ta := TouchArea {
+                                    clicked => { InstanceCreateLogic.browse-world-path(); }
+                                }
+                                Image {
+                                    source: Assets.folder;
+                                    width: 16px; height: 16px;
+                                    image-fit: contain;
+                                    colorize: #c0c0c0;
+                                }
                             }
                         }
                     }
@@ -605,19 +624,37 @@ export component CreateInstanceDialog inherits Rectangle {
                     VerticalLayout {
                         spacing: 6px;
                         Text { text: @tr("Resource Pack Path"); font-size: 12px; color: #9e9e9e; }
-                        Rectangle {
-                            height: 36px; border-radius: 6px;
-                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
-                            background: #242424;
-                            rp-input := TextInput {
-                                x: 12px; width: parent.width - 24px; height: parent.height;
-                                text <=> InstanceCreateLogic.resource-pack;
-                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                rp-input := TextInput {
+                                    x: 12px; width: parent.width - 24px; height: parent.height;
+                                    text <=> InstanceCreateLogic.resource-pack;
+                                    color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                                }
+                                if rp-input.text == "": Text {
+                                    x: 12px; height: parent.height;
+                                    text: @tr("Full path to resource pack (optional)");
+                                    color: #555; font-size: 13px; vertical-alignment: center;
+                                }
                             }
-                            if rp-input.text == "": Text {
-                                x: 12px; height: parent.height;
-                                text: @tr("Full path to resource pack (optional)");
-                                color: #555; font-size: 13px; vertical-alignment: center;
+                            Rectangle {
+                                width: 36px; height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: rp-browse-ta.has-hover ? #ffffff.with-alpha(0.1) : #2a2a2a;
+                                rp-browse-ta := TouchArea {
+                                    clicked => { InstanceCreateLogic.browse-resource-pack(); }
+                                }
+                                Image {
+                                    source: Assets.folder;
+                                    width: 16px; height: 16px;
+                                    image-fit: contain;
+                                    colorize: #c0c0c0;
+                                }
                             }
                         }
                     }
@@ -625,19 +662,37 @@ export component CreateInstanceDialog inherits Rectangle {
                     VerticalLayout {
                         spacing: 6px;
                         Text { text: @tr("Shader Pack Path"); font-size: 12px; color: #9e9e9e; }
-                        Rectangle {
-                            height: 36px; border-radius: 6px;
-                            border-width: 1px; border-color: #ffffff.with-alpha(0.15);
-                            background: #242424;
-                            sp-input := TextInput {
-                                x: 12px; width: parent.width - 24px; height: parent.height;
-                                text <=> InstanceCreateLogic.shader-pack;
-                                color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: #242424;
+                                sp-input := TextInput {
+                                    x: 12px; width: parent.width - 24px; height: parent.height;
+                                    text <=> InstanceCreateLogic.shader-pack;
+                                    color: #e0e0e0; font-size: 13px; vertical-alignment: center;
+                                }
+                                if sp-input.text == "": Text {
+                                    x: 12px; height: parent.height;
+                                    text: @tr("Full path to shader pack (optional)");
+                                    color: #555; font-size: 13px; vertical-alignment: center;
+                                }
                             }
-                            if sp-input.text == "": Text {
-                                x: 12px; height: parent.height;
-                                text: @tr("Full path to shader pack (optional)");
-                                color: #555; font-size: 13px; vertical-alignment: center;
+                            Rectangle {
+                                width: 36px; height: 36px; border-radius: 6px;
+                                border-width: 1px; border-color: #ffffff.with-alpha(0.15);
+                                background: sp-browse-ta.has-hover ? #ffffff.with-alpha(0.1) : #2a2a2a;
+                                sp-browse-ta := TouchArea {
+                                    clicked => { InstanceCreateLogic.browse-shader-pack(); }
+                                }
+                                Image {
+                                    source: Assets.folder;
+                                    width: 16px; height: 16px;
+                                    image-fit: contain;
+                                    colorize: #c0c0c0;
+                                }
                             }
                         }
                     }

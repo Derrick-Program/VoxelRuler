@@ -71,6 +71,55 @@ pub fn setup_create_logic(
 
     let create_logic = ui.global::<InstanceCreateLogic>();
 
+    // rfd 在 Linux 用 xdg-portal 後端（免 GTK 依賴，AppImage 友善）僅提供 async API，故用 spawn_local 等待
+    let ui_weak_for_world_browse = ui.as_weak();
+    create_logic.on_browse_world_path(move || {
+        let ui_weak = ui_weak_for_world_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(dir) = rfd::AsyncFileDialog::new()
+                .set_title("Select World Save Folder")
+                .pick_folder()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<InstanceCreateLogic>()
+                    .set_world_path(dir.path().display().to_string().into());
+            }
+        });
+    });
+
+    let ui_weak_for_rp_browse = ui.as_weak();
+    create_logic.on_browse_resource_pack(move || {
+        let ui_weak = ui_weak_for_rp_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(dir) = rfd::AsyncFileDialog::new()
+                .set_title("Select Resource Packs Folder")
+                .pick_folder()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<InstanceCreateLogic>()
+                    .set_resource_pack(dir.path().display().to_string().into());
+            }
+        });
+    });
+
+    let ui_weak_for_sp_browse = ui.as_weak();
+    create_logic.on_browse_shader_pack(move || {
+        let ui_weak = ui_weak_for_sp_browse.clone();
+        let _ = slint::spawn_local(async move {
+            if let Some(dir) = rfd::AsyncFileDialog::new()
+                .set_title("Select Shader Packs Folder")
+                .pick_folder()
+                .await
+                && let Some(ui) = ui_weak.upgrade()
+            {
+                ui.global::<InstanceCreateLogic>()
+                    .set_shader_pack(dir.path().display().to_string().into());
+            }
+        });
+    });
+
     let ui_weak_for_cancel = ui.as_weak();
     create_logic.on_cancel_create(move || {
         if let Some(ui) = ui_weak_for_cancel.upgrade() {
