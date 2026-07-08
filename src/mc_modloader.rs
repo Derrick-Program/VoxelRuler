@@ -1096,8 +1096,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_loader_state_returns_versions_for_available_loader() {
-        let result =
-            ModLoaderApi::fetch_loader_state("1.20.4", Some(ModLoaderType::Fabric)).await;
+        let result = ModLoaderApi::fetch_loader_state("1.20.4", Some(ModLoaderType::Fabric)).await;
         assert!(result.availability.fabric);
         assert!(!result.versions.is_empty());
         assert!(result.error.is_none());
@@ -1112,8 +1111,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_loader_state_unsupported_mc_returns_empty_versions_no_error() {
-        let result =
-            ModLoaderApi::fetch_loader_state("1.12.2", Some(ModLoaderType::Fabric)).await;
+        let result = ModLoaderApi::fetch_loader_state("1.12.2", Some(ModLoaderType::Fabric)).await;
         assert!(result.versions.is_empty());
         assert!(result.error.is_none());
     }

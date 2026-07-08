@@ -365,8 +365,7 @@ fn refresh_loader_state(ui_weak: slint::Weak<MainApp>, preferred_version: Option
             if let Some(e) = result.error {
                 tracing::error!(error = %e, loader = %mod_loader_str, "Failed to fetch mod loader versions");
                 detail.set_loader_load_error(
-                    "Failed to load versions. Please check your network and try again."
-                        .into(),
+                    "Failed to load versions. Please check your network and try again.".into(),
                 );
                 return;
             }
@@ -389,11 +388,8 @@ fn refresh_loader_state(ui_weak: slint::Weak<MainApp>, preferred_version: Option
                 .and_then(|pref| result.versions.iter().position(|v| v == pref))
                 .unwrap_or(default_idx);
 
-            let slint_versions: Vec<slint::SharedString> = result
-                .versions
-                .iter()
-                .map(|s| s.as_str().into())
-                .collect();
+            let slint_versions: Vec<slint::SharedString> =
+                result.versions.iter().map(|s| s.as_str().into()).collect();
             let selected = slint_versions[idx].clone();
             detail.set_mod_loader_versions(shared_model(slint_versions));
             detail.set_selected_mod_loader_version(selected);
@@ -602,9 +598,11 @@ pub fn setup_instance_detail_logic(
         let mod_loader = detail.get_selected_mod_loader().to_string();
         let loader_version = detail.get_selected_mod_loader_version().to_string();
 
-        if let Err(msg) =
-            crate::view::create::validate_version_and_loader(&new_version, &mod_loader, &loader_version)
-        {
+        if let Err(msg) = crate::view::create::validate_version_and_loader(
+            &new_version,
+            &mod_loader,
+            &loader_version,
+        ) {
             detail.set_status_msg(msg.into());
             return;
         }
