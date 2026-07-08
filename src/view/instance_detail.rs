@@ -235,6 +235,17 @@ pub(crate) fn open_instance_detail(
     detail.set_version(c.version.as_str().into());
     detail.set_mod_loader(c.mod_loader.as_str().into());
     detail.set_selected_version(c.version.as_str().into());
+    detail.set_selected_mod_loader(
+        if c.mod_loader.is_empty() {
+            "None"
+        } else {
+            c.mod_loader.as_str()
+        }
+        .into(),
+    );
+    let preferred_loader_version =
+        (!c.mod_loader_version.is_empty()).then(|| c.mod_loader_version.clone());
+    refresh_loader_state(ui.as_weak(), preferred_loader_version);
     detail.set_version_list(ui.global::<InstanceCreateLogic>().get_version_list());
     detail.set_instance_running(running_procs.lock().unwrap().contains_key(id));
     detail.set_status_msg("".into());
@@ -294,6 +305,99 @@ pub(crate) fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     });
 }
 
+static DETAIL_LOADER_FETCH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn refresh_loader_state(ui_weak: slint::Weak<MainApp>, preferred_version: Option<String>) {
+    use std::sync::atomic::Ordering;
+
+    let Some(ui) = ui_weak.upgrade() else {
+        return;
+    };
+    let detail = ui.global::<InstanceDetailLogic>();
+    let my_gen = DETAIL_LOADER_FETCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+
+    let mc_version = detail.get_selected_version().to_string();
+    let mod_loader_str = detail.get_selected_mod_loader().to_string();
+
+    detail.set_mod_loader_versions(shared_model(Vec::new()));
+    detail.set_selected_mod_loader_version("".into());
+    detail.set_selected_loader_index(-1);
+    detail.set_loader_load_error("".into());
+
+    if mc_version.is_empty() {
+        detail.set_is_loader_loading(false);
+        return;
+    }
+
+    let loader_type = crate::mc_modloader::ModLoaderType::from_name(&mod_loader_str);
+    detail.set_is_loader_loading(loader_type.is_some());
+
+    let ui_handle_async = ui_weak.clone();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if DETAIL_LOADER_FETCH_GEN.load(Ordering::SeqCst) != my_gen {
+            return;
+        }
+
+        let result =
+            crate::mc_modloader::ModLoaderApi::fetch_loader_state(&mc_version, loader_type).await;
+
+        let _ = slint::invoke_from_event_loop(move || {
+            if DETAIL_LOADER_FETCH_GEN.load(Ordering::SeqCst) != my_gen {
+                return;
+            }
+            let Some(ui) = ui_handle_async.upgrade() else {
+                return;
+            };
+            let detail = ui.global::<InstanceDetailLogic>();
+            detail.set_is_loader_loading(false);
+            detail.set_fabric_available(result.availability.fabric);
+            detail.set_forge_available(result.availability.forge);
+            detail.set_neoforge_available(result.availability.neoforge);
+
+            let Some(lt) = loader_type else { return };
+            if !result.availability.supports(lt) {
+                detail.set_selected_mod_loader("None".into());
+                return;
+            }
+
+            if let Some(e) = result.error {
+                tracing::error!(error = %e, loader = %mod_loader_str, "Failed to fetch mod loader versions");
+                detail.set_loader_load_error(
+                    "Failed to load versions. Please check your network and try again.".into(),
+                );
+                return;
+            }
+
+            if result.versions.is_empty() {
+                detail.set_loader_load_error(
+                    format!(
+                        "{} has no available versions for Minecraft {}",
+                        mod_loader_str, mc_version
+                    )
+                    .into(),
+                );
+                return;
+            }
+
+            let default_idx =
+                crate::mc_modloader::ModLoaderApi::default_version_index(&result.versions);
+            let idx = preferred_version
+                .as_ref()
+                .and_then(|pref| result.versions.iter().position(|v| v == pref))
+                .unwrap_or(default_idx);
+
+            let slint_versions: Vec<slint::SharedString> =
+                result.versions.iter().map(|s| s.as_str().into()).collect();
+            let selected = slint_versions[idx].clone();
+            detail.set_mod_loader_versions(shared_model(slint_versions));
+            detail.set_selected_mod_loader_version(selected);
+            detail.set_selected_loader_index(idx as i32);
+        });
+    });
+}
+
 pub fn setup_instance_detail_logic(
     ui: &MainApp,
     store: std::sync::Arc<std::sync::Mutex<crate::mc_instance::InstanceStore>>,
@@ -345,6 +449,11 @@ pub fn setup_instance_detail_logic(
             .get_instance_id()
             .to_string();
         load_detail_tab(&ui, &id, tab, &logs_for_tab);
+    });
+
+    let ui_weak_for_loader = ui.as_weak();
+    detail_logic.on_loader_changed(move || {
+        refresh_loader_state(ui_weak_for_loader.clone(), None);
     });
 
     let ui_weak_for_subfolder = ui.as_weak();
@@ -476,30 +585,42 @@ pub fn setup_instance_detail_logic(
         }
     });
 
-    let store_for_version = Arc::clone(&store);
-    let master_for_version = Arc::clone(&master_configs);
-    let ui_weak_for_version_save = ui.as_weak();
-    detail_logic.on_save_version(move || {
-        let Some(ui) = ui_weak_for_version_save.upgrade() else {
+    let store_for_save = Arc::clone(&store);
+    let master_for_save = Arc::clone(&master_configs);
+    let ui_weak_for_save = ui.as_weak();
+    detail_logic.on_save(move || {
+        let Some(ui) = ui_weak_for_save.upgrade() else {
             return;
         };
         let detail = ui.global::<InstanceDetailLogic>();
         let id = detail.get_instance_id().to_string();
         let new_version = detail.get_selected_version().to_string();
-        if new_version.is_empty() {
+        let mod_loader = detail.get_selected_mod_loader().to_string();
+        let loader_version = detail.get_selected_mod_loader_version().to_string();
+
+        if let Err(msg) = crate::view::create::validate_version_and_loader(
+            &new_version,
+            &mod_loader,
+            &loader_version,
+        ) {
+            detail.set_status_msg(msg.into());
             return;
         }
+
         let updated = {
-            let mut master = master_for_version.lock().unwrap();
+            let mut master = master_for_save.lock().unwrap();
             let Some(c) = master.iter_mut().find(|c| c.id == id) else {
                 return;
             };
             c.version = new_version.clone();
+            c.mod_loader = mod_loader.clone();
+            c.mod_loader_version = loader_version.clone();
             c.clone()
         };
-        match store_for_version.lock().unwrap().save_one(&updated) {
+        match store_for_save.lock().unwrap().save_one(&updated) {
             Ok(()) => {
                 detail.set_version(new_version.as_str().into());
+                detail.set_mod_loader(mod_loader.as_str().into());
                 detail.set_status_msg("✓ Saved".into());
             }
             Err(e) => detail.set_status_msg(format!("Save failed: {e}").into()),

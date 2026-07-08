@@ -3,6 +3,20 @@ use super::*;
 use slint::{ModelRc, VecModel};
 use std::rc::Rc;
 
+pub(crate) fn validate_version_and_loader(
+    version: &str,
+    mod_loader: &str,
+    loader_version: &str,
+) -> Result<(), String> {
+    if version.is_empty() {
+        return Err("Please select Minecraft version".to_string());
+    }
+    if mod_loader != "None" && !mod_loader.is_empty() && loader_version.is_empty() {
+        return Err(format!("Please select a {} version", mod_loader));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_create_input(
     name: &str,
     version: &str,
@@ -12,13 +26,7 @@ pub(crate) fn validate_create_input(
     if name.trim().is_empty() {
         return Err("Instance name cannot be empty".to_string());
     }
-    if version.is_empty() {
-        return Err("Please select Minecraft version".to_string());
-    }
-    if mod_loader != "None" && !mod_loader.is_empty() && loader_version.is_empty() {
-        return Err(format!("Please select a {} version", mod_loader));
-    }
-    Ok(())
+    validate_version_and_loader(version, mod_loader, loader_version)
 }
 
 fn empty_string_model() -> ModelRc<slint::SharedString> {
@@ -170,21 +178,11 @@ pub fn setup_create_logic(
                 let gen_for_fetch = Arc::clone(&gen_for_ui);
 
                 tokio::spawn(async move {
-                    let avail =
-                        crate::mc_modloader::ModLoaderApi::check_availability(&mc_version).await;
-                    let selected_available =
-                        loader_type.is_some_and(|lt| avail.supports(lt));
-
-                    let versions_result = match loader_type {
-                        Some(lt) if selected_available => Some(
-                            crate::mc_modloader::ModLoaderApi::get_loader_versions(
-                                lt,
-                                &mc_version,
-                            )
-                            .await,
-                        ),
-                        _ => None,
-                    };
+                    let result = crate::mc_modloader::ModLoaderApi::fetch_loader_state(
+                        &mc_version,
+                        loader_type,
+                    )
+                    .await;
 
                     let _ = slint::invoke_from_event_loop(move || {
                         if gen_for_fetch.load(Ordering::SeqCst) != my_gen {
@@ -195,50 +193,50 @@ pub fn setup_create_logic(
                         };
                         let logic = ui.global::<InstanceCreateLogic>();
                         logic.set_is_loader_loading(false);
-                        logic.set_fabric_available(avail.fabric);
-                        logic.set_forge_available(avail.forge);
-                        logic.set_neoforge_available(avail.neoforge);
+                        logic.set_fabric_available(result.availability.fabric);
+                        logic.set_forge_available(result.availability.forge);
+                        logic.set_neoforge_available(result.availability.neoforge);
 
-                        if loader_type.is_some() && !selected_available {
+                        let Some(lt) = loader_type else { return };
+                        if !result.availability.supports(lt) {
                             logic.set_mod_loader("None".into());
                             return;
                         }
 
-                        match versions_result {
-                            Some(Ok(versions)) if !versions.is_empty() => {
-                                let default_idx =
-                                    crate::mc_modloader::ModLoaderApi::default_version_index(
-                                        &versions,
-                                    );
-                                let slint_versions: Vec<slint::SharedString> = versions
-                                    .into_iter()
-                                    .map(slint::SharedString::from)
-                                    .collect();
-                                let default_ver = slint_versions[default_idx].clone();
-                                logic.set_mod_loader_versions(ModelRc::from(Rc::new(
-                                    VecModel::from(slint_versions),
-                                )));
-                                logic.set_selected_mod_loader_version(default_ver);
-                                logic.set_selected_loader_index(default_idx as i32);
-                            }
-                            Some(Ok(_)) => {
-                                logic.set_loader_load_error(
-                                    format!(
-                                        "{} has no available versions for Minecraft {}",
-                                        mod_loader_str, mc_version
-                                    )
+                        if let Some(e) = result.error {
+                            tracing::error!(error = %e, loader = %mod_loader_str, "Failed to fetch mod loader versions");
+                            logic.set_loader_load_error(
+                                "Failed to load versions. Please check your network and try again."
                                     .into(),
-                                );
-                            }
-                            Some(Err(e)) => {
-                                tracing::error!(error = %e, loader = %mod_loader_str, "Failed to fetch mod loader versions");
-                                logic.set_loader_load_error(
-                                    "Failed to load versions. Please check your network and try again."
-                                        .into(),
-                                );
-                            }
-                            None => {}
+                            );
+                            return;
                         }
+
+                        if result.versions.is_empty() {
+                            logic.set_loader_load_error(
+                                format!(
+                                    "{} has no available versions for Minecraft {}",
+                                    mod_loader_str, mc_version
+                                )
+                                .into(),
+                            );
+                            return;
+                        }
+
+                        let default_idx = crate::mc_modloader::ModLoaderApi::default_version_index(
+                            &result.versions,
+                        );
+                        let slint_versions: Vec<slint::SharedString> = result
+                            .versions
+                            .into_iter()
+                            .map(slint::SharedString::from)
+                            .collect();
+                        let default_ver = slint_versions[default_idx].clone();
+                        logic.set_mod_loader_versions(ModelRc::from(Rc::new(VecModel::from(
+                            slint_versions,
+                        ))));
+                        logic.set_selected_mod_loader_version(default_ver);
+                        logic.set_selected_loader_index(default_idx as i32);
                     });
                 });
             });
@@ -316,11 +314,29 @@ pub fn setup_create_logic(
 #[cfg(test)]
 mod tests {
     use super::validate_create_input;
+    use super::validate_version_and_loader;
 
     #[test]
     fn test_empty_name_rejected() {
         let err = validate_create_input("   ", "1.20.4", "None", "").unwrap_err();
         assert!(err.contains("name"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_missing_version_rejected() {
+        let err = validate_version_and_loader("", "None", "").unwrap_err();
+        assert!(err.contains("Minecraft version"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_missing_loader_version_rejected() {
+        let err = validate_version_and_loader("1.20.4", "Forge", "").unwrap_err();
+        assert!(err.contains("Forge"));
+    }
+
+    #[test]
+    fn test_validate_version_and_loader_vanilla_ok() {
+        assert!(validate_version_and_loader("1.20.4", "None", "").is_ok());
     }
 
     #[test]

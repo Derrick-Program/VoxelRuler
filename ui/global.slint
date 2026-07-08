@@ -222,7 +222,19 @@ export global InstanceDetailLogic {
     in-out property <string> mod-loader: "";
     in-out property <[string]> version-list: [];
     in-out property <string> selected-version: "";
-    callback save-version();
+
+    in-out property <string> selected-mod-loader: "None";
+    in-out property <[string]> mod-loader-versions: [];
+    in-out property <string> selected-mod-loader-version: "";
+    in-out property <int> selected-loader-index: -1;
+    in-out property <bool> is-loader-loading: false;
+    in-out property <string> loader-load-error: "";
+    in-out property <bool> fabric-available: true;
+    in-out property <bool> forge-available: true;
+    in-out property <bool> neoforge-available: true;
+    callback loader-changed();
+
+    callback save();
 
     in-out property <[InstanceFileEntry]> mods: [];
     in-out property <[InstanceFileEntry]> resource-packs: [];

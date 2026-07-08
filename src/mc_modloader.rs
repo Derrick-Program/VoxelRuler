@@ -85,6 +85,13 @@ impl LoaderAvailability {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LoaderFetchResult {
+    pub availability: LoaderAvailability,
+    pub versions: Vec<String>,
+    pub error: Option<String>,
+}
+
 pub struct ModLoaderApi;
 
 impl ModLoaderApi {
@@ -96,6 +103,29 @@ impl ModLoaderApi {
             ModLoaderType::Fabric => Self::get_fabric_versions(mc_version).await,
             ModLoaderType::NeoForge => Self::get_neoforge_versions(mc_version).await,
             ModLoaderType::Forge => Self::get_forge_versions(mc_version).await,
+        }
+    }
+
+    pub async fn fetch_loader_state(
+        mc_version: &str,
+        loader: Option<ModLoaderType>,
+    ) -> LoaderFetchResult {
+        let availability = Self::check_availability(mc_version).await;
+
+        let (versions, error) = match loader {
+            Some(lt) if availability.supports(lt) => {
+                match Self::get_loader_versions(lt, mc_version).await {
+                    Ok(v) => (v, None),
+                    Err(e) => (Vec::new(), Some(e.to_string())),
+                }
+            }
+            _ => (Vec::new(), None),
+        };
+
+        LoaderFetchResult {
+            availability,
+            versions,
+            error,
         }
     }
 
@@ -1062,5 +1092,27 @@ mod tests {
             .unwrap();
         assert!(!versions.is_empty());
         println!("Forge 1.20.4 versions: {:?}", versions);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_loader_state_returns_versions_for_available_loader() {
+        let result = ModLoaderApi::fetch_loader_state("1.20.4", Some(ModLoaderType::Fabric)).await;
+        assert!(result.availability.fabric);
+        assert!(!result.versions.is_empty());
+        assert!(result.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_loader_state_none_loader_returns_no_versions() {
+        let result = ModLoaderApi::fetch_loader_state("1.20.4", None).await;
+        assert!(result.versions.is_empty());
+        assert!(result.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_loader_state_unsupported_mc_returns_empty_versions_no_error() {
+        let result = ModLoaderApi::fetch_loader_state("1.12.2", Some(ModLoaderType::Fabric)).await;
+        assert!(result.versions.is_empty());
+        assert!(result.error.is_none());
     }
 }
