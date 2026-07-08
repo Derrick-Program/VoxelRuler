@@ -29,8 +29,15 @@ export struct InstanceData {
     status: string,
 }
 
+export struct LogLine {
+    text: string,
+    color: color,
+}
+
 export global AppData {
     in property <string> version: @tr("version not found");
+    in-out property <bool> network-checking: true;
+    in-out property <bool> is-online: false;
 }
 
 export global AppLogic {
@@ -160,9 +167,102 @@ export global InstanceLogic {
 
     in-out property <bool> show-log: false;
     in-out property <string> log-instance-id: "";
-    in-out property <[string]> log-lines: [];
+    in-out property <[LogLine]> log-lines: [];
     callback open-log(string);
     callback close-log();
+
+    callback open-instance-folder(string);
+    callback duplicate-instance(string);
+
+    in-out property <bool> show-rename: false;
+    in-out property <string> rename-id: "";
+    in-out property <string> rename-text: "";
+    in-out property <string> rename-error: "";
+    callback confirm-rename();
+
+    in-out property <bool> show-delete-confirm: false;
+    in-out property <string> delete-id: "";
+    in-out property <string> delete-name: "";
+    callback confirm-delete();
+}
+
+export struct InstanceFileEntry {
+    file-name: string,
+    info: string,
+    enabled: bool,
+}
+
+export struct WorldRow {
+    dir-name: string,
+    level-name: string,
+    info: string,
+}
+
+export struct ServerRow {
+    name: string,
+    ip: string,
+}
+
+export struct ScreenshotRow {
+    file-name: string,
+    thumb: image,
+}
+
+export global InstanceDetailLogic {
+    in-out property <bool> show-dialog: false;
+    in-out property <string> instance-id: "";
+    in-out property <string> instance-name: "";
+    in-out property <int> active-tab: 0;
+    in-out property <string> status-msg: "";
+
+    in-out property <[LogLine]> live-log-lines: [];
+    in-out property <bool> instance-running: false;
+
+    in-out property <string> version: "";
+    in-out property <string> mod-loader: "";
+    in-out property <[string]> version-list: [];
+    in-out property <string> selected-version: "";
+
+    in-out property <string> selected-mod-loader: "None";
+    in-out property <[string]> mod-loader-versions: [];
+    in-out property <string> selected-mod-loader-version: "";
+    in-out property <int> selected-loader-index: -1;
+    in-out property <bool> is-loader-loading: false;
+    in-out property <string> loader-load-error: "";
+    in-out property <bool> fabric-available: true;
+    in-out property <bool> forge-available: true;
+    in-out property <bool> neoforge-available: true;
+    callback loader-changed();
+
+    callback save();
+
+    in-out property <[InstanceFileEntry]> mods: [];
+    in-out property <[InstanceFileEntry]> resource-packs: [];
+    in-out property <[InstanceFileEntry]> shader-packs: [];
+    callback toggle-entry(string, string);
+    callback delete-entry(string, string);
+    callback add-entry(string);
+    in-out property <string> pending-delete-key: "";
+
+    in-out property <string> notes: "";
+    in-out property <string> notes-status: "";
+    callback save-notes();
+
+    in-out property <[WorldRow]> worlds: [];
+
+    in-out property <[ServerRow]> servers: [];
+
+    in-out property <[ScreenshotRow]> screenshots: [];
+
+    in-out property <[string]> other-logs: [];
+    in-out property <string> viewing-log-name: "";
+    in-out property <[string]> other-log-content: [];
+    callback view-log-file(string);
+
+    callback open-detail(string, int);
+    callback close-detail();
+    callback tab-changed(int);
+    callback open-subfolder(string);
 }
 
 export struct ModData {
@@ -181,7 +281,7 @@ export global ModLogic {
             name: "Sodium",
             mod_loader: "Fabric",
             author: "CaffeineMC",
-            description: "Sodium 是一款針對 Minecraft 客戶端的現代渲染引擎，可大幅提升幀率並修復圖形問題。透過重寫大量渲染代碼，在大多數硬體上都能顯著改善遊戲表現。",
+            description: @tr("Sodium is a modern rendering engine for the Minecraft client that greatly improves frame rates and fixes graphical issues."),
             image: Assets.cube,
         },
         {
@@ -189,7 +289,7 @@ export global ModLogic {
             name: "Lithium",
             mod_loader: "Fabric",
             author: "CaffeineMC",
-            description: "Lithium 是一款免費開源的 Minecraft 模組，可最佳化伺服器端的多個系統，包括物理引擎、AI 邏輯和資料結構，從而減少伺服器負擔並提高 TPS。",
+            description: @tr("Lithium is a free and open-source Minecraft optimization mod that improves server logic including physics, AI, and block ticking."),
             image: Assets.cube,
         },
         {
@@ -197,7 +297,7 @@ export global ModLogic {
             name: "Iris Shaders",
             mod_loader: "Fabric",
             author: "coderbot",
-            description: "Iris 是一款與 Sodium 相容的著色器模組，讓玩家可以使用 OptiFine 著色器包，同時保有 Sodium 帶來的效能優勢。支援絕大多數主流著色器包。",
+            description: @tr("Iris is a shaders mod compatible with Sodium, allowing players to use OptiFine shader packs while keeping the performance benefits of Sodium."),
             image: Assets.cube,
         },
         {
@@ -205,7 +305,7 @@ export global ModLogic {
             name: "JEI",
             mod_loader: "Forge",
             author: "mezz",
-            description: "Just Enough Items（JEI）是一款物品與合成表查詢工具。在遊戲物品欄介面中，你可以快速瀏覽所有可用物品及其合成方式，是模組包中的必備工具。",
+            description: @tr("Just Enough Items (JEI) is an item and recipe viewing mod."),
             image: Assets.cube,
         },
         {
@@ -213,7 +313,7 @@ export global ModLogic {
             name: "Waystones",
             mod_loader: "Forge",
             author: "BlayTheNinth",
-            description: "Waystones 新增可放置於世界中的路徑石，讓玩家和同服玩家能夠快速在已啟動的路徑石之間傳送，也可在村莊中自然生成。",
+            description: @tr("Waystones adds placeable stones that players can use to teleport between locations."),
             image: Assets.cube,
         },
         {
@@ -221,7 +321,7 @@ export global ModLogic {
             name: "AppleSkin",
             mod_loader: "Fabric",
             author: "squeek502",
-            description: "AppleSkin 為飢餓值介面增加了各種視覺改進，包括在物品欄中顯示食物的飢餓度和飽食度恢復量，以及當前飽食度的視覺提示。",
+            description: @tr("AppleSkin adds various visual improvements to the hunger HUD."),
             image: Assets.cube,
         },
         {
@@ -229,7 +329,7 @@ export global ModLogic {
             name: "JourneyMap",
             mod_loader: "Forge",
             author: "techbrew",
-            description: "JourneyMap 是一款即時地圖模組，可以在遊戲內或瀏覽器中查看。它會隨著你的探索自動繪製地圖，支援標記點、生物顯示和自動繪圖功能。",
+            description: @tr("JourneyMap is a real-time mapping mod that maps your Minecraft world as you explore."),
             image: Assets.cube,
         },
         {
@@ -237,7 +337,7 @@ export global ModLogic {
             name: "Create",
             mod_loader: "Forge",
             author: "simibubi",
-            description: "Create 模組提供了一套完整的工具和方塊，用於自動化、裝飾和機械化。圍繞著旋轉動力（Rotational Force）系統，讓玩家能建造精巧的機械裝置。",
+            description: @tr("Create offers a variety of tools and blocks for building, decoration and aesthetic automation."),
             image: Assets.cube,
         },
         {
@@ -245,7 +345,7 @@ export global ModLogic {
             name: "Mouse Tweaks",
             mod_loader: "Fabric",
             author: "YaLTeR",
-            description: "Mouse Tweaks 替換了標準的按住右鍵拖拽機制，增加了按住左鍵拖拽快速拿起物品的功能，極大地方便了物品欄的管理。",
+            description: @tr("Mouse Tweaks replaces the standard RMB dragging mechanic, adds two new LMB dragging mechanics and an ability to quickly move items with the scroll wheel."),
             image: Assets.cube,
         },
         {
@@ -253,7 +353,7 @@ export global ModLogic {
             name: "Sophisticated Backpacks",
             mod_loader: "Forge",
             author: "P3pp3rF1sh",
-            description: "這款背包模組不僅增加了可穿戴的背包，還提供了豐富的升級系統，如自動餵食、自動壓縮、過濾拾取等功能，還可以更換背包的外觀。",
+            description: @tr("This backpack mod adds wearable backpacks with upgrade systems like auto-feeding and auto-compression."),
             image: Assets.cube,
         },
         {
@@ -261,7 +361,7 @@ export global ModLogic {
             name: "Storage Drawers",
             mod_loader: "Forge",
             author: "Texelsaur",
-            description: "儲物抽屜提供了一種高度視覺化的物品儲存方案。你可以直接從抽屜正面看到存放的物品及其數量，非常適合整理大量單一種類的資源。",
+            description: @tr("Storage Drawers provides a highly visual storage solution."),
             image: Assets.cube,
         },
         {
@@ -269,7 +369,7 @@ export global ModLogic {
             name: "Biomes O' Plenty",
             mod_loader: "Forge",
             author: "Forstride",
-            description: "一個龐大的生物群系模組，為 Minecraft 世界增加了許多獨特且美麗的生物群系，並附帶相應的新植物、花卉、樹木和其他方塊。",
+            description: @tr("A massive biome mod that adds many unique and beautiful biomes."),
             image: Assets.cube,
         },
         {
@@ -277,7 +377,7 @@ export global ModLogic {
             name: "Quark",
             mod_loader: "Forge",
             author: "Vazkii",
-            description: "Quark 是一個旨在改進原版遊戲體驗的模組。它由許多小功能組成，涵蓋了建築、裝飾、工具和遊戲機制等多個方面，所有功能都可自由開啟或關閉。",
+            description: @tr("Quark is a mod for Minecraft aiming to improve the vanilla experience with small additions."),
             image: Assets.cube,
         },
         {
@@ -285,7 +385,7 @@ export global ModLogic {
             name: "Botania",
             mod_loader: "Forge",
             author: "Vazkii",
-            description: "這是一款以自然魔法為主題的技術模組。核心機制是利用各種花卉產生的「法力」（Mana）來驅動各種魔法設備，具有獨特的自動化邏輯和精美的視覺效果。",
+            description: @tr("A tech mod themed around natural magic. The core mechanic is using Mana generated by flowers."),
             image: Assets.cube,
         }
     ];
@@ -298,7 +398,7 @@ export global ModLogic {
 export global PageAccountLogic {
     in-out property <bool> is_logging_in: false;
     in-out property <string> login_url: "";
-    in-out property <string> login_status_text: "正在初始化驗證程序...";
+    in-out property <string> login_status_text: @tr("Initializing authentication...");
     in-out property <bool> is_error: false;
     in-out property <bool> show_offline_dialog: false;
     in-out property <string> offline_username: "";
@@ -334,29 +434,154 @@ export global PageAccountLogic {
     manage-appearance => { debug("Manage appearance"); }
 }
 
+export global InstanceEditLogic {
+    in-out property <bool>     show-dialog: false;
+    in-out property <string>   instance-id: "";
+    in-out property <string>   instance-name: "";
+    in-out property <string>   xmx: "2G";
+    in-out property <string>   xms: "512M";
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    in-out property <[string]> detected-java-list: [];
+    in-out property <string>   java-path: "";
+    in-out property <string>   error-msg: "";
+
+    callback confirm-edit();
+    callback cancel-edit();
+    callback browse-java();
+}
+
+export global SettingsLogic {
+    in-out property <[string]> java-mode-list: [];
+    in-out property <string>   selected-java-mode: "";
+    in-out property <[string]> detected-java-list: [];
+    in-out property <string>   java-path: "";
+    in-out property <string>   status-msg: "";
+    in-out property <[string]> sort-mode-list: [];
+    in-out property <string>   selected-sort-mode: "";
+    in-out property <bool>     sort-ascending: false;
+
+    callback save-settings();
+    callback browse-java();
+    callback sort-changed();
+}
+export struct CapeData {
+    id: string,
+    alias: string,
+    state: string,
+    url: string,
+    preview: image,
+}
+
+export struct SkinData {
+    id: string,
+    name: string,
+    variant: string,
+    url: string,
+    preview-image: image,
+    has-preview: bool,
+}
+
+export global AppearanceLogic {
+    in-out property <bool>   show-appearance: false;
+    in-out property <bool>   is-uploading: false;
+    in-out property <string> upload-status: "";
+    in-out property <bool>   upload-is-error: false;
+    in-out property <string> skin-url: "";
+    in-out property <string> selected-skin-path: "";
+    in-out property <string> skin-variant: "classic";
+    in-out property <image>  preview-image;
+    in-out property <bool>   has-preview: false;
+    in-out property <string> active-skin-url: "";
+    in-out property <string> selected-library-skin-url: "";
+    in-out property <string> new-skin-name: "";
+
+    in-out property <[CapeData]> capes: [];
+    in-out property <bool>   has-capes: false;
+    in-out property <string>   active-cape-id: "";
+    in-out property <string>   selected-cape-id: "";
+    in-out property <string>   selected-cape-name: @tr("No Cape");
+    in-out property <image>    selected-cape-preview;
+
+    in-out property <[SkinData]> skin-history: [];
+    in-out property <bool>   has-skin-history: false;
+
+    in-out property <bool>   show-result-dialog: false;
+
+    in-out property <float>  preview-yaw: 30.0;
+    in-out property <float>  preview-pitch: 15.0;
+    in-out property <float>  preview-time: 0.0;
+    in-out property <float>  base-yaw: 30.0;
+    in-out property <float>  base-pitch: 15.0;
+
+    callback close-appearance();
+    callback browse-skin-file();
+    callback upload-from-file();
+    callback upload-from-url(string);
+    callback preview-library-skin(string);
+    callback save-to-library();
+    callback select-cape(string);
+    callback apply-cape(string);
+    callback apply-history-skin(SkinData);
+    callback delete-skin(string);
+    callback close-result-dialog();
+    callback preview-drag-started();
+    callback preview-dragged(float, float);
+    callback preview-drag-ended();
+    
+    callback apply-appearance();
+
+    close-appearance    => { debug("Close appearance"); }
+    browse-skin-file    => { debug("Browse skin file"); }
+    upload-from-file    => { debug("Upload from file"); }
+    upload-from-url(u)  => { debug("Upload from url: " + u); }
+    delete-skin(id)     => { debug("Delete skin: " + id); }
+    close-result-dialog => { show-result-dialog = false; }
+}
+
 export global InstanceCreateLogic {
-    // Dialog control
     in-out property <bool>     show-dialog: false;
     in-out property <int>      active-tab: 0;
-    // Basic Tab
     in-out property <string>   name: "";
     in-out property <[string]> version-list: [];
     in-out property <string>   selected-version: "";
+    in-out property <string>   latest-release-id: "";
     in-out property <string>   mod-loader: "None";
 
-    // Advanced Tab
+    in-out property <string>   version-search-text: "";
+    in-out property <bool>     show-release: true;
+    in-out property <bool>     show-snapshot: false;
+    in-out property <bool>     show-beta: false;
+    in-out property <bool>     show-alpha: false;
+    in-out property <bool>     show-experimental: false;
+    callback filter-versions();
+
     in-out property <string>   xmx: "2G";
     in-out property <string>   xms: "512M";
     in-out property <bool>     logs-enabled: true;
 
-    // Resources Tab
     in-out property <string>   world-path: "";
     in-out property <string>   resource-pack: "";
     in-out property <string>   shader-pack: "";
+    callback browse-world-path();
+    callback browse-resource-pack();
+    callback browse-shader-pack();
 
-    // State
     in-out property <string>   error-msg: "";
     in-out property <bool>     is-loading: false;
+    in-out property <string>   version-load-error: "";
+
+    in-out property <[string]> mod-loader-versions: [];
+    in-out property <string>   selected-mod-loader-version: "";
+    in-out property <bool>     is-loader-loading: false;
+    in-out property <string>   loader-load-error: "";
+    in-out property <bool>     fabric-available: true;
+    in-out property <bool>     forge-available: true;
+    in-out property <bool>     neoforge-available: true;
+    callback loader-changed();
+
+    in-out property <int> selected-version-index: -1;
+    in-out property <int> selected-loader-index: -1;
 
     callback confirm-create();
     callback cancel-create();

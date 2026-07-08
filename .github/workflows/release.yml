@@ -1,0 +1,224 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      manual_tag:
+        description: '手動發布的 Tag 名稱'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: write
+
+jobs:
+  verify-main:
+    name: 🔍 Verify tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check tag commit is reachable from main
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main 2>/dev/null; then
+            echo "✅ Tag commit is on main branch"
+          else
+            echo "❌ Tag commit is NOT on main branch"
+            exit 1
+          fi
+
+  build-linux:
+    name: 📦 Package — Linux
+    needs: verify-main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential pkg-config libssl-dev file binutils patchelf \
+            squashfs-tools fakeroot desktop-file-utils libfuse2 wget curl git \
+            shared-mime-info xdg-user-dirs libfontconfig1-dev libfreetype6-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: linux-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: linux-cargo-
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package (Linux)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          NO_STRIP: "1"
+        run: cargo packager --release
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: dist/
+          retention-days: 1
+
+      - name: 🧹 Cleanup runner
+        if: always()
+        run: rm -rf target/ dist/
+
+  build-windows:
+    name: 📦 Package — Windows
+    needs: verify-main
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-cargo-
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package (Windows)
+        run: cargo packager --release
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+          retention-days: 1
+
+      - name: 🧹 Cleanup runner
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($dir in @('target', 'dist')) {
+            if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          }
+          $cargoGit = Join-Path $env:USERPROFILE ".cargo\git\checkouts"
+          if (Test-Path $cargoGit) { Remove-Item -Recurse -Force $cargoGit }
+
+  build-macos:
+    name: 📦 Package — macOS
+    needs: verify-main
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-cargo-
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package (macOS)
+        run: cargo packager --release
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/
+          retention-days: 1
+
+      - name: 🧹 Cleanup runner
+        if: always()
+        run: rm -rf target/ dist/
+
+  release:
+    name: 🚀 Create GitHub Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.manual_tag != ''
+    steps:
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-dist
+          path: ./release-artifacts
+
+      - name: Download Windows packages
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: ./release-artifacts
+
+      - name: Download macOS packages
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dist
+          path: ./release-artifacts
+
+      - name: List all release files
+        run: |
+          echo "=== Release files ==="
+          find ./release-artifacts -type f | sort
+
+      - name: Determine release tag and name
+        id: release-meta
+        env:
+          MANUAL_TAG: ${{ github.event.inputs.manual_tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="${MANUAL_TAG:-$REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "title=VoxelRuler $TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *"-"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release-meta.outputs.tag }}
+          name: ${{ steps.release-meta.outputs.title }}
+          draft: false
+          prerelease: ${{ steps.release-meta.outputs.prerelease }}
+          files: ./release-artifacts/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧹 Cleanup runner
+        if: always()
+        run: rm -rf ./release-artifacts/

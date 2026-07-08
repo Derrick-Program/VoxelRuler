@@ -9,13 +9,22 @@ use std::sync::LazyLock;
 use tracing::{debug, info};
 use url::Url;
 
+mod instance_assets;
+mod ipc;
+mod java_scan;
 mod mc_api;
+mod mc_compat;
 mod mc_install;
 mod mc_instance;
+mod mc_legacy_fml;
+mod mc_modloader;
 mod mc_parser;
 mod mc_paths;
 mod mc_token;
 mod mc_types;
+mod settings;
+mod skin_history;
+mod skin_renderer;
 #[cfg(target_os = "macos")]
 mod url_handler;
 mod view;
@@ -74,83 +83,11 @@ static GLOBAL_CACHE: LazyLock<DashMap<String, String>> = LazyLock::new(DashMap::
 static PROJECT_DIR: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("com", "Duacodie", "VoxelRuler"));
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // ── Deep Link 處理 ────────────────────────────────────────────────────
-    //
-    // macOS：URL scheme 透過 Apple Events 傳遞，不走 argv。
-    //        在 Slint event loop 啟動前向 NSAppleEventManager 註冊 handler，
-    //        收到 URL 後透過 channel 傳至此 async task。
-    //
-    // Windows / Linux：cargo-packager 會將 URL 以 argv[1] 傳入，
-    //                  直接從 args 解析即可。
-    #[cfg(target_os = "macos")]
-    let mut deep_link_rx = url_handler::register();
-
-    #[cfg(target_os = "macos")]
-    tokio::spawn(async move {
-        while let Some(url) = deep_link_rx.recv().await {
-            debug!(url = %url, "deep link channel 收到 URL");
-            match DeepLinkAction::parse_string(&url) {
-                DeepLinkAction::MicrosoftAuth(auth_data) => {
-                    debug!(
-                        code = %auth_data.code,
-                        state = ?auth_data.state,
-                        "收到 Microsoft OAuth deep link（Apple Events）"
-                    );
-                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
-                }
-                DeepLinkAction::Unknown => {
-                    debug!("收到未知的 VoxelRuler deep link，略過");
-                }
-            }
-        }
-    });
-
-    // Windows / Linux：URL scheme 以 argv[1] 傳入
-    #[cfg(not(target_os = "macos"))]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        if args.len() > 1 {
-            debug!("收到啟動參數：{:#?}", args);
-            match DeepLinkAction::parse_string(&args[1]) {
-                DeepLinkAction::MicrosoftAuth(auth_data) => {
-                    debug!(
-                        code = %auth_data.code,
-                        state = ?auth_data.state,
-                        "收到 Microsoft OAuth deep link（argv）"
-                    );
-                    // TODO M2：呼叫 token exchange，更新 GLOBAL_CACHE
-                }
-                DeepLinkAction::Unknown => {
-                    debug!("收到未知的 VoxelRuler 指令");
-                }
-            }
-        }
-    }
-    // ── Logging 模式 ──────────────────────────────────────────
-    //
-    //  【預設（不設 RUST_LOG）】
-    //    debug build   → voxelruler=debug  只看自己 app 的 debug+
-    //    release build → voxelruler=info   只看自己 app 的 info+
-    //
-    //  【看所有 crate】
-    //    RUST_LOG=debug / RUST_LOG=info
-    //
-    //  【混合模式】
-    //    RUST_LOG=voxelruler=debug,reqwest=warn,tokio=info
-    //
-    //  Log 檔案位置（release）：
-    //    macOS   → ~/Library/Logs/VoxelRuler/voxelruler.log
-    //    Windows → %APPDATA%\Duacodie\VoxelRuler\logs\voxelruler.log
-    //    Linux   → ~/.local/share/VoxelRuler/voxelruler.log
-    //    即時查看：tail -f <上述路徑>
-    // ──────────────────────────────────────────────────────────
+fn setup_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-    // release build：寫入 log 檔案
     #[cfg(not(debug_assertions))]
-    let _file_guard = {
+    {
         let log_dir = PROJECT_DIR
             .as_ref()
             .map(|d| d.data_dir().to_path_buf())
@@ -158,26 +95,76 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&log_dir).ok();
         let file_appender = tracing_appender::rolling::never(&log_dir, "voxelruler.log");
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-        let filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("voxelruler=info"));
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=info"))
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
             .init();
-        guard
-    };
+        Some(guard)
+    }
 
-    // debug build：輸出到 terminal + tokio-console
     #[cfg(debug_assertions)]
     {
         let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"));
+            .unwrap_or_else(|_| EnvFilter::new("voxelruler=debug"))
+            .add_directive("icu_provider=off".parse().expect("有效的 filter directive"));
         tracing_subscriber::registry()
             .with(filter)
             .with(tracing_subscriber::fmt::layer())
             .with(console_subscriber::spawn())
             .init();
+        None
     }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let (deep_link_tx, mut deep_link_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let is_main = ipc::setup_ipc(deep_link_tx.clone()).await;
+    if !is_main {
+        std::process::exit(0);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut mac_rx = url_handler::register();
+        let tx_clone = deep_link_tx.clone();
+        tokio::spawn(async move {
+            while let Some(url) = mac_rx.recv().await {
+                let _ = tx_clone.send(url);
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.len() > 1 && args[1].starts_with("voxelruler://") {
+            let _ = deep_link_tx.send(args[1].clone());
+        }
+    }
+
+    tokio::spawn(async move {
+        while let Some(url) = deep_link_rx.recv().await {
+            debug!(url = %url, "deep link channel received URL");
+            match DeepLinkAction::parse_string(&url) {
+                DeepLinkAction::MicrosoftAuth(auth_data) => {
+                    debug!(
+                        code = %auth_data.code,
+                        state = ?auth_data.state,
+                        "Received Microsoft OAuth deep link"
+                    );
+                }
+                DeepLinkAction::Unknown => {
+                    debug!("Received unknown VoxelRuler deep link, skipping");
+                }
+            }
+        }
+    });
+    let _file_guard = setup_logging();
     let token_init_attempt = match mc_token::SessionData::load_session() {
         Ok(Some(s)) => {
             if *s.mc_token_expires_at() >= chrono::Utc::now().timestamp() {
@@ -199,6 +186,10 @@ async fn main() -> anyhow::Result<()> {
     let has_token = GLOBAL_CACHE.get("mc_ac_key").is_some();
     info!(authenticated = has_token, "token 狀態載入完成");
     open_view().await?;
+
+    #[cfg(unix)]
+    ipc::cleanup();
+
     Ok(())
 }
 

@@ -1,0 +1,858 @@
+import { AppTheme } from "@theme";
+import { AppearanceLogic } from "@global";
+import { LineEdit, Button } from "std-widgets.slint";
+
+export component AppearanceWindow inherits Window {
+    title: @tr("Appearance");
+    width: 860px;
+    height: 580px;
+    background: AppTheme.colors.background;
+    icon: @image-url("../../assets/icons/voxelruler.png");
+
+    property <bool> show-add-skin: false;
+
+    if !show-add-skin: HorizontalLayout {
+        padding-top: 32px;
+        padding-bottom: 32px;
+        padding-left: 32px;
+        padding-right: 32px;
+
+        VerticalLayout {
+            width: 240px;
+            spacing: 14px;
+            alignment: start;
+
+            Text {
+                text: @tr("Preview Appearance");
+                font-size: 11px;
+                font-weight: 700;
+                color: AppTheme.colors.muted-foreground;
+            }
+
+            Rectangle {
+                height: 280px;
+                border-radius: AppTheme.radius-lg;
+                background: AppTheme.colors.muted;
+                clip: true;
+
+                VerticalLayout {
+                    opacity: !AppearanceLogic.has-preview ? 1.0 : 0.0;
+                    animate opacity { duration: 300ms; }
+                    alignment: center;
+                    spacing: 8px;
+                    Text {
+                        text: "?";
+                        font-size: 40px;
+                        color: AppTheme.colors.muted-foreground;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: @tr("No Preview");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                TouchArea {
+                    width: 100%; height: 100%;
+                    opacity: AppearanceLogic.has-preview ? 1.0 : 0.0;
+                    animate opacity { duration: 300ms; }
+                    Image {
+                        source: AppearanceLogic.preview-image;
+                        width: parent.width;
+                        height: parent.height;
+                        image-fit: contain;
+                    }
+                    moved => {
+                        AppearanceLogic.preview-dragged(
+                            (self.mouse-x - self.pressed-x) / 1px,
+                            (self.mouse-y - self.pressed-y) / 1px
+                        );
+                    }
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            AppearanceLogic.preview-drag-started();
+                        }
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                            AppearanceLogic.preview-drag-ended();
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: cur-variant-text.preferred-width + 18px;
+                        height: 24px;
+                        border-radius: 12px;
+                        background: AppTheme.colors.secondary;
+                        cur-variant-text := Text {
+                            text: AppearanceLogic.skin-variant == "slim"
+                                ? @tr("Alex (Slim)")
+                                : @tr("Steve (Classic)");
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Text {
+                    text: @tr("Drag to rotate");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                }
+                Rectangle { height: 4px; }
+                if AppearanceLogic.has-capes: VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Cape Settings");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        width: 200px;
+                        height: 38px;
+                        border-radius: AppTheme.radius-sm;
+                        border-width: 1px;
+                        border-color: dropdown-ta.has-hover ? AppTheme.colors.primary : AppTheme.colors.border;
+                        background: AppTheme.colors.muted;
+                        
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 8px;
+                            alignment: start;
+                            
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: 4px;
+                                clip: true;
+                                if AppearanceLogic.selected-cape-id != "": Image {
+                                    source: AppearanceLogic.selected-cape-preview;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    image-fit: contain;
+                                }
+                            }
+                            
+                            Text {
+                                text: AppearanceLogic.selected-cape-name;
+                                color: AppTheme.colors.foreground;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                        }
+                        
+                        Text {
+                            x: parent.width - 24px;
+                            y: (parent.height - self.height) / 2;
+                            text: "▼";
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 10px;
+                        }
+                        
+                        dropdown-ta := TouchArea {
+                            enabled: !AppearanceLogic.is-uploading;
+                            clicked => { popup.show(); }
+                        }
+                        
+                        popup := PopupWindow {
+                            width: 200px;
+                            x: 0;
+                            y: -min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px) - 4px;
+                            Rectangle {
+                                border-radius: AppTheme.radius-sm;
+                                border-width: 1px;
+                                border-color: AppTheme.colors.border;
+                                background: AppTheme.colors.background;
+                                drop-shadow-color: #000000.with-alpha(0.3);
+                                drop-shadow-blur: 8px;
+                                drop-shadow-offset-y: 4px;
+                                height: min((AppearanceLogic.capes.length + 1) * 38px + 8px, 8 * 38px + 8px);
+                                
+                                Flickable {
+                                    viewport-height: (AppearanceLogic.capes.length + 1) * 38px + 8px;
+                                    VerticalLayout {
+                                        padding: 4px;
+                                        spacing: 2px;
+                                        alignment: start;
+                                        
+                                        Rectangle {
+                                            height: 36px;
+                                            border-radius: 4px;
+                                            background: no-cape-item-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                                            HorizontalLayout {
+                                                padding-left: 12px;
+                                                padding-top: 6px;
+                                                padding-bottom: 6px;
+                                                spacing: 12px;
+                                                alignment: start;
+                                                Rectangle { width: 24px; }
+                                                Text {
+                                                    text: @tr("No Cape");
+                                                    color: AppearanceLogic.selected-cape-id == "" ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                                    font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            no-cape-item-ta := TouchArea {
+                                                clicked => {
+                                                    AppearanceLogic.select-cape("");
+                                                    popup.close();
+                                                }
+                                            }
+                                        }
+                                        
+                                        for cape in AppearanceLogic.capes: Rectangle {
+                                            height: 36px;
+                                            border-radius: 4px;
+                                            background: cape-item-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                                            HorizontalLayout {
+                                                padding-left: 12px;
+                                                padding-top: 6px;
+                                                padding-bottom: 6px;
+                                                spacing: 12px;
+                                                alignment: start;
+                                                Image {
+                                                    source: cape.preview;
+                                                    width: 24px;
+                                                    height: 24px;
+                                                    image-fit: contain;
+                                                }
+                                                Text {
+                                                    text: cape.alias != "" ? cape.alias : cape.id;
+                                                    color: AppearanceLogic.selected-cape-id == cape.id ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                                    font-size: 13px;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            cape-item-ta := TouchArea {
+                                                clicked => {
+                                                    AppearanceLogic.select-cape(cape.id);
+                                                    popup.close();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Rectangle { height: 16px; }
+                Button {
+                    primary: true;
+                    text: AppearanceLogic.is-uploading ? @tr("Applying...") : @tr("Apply Appearance Changes");
+                    enabled: !AppearanceLogic.is-uploading && ((AppearanceLogic.selected-library-skin-url != "" && AppearanceLogic.selected-library-skin-url != AppearanceLogic.active-skin-url) || AppearanceLogic.selected-cape-id != AppearanceLogic.active-cape-id);
+                    clicked => {
+                        AppearanceLogic.apply-appearance();
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            Rectangle {
+                width: 1px;
+                background: AppTheme.colors.border;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 14px;
+
+            HorizontalLayout {
+                Text {
+                    text: @tr("Skin Library");
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: AppTheme.colors.muted-foreground;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: add-btn-label.preferred-width + 24px;
+                    height: 30px;
+                    border-radius: AppTheme.radius-sm;
+                    background: add-btn-ta.has-hover
+                        ? AppTheme.colors.primary
+                        : AppTheme.colors.secondary;
+                    add-btn-ta := TouchArea {
+                        clicked => { root.show-add-skin = true; }
+                    }
+                    add-btn-label := Text {
+                        text: @tr("+ Add Appearance");
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: add-btn-ta.has-hover
+                            ? AppTheme.colors.primary-foreground
+                            : AppTheme.colors.secondary-foreground;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            skin-grid := Flickable {
+                vertical-stretch: 1;
+                property <length> item-w: 140px;
+                property <length> item-h: 240px;
+                property <length> spacing: 16px;
+                property <int> cols: Math.max(1, Math.floor((self.width + self.spacing) / (self.item-w + self.spacing)));
+                
+                viewport-height: Math.ceil(AppearanceLogic.skin-history.length / Math.max(1.0, self.cols * 1.0)) * (self.item-h + self.spacing) + 8px;
+
+                Rectangle {
+                    width: skin-grid.width;
+                    height: skin-grid.viewport-height;
+
+                    for skin[idx] in AppearanceLogic.skin-history: VerticalLayout {
+                        x: Math.mod(idx, skin-grid.cols) * (skin-grid.item-w + skin-grid.spacing) + 4px;
+                        y: Math.floor(idx / skin-grid.cols) * (skin-grid.item-h + skin-grid.spacing) + 4px;
+                        width: skin-grid.item-w;
+                        height: skin-grid.item-h;
+                        spacing: 8px;
+                        alignment: start;
+
+                        Text {
+                            text: skin.name != "" ? skin.name : @tr("Unnamed Appearance");
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: AppTheme.colors.foreground;
+                            horizontal-alignment: center;
+                            vertical-alignment: bottom;
+                            overflow: elide;
+                            width: parent.width;
+                            height: 20px;
+                        }
+
+                        Rectangle {
+                            width: 140px;
+                            height: 200px;
+                            border-radius: AppTheme.radius-md;
+                            background: skin-card-ta.has-hover
+                                ? AppTheme.colors.secondary
+                                : AppTheme.colors.card;
+
+                            if AppearanceLogic.selected-library-skin-url == skin.url: Rectangle {
+                                x: -2px; y: -2px;
+                                width: parent.width + 4px;
+                                height: parent.height + 4px;
+                                border-radius: AppTheme.radius-md + 2px;
+                                border-width: 2px;
+                                border-color: AppTheme.mc-green;
+                                background: transparent;
+                            }
+
+                            if skin.has-preview: Image {
+                                source: skin.preview-image;
+                                width: 100%; height: 100%;
+                                image-fit: contain;
+                            }
+                            if !skin.has-preview: Text {
+                                text: "?";
+                                font-size: 28px;
+                                color: AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                x: 6px;
+                                y: parent.height - 25px;
+                                width: 44px;
+                                height: 18px;
+                                border-radius: 9px;
+                                background: #000000.with-alpha(0.55);
+                                Text {
+                                    text: skin.variant == "slim" ? "Alex" : "Steve";
+                                    color: #ffffff;
+                                    font-size: 10px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            skin-card-ta := TouchArea {
+                                clicked => {
+                                    AppearanceLogic.skin-variant = skin.variant;
+                                    AppearanceLogic.selected-library-skin-url = skin.url;
+                                    AppearanceLogic.preview-library-skin(skin.url);
+                                }
+                            }
+
+                            if AppearanceLogic.active-skin-url != skin.url: Rectangle {
+                                x: parent.width - 28px;
+                                y: 6px;
+                                width: 22px;
+                                height: 22px;
+                                border-radius: 11px;
+                                opacity: skin-card-ta.has-hover || del-ta.has-hover ? 1.0 : 0.0;
+                                animate opacity { duration: 150ms; }
+                                background: del-ta.has-hover
+                                    ? AppTheme.colors.destructive
+                                    : #000000.with-alpha(0.3);
+                                del-ta := TouchArea {
+                                    clicked => { AppearanceLogic.delete-skin(skin.id); }
+                                }
+                                Text {
+                                    text: "×";
+                                    color: del-ta.has-hover ? #ffffff : #ffffff.with-alpha(0.6);
+                                    font-size: 14px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        }
+                    }
+                }
+            }
+        }
+
+    if show-add-skin: VerticalLayout {
+        padding-top: 32px;
+        padding-bottom: 32px;
+        padding-left: 32px;
+        padding-right: 32px;
+        spacing: 24px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            height: 32px;
+
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                border-radius: AppTheme.radius-sm;
+                background: back-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                back-ta := TouchArea {
+                    clicked => { root.show-add-skin = false; }
+                }
+                Text {
+                    text: "←";
+                    font-size: 16px;
+                    color: back-ta.has-hover
+                        ? AppTheme.colors.foreground
+                        : AppTheme.colors.muted-foreground;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: @tr("Add Appearance");
+                font-size: 20px;
+                font-weight: 700;
+                color: AppTheme.colors.foreground;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 48px;
+
+            VerticalLayout {
+                width: 320px;
+                spacing: 20px;
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Name");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    LineEdit {
+                        placeholder-text: @tr("Name this appearance...");
+                        text <=> AppearanceLogic.new-skin-name;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Player Model");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: start;
+
+                        Rectangle {
+                            height: 40px;
+                            width: classic-row.preferred-width + 20px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppearanceLogic.skin-variant == "classic"
+                                ? AppTheme.mc-green : AppTheme.colors.border;
+                            background: AppearanceLogic.skin-variant == "classic"
+                                ? AppTheme.mc-green.with-alpha(0.1)
+                                : classic-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                            classic-ta := TouchArea {
+                                clicked => { AppearanceLogic.skin-variant = "classic"; }
+                            }
+                            classic-row := HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+                                padding: 10px;
+                                Rectangle {
+                                    width: 14px; height: 14px; border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: AppearanceLogic.skin-variant == "classic"
+                                        ? AppTheme.mc-green : AppTheme.colors.muted-foreground;
+                                    background: transparent;
+                                    if AppearanceLogic.skin-variant == "classic": Rectangle {
+                                        width: 6px; height: 6px; x: 2px; y: 2px;
+                                        border-radius: 3px;
+                                        background: AppTheme.mc-green;
+                                    }
+                                }
+                                Text {
+                                    text: @tr("Classic (Steve)");
+                                    color: AppearanceLogic.skin-variant == "classic"
+                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 40px;
+                            width: slim-row.preferred-width + 20px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppearanceLogic.skin-variant == "slim"
+                                ? AppTheme.mc-green : AppTheme.colors.border;
+                            background: AppearanceLogic.skin-variant == "slim"
+                                ? AppTheme.mc-green.with-alpha(0.1)
+                                : slim-ta.has-hover ? AppTheme.colors.secondary : transparent;
+                            slim-ta := TouchArea {
+                                clicked => { AppearanceLogic.skin-variant = "slim"; }
+                            }
+                            slim-row := HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+                                padding: 10px;
+                                Rectangle {
+                                    width: 14px; height: 14px; border-radius: 7px;
+                                    border-width: 2px;
+                                    border-color: AppearanceLogic.skin-variant == "slim"
+                                        ? AppTheme.mc-green : AppTheme.colors.muted-foreground;
+                                    background: transparent;
+                                    if AppearanceLogic.skin-variant == "slim": Rectangle {
+                                        width: 6px; height: 6px; x: 2px; y: 2px;
+                                        border-radius: 3px;
+                                        background: AppTheme.mc-green;
+                                    }
+                                }
+                                Text {
+                                    text: @tr("Slim (Alex)");
+                                    color: AppearanceLogic.skin-variant == "slim"
+                                        ? AppTheme.mc-green : AppTheme.colors.foreground;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: @tr("Skin File");
+                        color: AppTheme.colors.muted-foreground;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+
+                    Rectangle {
+                        height: 76px;
+                        border-radius: AppTheme.radius-md;
+                        border-width: 1px;
+                        border-color: AppearanceLogic.selected-skin-path != ""
+                            ? AppTheme.mc-green
+                            : upload-zone-ta.has-hover ? AppTheme.colors.primary : AppTheme.colors.border;
+                        background: upload-zone-ta.has-hover
+                            ? AppTheme.colors.primary.with-alpha(0.06)
+                            : AppTheme.colors.muted;
+                        upload-zone-ta := TouchArea {
+                            clicked => { AppearanceLogic.browse-skin-file(); }
+                        }
+                        if AppearanceLogic.selected-skin-path == "": VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text {
+                                text: "↑";
+                                font-size: 18px;
+                                color: upload-zone-ta.has-hover
+                                    ? AppTheme.colors.primary : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: @tr("Click to select a PNG skin file");
+                                font-size: 13px;
+                                color: upload-zone-ta.has-hover
+                                    ? AppTheme.colors.primary : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                            }
+                        }
+                        if AppearanceLogic.selected-skin-path != "": VerticalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            Text {
+                                text: "✓";
+                                font-size: 18px;
+                                color: AppTheme.mc-green;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: @tr("Skin file selected");
+                                font-size: 13px;
+                                color: AppTheme.mc-green;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        padding-top: 4px;
+                        Rectangle {
+                            width: url-opt-label.preferred-width + 24px;
+                            height: 32px;
+                            border-radius: AppTheme.radius-sm;
+                            border-width: 1px;
+                            border-color: AppTheme.colors.border;
+                            background: url-opt-ta.has-hover
+                                ? AppTheme.colors.secondary : transparent;
+                            url-opt-ta := TouchArea {
+                                clicked => { url-popup.show(); }
+                            }
+                            url-opt-label := Text {
+                                text: @tr("Or import from URL");
+                                font-size: 12px;
+                                color: url-opt-ta.has-hover
+                                    ? AppTheme.colors.foreground : AppTheme.colors.muted-foreground;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    text: @tr("Preview");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                Rectangle {
+                    width: 200px;
+                    height: 300px;
+                    border-radius: AppTheme.radius-lg;
+                    background: AppTheme.colors.muted;
+                    clip: true;
+
+                    VerticalLayout {
+                        opacity: !AppearanceLogic.has-preview ? 1.0 : 0.0;
+                        animate opacity { duration: 300ms; }
+                        alignment: center;
+                        spacing: 8px;
+                        Text {
+                            text: "?";
+                            font-size: 36px;
+                            color: AppTheme.colors.muted-foreground;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: @tr("No Preview");
+                            color: AppTheme.colors.muted-foreground;
+                            font-size: 13px;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        width: 100%; height: 100%;
+                        opacity: AppearanceLogic.has-preview ? 1.0 : 0.0;
+                        animate opacity { duration: 300ms; }
+                        Image {
+                            source: AppearanceLogic.preview-image;
+                            width: parent.width;
+                            height: parent.height;
+                            image-fit: contain;
+                        }
+                        moved => {
+                            AppearanceLogic.preview-dragged(
+                                (self.mouse-x - self.pressed-x) / 1px,
+                                (self.mouse-y - self.pressed-y) / 1px
+                            );
+                        }
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                AppearanceLogic.preview-drag-started();
+                            }
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                AppearanceLogic.preview-drag-ended();
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: @tr("Drag to rotate");
+                    color: AppTheme.colors.muted-foreground;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            alignment: end;
+            HorizontalLayout {
+                alignment: end;
+                spacing: 12px;
+                Button {
+                    text: @tr("Cancel");
+                    clicked => { root.show-add-skin = false; }
+                }
+                Button {
+                    primary: true;
+                    text: @tr("Add to Skin Library");
+                    enabled: !AppearanceLogic.is-uploading
+                        && (AppearanceLogic.selected-skin-path != "" || AppearanceLogic.skin-url != "");
+                    clicked => {
+                        AppearanceLogic.save-to-library();
+                        root.show-add-skin = false;
+                    }
+                }
+            }
+        }
+    }
+
+    url-popup := PopupWindow {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 320px;
+        height: 148px;
+        Rectangle {
+            background: AppTheme.colors.card;
+            border-radius: AppTheme.radius-lg;
+            border-width: 1px;
+            border-color: AppTheme.colors.border;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: @tr("Please enter skin URL");
+                    color: AppTheme.colors.foreground;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+                url-input := LineEdit {
+                    placeholder-text: "https://...";
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => { url-popup.close(); }
+                    }
+                    Button {
+                        primary: true;
+                        text: @tr("Import");
+                        clicked => {
+                            AppearanceLogic.skin-url = url-input.text;
+                            AppearanceLogic.upload-from-url(url-input.text);
+                            url-popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if AppearanceLogic.show-result-dialog: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000.with-alpha(0.5);
+
+        TouchArea { }
+
+        Rectangle {
+            width: 300px;
+            height: 160px;
+            border-radius: AppTheme.radius-lg;
+            background: AppTheme.colors.card;
+            border-width: 1px;
+            border-color: AppTheme.colors.border;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                alignment: space-between;
+
+                Text {
+                    text: AppearanceLogic.upload-is-error ? @tr("Upload failed") : @tr("Upload successful");
+                    color: AppearanceLogic.upload-is-error
+                        ? AppTheme.colors.destructive : AppTheme.mc-green;
+                    font-size: 16px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: AppearanceLogic.upload-status;
+                    color: AppTheme.colors.foreground;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    Button {
+                        text: @tr("OK");
+                        clicked => {
+                            AppearanceLogic.close-result-dialog();
+                            if !AppearanceLogic.upload-is-error {
+                                AppearanceLogic.close-appearance();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

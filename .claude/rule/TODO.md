@@ -1,6 +1,6 @@
 # VoxelRuler 專案進度追蹤
 
-> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-05-27  
+> 專案期限：2026-06-30 | 成員：Derrick、mlask | 最後更新：2026-07-08  
 > 詳細分工 → `.claude/docs/task-assignment.md`
 
 ---
@@ -76,8 +76,11 @@
 
 ### 目標
 - [x] 新增實例（選擇版本、命名）
-- [ ] 刪除實例（含確認對話框）
-- [ ] 編輯實例設定（記憶體、Java 路徑等）
+- [x] 刪除實例（含確認對話框）（2026-06-11，右鍵選單）
+- [x] 編輯實例設定（記憶體 xmx/xms、Java runtime/路徑）（2026-06-11）
+- [x] 實例右鍵選單（啟動/停止、Log、編輯、開資料夾、複製、重新命名、刪除）（2026-06-11）
+- [x] 實例詳細視窗（Prism 式側欄分頁：Log/版本/模組/資源包/光影包/筆記/世界/伺服器/截圖/設定/其他紀錄檔）（2026-06-11）
+- [x] 實例詳情頁 Version 分頁可切換 Mod Loader（None/Fabric/Forge/NeoForge）並與 MC 版本一起存檔（2026-07-08，PR #15 `feat/instance-detail-modloader-edit` → `develop`，待 review + 手動 GUI 走查）
 - [ ] `AddInstance` UI 串接
 
 ### 完成標準
@@ -119,6 +122,15 @@
 - [x] Minecraft API 端點研究完成（`mc_action.rs`）
 - [x] `GLOBAL_CACHE` token 快取機制
 - [x] 多語系支援（zh_TW / en_US）
+- [x] 修復版本相關 lib 缺失（2026-06-11）：舊版 natives classifier 下載＋解壓、macOS jna 升級一致化、啟動前 classpath 缺檔檢查
+- [x] 跨版本圖形崩潰診斷（2026-07-02）：`mc_compat::diagnose_graphics_crash` 特徵表（Intel HD 無加速、GL 3.2 Core、Vulkan 26.2+、Wayland/X11、LWJGL2 macOS、natives 架構不符），遊戲異常退出時自動比對並顯示建議；特徵含 OS 限定避免跨平台誤判；Linux 加 `_JAVA_AWT_WM_NONREPARENTING=1`
+- [x] macOS x64 LWJGL 自動替換（2026-07-02）：1.13–1.18 在 Rosetta / Intel Mac（x86_64 Java）自動換 LWJGL **3.2.3** natives-macos（`LWJGL3_X64_OVERRIDE`，Maven Central），修內建 GLFW 3.2.x 在新版 macOS 的「service port for display」崩潰；不能用 3.3.x（GLFW 3.4 dev 對 1.13.x 的 `glfwSetWindowIcon` 報 error 65548 → 啟動期直接崩）；`macos_override_for(version, arm64_java)` 依 Java 架構自動選表
+- [x] 關閉 App 卡死修正（2026-07-04）：遊戲 log reader 由 tokio spawn_blocking 改為獨立 OS thread，runtime shutdown 不再等待遊戲結束；關 App 後遊戲繼續執行
+- [x] 離線啟動支援（2026-07-04）：版本 JSON / asset index / Java runtime / Forge profile 全部 local-first，已完整啟動過的實例可離線帳號離線重啟（首次啟動仍需網路）
+- [x] 捲動效能（2026-07-04）：dev profile 依賴改 opt-level 3；instances 虛擬列表改整數列索引量化，跨列才增減卡片內容。若仍 lag 需再評估 release build / Skia renderer
+- [x] macOS 26 Tahoe LWJGL 修正（2026-07-03）：3.2.3 內建 GLFW（2019-09 3.4.0-dev snapshot）在 Tahoe 於 glfwInit 就發 65544（x64 probe 實測）→ 兩張 LWJGL3 表升 **3.3.1**（Mojang CDN natives，x64/arm64 各自）＋ **mmachina patched glfw bindings**（`nglfwSetWindowIcon` 移除 JNI 呼叫，bytecode 驗證；跨架構），同時解 65544 與 65548；1.16.4 bytecode 證實開機期無條件 setIcon、無 macOS guard。待實測 1.16.4 / 1.17.1 啟動
+- [x] 啟動即自動最小化主視窗（2026-07-08，`feat/view/auto-minimize-on-launch`）：實例成功啟動（`do_launch` 回傳 `Ok(child)`）當下即自動 `set_minimized(true)`，不需使用者手動點關閉；遊戲結束後刻意不自動還原，需手動從 Dock/工作列點回來；不影響既有「執行中點關閉→改最小化」與異常退出時的還原邏輯
+- [x] World Save / Resource Pack / Shader Pack 路徑選取與生效（2026-07-07，PR #13 `fix/ui/file_choose` → `develop`）：Create Instance 對話框三個路徑欄位新增原生資料夾選取按鈕（`rfd`，沿用既有 `browse-java` 模式）；`instance_assets::sync_custom_dirs` 在啟動時把整個 `saves`/`resourcepacks`/`shaderpacks` 目錄以符號連結（macOS/Linux）或 NTFS junction（Windows，新增 `junction` crate）導向使用者選的資料夾，不搬移檔案，欄位空白則維持預設本機目錄；已修正兩個上線前發現的問題：real、非空目錄不會再被誤刪（改為報錯），且改到下載流程之前就檢查路徑以真正 fail-fast。**待辦**：尚未在真機/GUI 手動驗證（選資料夾點擊、啟動後遊戲讀取到自訂目錄），Windows junction 分支也尚未在 Windows 環境編譯驗證過，發布前（M6）需補上
 
 ---
 

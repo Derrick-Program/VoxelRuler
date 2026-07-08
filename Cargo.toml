@@ -1,29 +1,41 @@
 [package]
 name = "voxelruler"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
 directories = "6.0.0"
-gluesql = { version = "0.19.0", default-features = false, features = ["gluesql-redb-storage"] }
 minecraft-msa-auth = "0.4.0"
 oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", features = ["stream", "multipart"] }
 serde_json = "1.0.149"
+quick-xml = { version = "0.36.2", features = ["serialize"] }
 toml = "0.8"
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 sha1 = "0.11.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 slint = "1.16.1"
 tempfile = "3.27.0"
-tokio = { version = "1.52.3", features = ["fs", "macros", "rt-multi-thread", "tracing", "windows-sys"] }
+tokio = { version = "1.52.3", default-features = false, features = [
+  "fs",
+  "macros",
+  "rt-multi-thread",
+  "tracing",
+  "windows-sys",
+  "net",
+  "io-util"
+] }
 url = "2"
 keyring = "4.0.1"
 keyring-core = "1.0.0"
-chrono = { version = "0.4.44", features = ["clock", "oldtime"], default-features = false }
+chrono = { version = "0.4.44", features = [
+  "clock",
+  "oldtime",
+], default-features = false }
 getset = "0.1.6"
-dashmap = { version = "6.2.1", features = ["serde"] }
+dashmap = "6.2.1"
 open = "5.3.5"
 regex = "1.12.3"
 futures-util = "0.3.32"
@@ -32,19 +44,31 @@ notify-debouncer-mini = "0.7.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# 解壓 .log.gz 與 level.dat（gzip NBT）；zip 已間接依賴 flate2，無新增成本
+flate2 = "1"
+# 非直接使用：slint(parley) 間接依賴。開 logging feature 讓 ICU4X 錯誤改走 log crate
+# （否則 debug build 會直接 eprintln! 到 stderr，繞過 EnvFilter 的 icu_provider=off）
+icu_provider = { version = "2.2", default-features = false, features = ["logging"] }
+# xdg-portal 後端：Linux 不連結 GTK（AppImage 友善），macOS/Windows 走原生對話框
+rfd = { version = "0.15", default-features = false, features = [
+  "xdg-portal",
+  "tokio",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [
-    "Win32_Security_Cryptography",
-    "Win32_Foundation",
+  "Win32_Security_Cryptography",
+  "Win32_Foundation",
 ] }
+junction = "1.2.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.0", features = [
-    "NSAppleEventDescriptor",
-    "NSAppleEventManager",
-    "NSString",
+  "NSAppleEventDescriptor",
+  "NSAppleEventManager",
+  "NSString",
 ] }
 
 [profile.release]
@@ -68,12 +92,8 @@ VoxelRuler 是一款專為 Minecraft 玩家打造的啟動器，提供簡潔直�
 VoxelRuler is a Minecraft launcher designed for players, offering a simple and intuitive interface along with powerful features to easily manage and launch Minecraft games. Whether it's single-player or multiplayer servers, VoxelRuler provides stable performance and an optimized experience, allowing players to focus on enjoying the fun of Minecraft.
 """
 
-formats = [
-  "default"
-]
-icons = [
-  "ui/assets/icons/voxelruler.png"
-]
+formats = ["default"]
+icons = ["ui/assets/icons/voxelruler.png"]
 
 [[package.metadata.packager.deep_link_protocols]]
 schemes = ["voxelruler"]
@@ -87,7 +107,6 @@ digest-algorithm = "sha256"
 appdata_paths = ["Duacodie/VoxelRuler"]
 
 
-
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 
@@ -98,5 +117,7 @@ debug = true
 codegen-units = 16
 lto = false
 
-# [profile.dev.package."*"]
-# opt-level = 3
+# 依賴（含 Slint 渲染器）以最佳化編譯：cargo run 的捲動/繪製效能接近 release。
+# 只影響首次編譯時間；自己的 crate 仍是 opt-level 0，增量編譯速度不變
+[profile.dev.package."*"]
+opt-level = 3
