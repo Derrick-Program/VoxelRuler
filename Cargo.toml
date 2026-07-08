@@ -6,9 +6,6 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 directories = "6.0.0"
-gluesql = { version = "0.19.0", default-features = false, features = [
-  "gluesql-redb-storage",
-] }
 minecraft-msa-auth = "0.4.0"
 oauth2 = "5.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -38,7 +35,7 @@ chrono = { version = "0.4.44", features = [
   "oldtime",
 ], default-features = false }
 getset = "0.1.6"
-dashmap = { version = "6.2.1", features = ["serde"] }
+dashmap = "6.2.1"
 open = "5.3.5"
 regex = "1.12.3"
 futures-util = "0.3.32"
