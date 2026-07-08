@@ -314,6 +314,7 @@ fn refresh_loader_state(ui_weak: slint::Weak<MainApp>, preferred_version: Option
         return;
     };
     let detail = ui.global::<InstanceDetailLogic>();
+    let my_gen = DETAIL_LOADER_FETCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
 
     let mc_version = detail.get_selected_version().to_string();
     let mod_loader_str = detail.get_selected_mod_loader().to_string();
@@ -331,7 +332,6 @@ fn refresh_loader_state(ui_weak: slint::Weak<MainApp>, preferred_version: Option
     let loader_type = crate::mc_modloader::ModLoaderType::from_name(&mod_loader_str);
     detail.set_is_loader_loading(loader_type.is_some());
 
-    let my_gen = DETAIL_LOADER_FETCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let ui_handle_async = ui_weak.clone();
 
     tokio::spawn(async move {
