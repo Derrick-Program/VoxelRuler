@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **範圍規則（嚴格遵守）**：本檔案只放 VoxelRuler 這個專案專屬的資訊。跨專案的個人通用偏好（全域 Git Workflow 分支模型、gstack 工具使用規則等）已收斂於 `~/.claude/CLAUDE.md`，不在此重複；若本專案需要對通用預設值做例外，才在此明確註記覆寫，並說明原因。
+
 ---
 
 ## PM 啟動程序（每次對話必做）
@@ -146,14 +148,7 @@ src/
 
 ## Git Workflow
 
-```
-main ← Squash merge from develop + git tag v*.*.*
-  └── develop ← integration branch
-        ├── feat/<name>  ← new features
-        └── fix/<name>   ← bug fixes
-```
-
-Commit format: `type(scope): description` (Conventional Commits)
+沿用全域 CLAUDE.md 的 main/develop/feat/fix 分支模型與 Conventional Commits 規範（本專案無例外）。
 
 詳細規範：`.claude/docs/git-conventions.md`
 
