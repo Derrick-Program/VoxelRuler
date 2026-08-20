@@ -1268,5 +1268,10 @@
     "mtime": 1778417177.4000742,
     "ast_hash": "d33dd3a82cfd7f01825b5c82a23dee17",
     "semantic_hash": "d33dd3a82cfd7f01825b5c82a23dee17"
+  },
+  ".claude/conversations/2026-08-20.md": {
+    "mtime": 1787197035.8488476,
+    "ast_hash": "27a619d799be4822581ff7e3436ddd17",
+    "semantic_hash": "27a619d799be4822581ff7e3436ddd17"
   }
 }
